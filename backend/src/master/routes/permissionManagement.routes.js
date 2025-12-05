@@ -1,0 +1,40 @@
+const express = require('express');
+const router = express.Router();
+const permissionMgmt = require('../controllers/permissionManagement.controller');
+const { protect, restrictTo, requirePermission } = require('../../middleware/auth');
+
+// All routes require authentication
+router.use(protect);
+
+// Get permission definitions (what permissions are available)
+router.get('/definitions', permissionMgmt.getPermissionDefinitions);
+
+// Get all permissions for a user
+router.get('/user/:userId', permissionMgmt.getUserAllPermissions);
+
+// Check specific permission
+router.get('/check', permissionMgmt.checkUserPermission);
+
+// Get my assigned schools (for DRD members - available to any authenticated user)
+router.get('/my-assigned-schools', permissionMgmt.getMyAssignedSchools);
+
+// DRD Head can also manage school assignments (requires ipr_approve permission)
+router.get('/drd-members/with-schools', permissionMgmt.getDrdMembersWithSchools);
+router.get('/schools/with-members', permissionMgmt.getSchoolsWithAssignedMembers);
+router.post('/drd-member/assign-schools', permissionMgmt.assignDrdMemberSchools);
+
+// Admin only routes
+router.use(restrictTo('admin'));
+
+// Get all users with their permissions (admin panel)
+router.get('/users/all', permissionMgmt.getAllUsersWithPermissions);
+
+// Grant permissions
+router.post('/school-department/grant', permissionMgmt.grantSchoolDeptPermissions);
+router.post('/central-department/grant', permissionMgmt.grantCentralDeptPermissions);
+
+// Revoke permissions
+router.post('/school-department/revoke', permissionMgmt.revokeSchoolDeptPermissions);
+router.post('/central-department/revoke', permissionMgmt.revokeCentralDeptPermissions);
+
+module.exports = router;

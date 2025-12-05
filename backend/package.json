@@ -1,0 +1,44 @@
+{
+  "name": "sgt-ums-backend",
+  "version": "1.0.0",
+  "description": "SGT University Management System - Backend API",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "seed": "node src/database/seed.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "university",
+    "management",
+    "system"
+  ],
+  "author": "SGT University",
+  "license": "PROPRIETARY",
+  "dependencies": {
+    "@prisma/client": "^5.7.1",
+    "@types/multer": "^2.0.0",
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "prisma": "^5.7.1"
+  }
+}

@@ -1,0 +1,195 @@
+import api from '@/lib/api';
+
+export interface Permission {
+  key: string;
+  label: string;
+  category: string;
+  description?: string;
+}
+
+export interface DepartmentPermission {
+  id: string;
+  userId: string;
+  departmentId: string;
+  permissions: Record<string, boolean>;
+  isPrimary: boolean;
+  isActive: boolean;
+  assignedAt: string;
+  department: {
+    id: string;
+    departmentCode: string;
+    departmentName: string;
+    shortName?: string;
+    faculty: {
+      facultyCode: string;
+      facultyName: string;
+    };
+  };
+  assignedByUser?: {
+    uid: string;
+    employeeDetails: {
+      displayName: string;
+    };
+  };
+}
+
+export interface CentralDepartmentPermission {
+  id: string;
+  userId: string;
+  centralDeptId: string;
+  permissions: Record<string, boolean>;
+  isPrimary: boolean;
+  isActive: boolean;
+  assignedAt: string;
+  centralDept: {
+    id: string;
+    departmentCode: string;
+    departmentName: string;
+    shortName?: string;
+    departmentType?: string;
+  };
+  assignedByUser?: {
+    uid: string;
+    employeeDetails: {
+      displayName: string;
+    };
+  };
+}
+
+export interface UserPermissions {
+  schoolDepartments: DepartmentPermission[];
+  centralDepartments: CentralDepartmentPermission[];
+  primaryDepartment: {
+    departmentCode: string;
+    departmentName: string;
+  } | null;
+  primaryCentralDepartment: {
+    departmentCode: string;
+    departmentName: string;
+  } | null;
+}
+
+export interface PermissionDefinitions {
+  schoolDepartments: Permission[];
+  centralDepartments: Record<string, Permission[]>;
+}
+
+export interface UserWithPermissions {
+  id: string;
+  uid: string;
+  email?: string;
+  role: string;
+  employeeDetails?: {
+    firstName: string;
+    lastName?: string;
+    displayName?: string;
+    empId?: string;
+    designation?: string;
+    primaryDepartment?: {
+      departmentCode: string;
+      departmentName: string;
+    };
+    primaryCentralDept?: {
+      departmentCode: string;
+      departmentName: string;
+    };
+  };
+  schoolDeptPermissions: Array<{
+    id: string;
+    departmentId: string;
+    isPrimary: boolean;
+    permissions: Record<string, boolean>;
+    department: {
+      departmentCode: string;
+      departmentName: string;
+    };
+  }>;
+  centralDeptPermissions: Array<{
+    id: string;
+    centralDeptId: string;
+    isPrimary: boolean;
+    permissions: Record<string, boolean>;
+    centralDept: {
+      departmentCode: string;
+      departmentName: string;
+    };
+  }>;
+}
+
+class PermissionManagementService {
+  private baseUrl = '/permission-management';
+
+  async getPermissionDefinitions() {
+    const response = await api.get<{ success: boolean; data: PermissionDefinitions }>(
+      `${this.baseUrl}/definitions`
+    );
+    return response.data;
+  }
+
+  async getUserPermissions(userId: string) {
+    const response = await api.get<{ success: boolean; data: UserPermissions }>(
+      `${this.baseUrl}/user/${userId}`
+    );
+    return response.data;
+  }
+
+  async checkPermission(params: { departmentId?: string; centralDeptId?: string; permissionKey: string }) {
+    const response = await api.get<{ success: boolean; hasPermission: boolean }>(
+      `${this.baseUrl}/check`,
+      { params }
+    );
+    return response.data;
+  }
+
+  async getAllUsersWithPermissions() {
+    const response = await api.get<{ success: boolean; data: UserWithPermissions[] }>(
+      `${this.baseUrl}/users/all`
+    );
+    return response.data;
+  }
+
+  async grantSchoolDeptPermissions(data: {
+    userId: string;
+    departmentId: string;
+    permissions: Record<string, boolean>;
+    isPrimary?: boolean;
+  }) {
+    const response = await api.post<{ success: boolean; message: string; data: DepartmentPermission }>(
+      `${this.baseUrl}/school-department/grant`,
+      data
+    );
+    return response.data;
+  }
+
+  async grantCentralDeptPermissions(data: {
+    userId: string;
+    centralDeptId: string;
+    permissions: Record<string, boolean>;
+    isPrimary?: boolean;
+  }) {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: CentralDepartmentPermission;
+    }>(`${this.baseUrl}/central-department/grant`, data);
+    return response.data;
+  }
+
+  async revokeSchoolDeptPermissions(userId: string, departmentId: string) {
+    const response = await api.post<{ success: boolean; message: string }>(
+      `${this.baseUrl}/school-department/revoke`,
+      { userId, departmentId }
+    );
+    return response.data;
+  }
+
+  async revokeCentralDeptPermissions(userId: string, centralDeptId: string) {
+    const response = await api.post<{ success: boolean; message: string }>(
+      `${this.baseUrl}/central-department/revoke`,
+      { userId, centralDeptId }
+    );
+    return response.data;
+  }
+}
+
+export const permissionManagementService = new PermissionManagementService();

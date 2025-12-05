@@ -1,0 +1,30 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { iprService } from '@/services/ipr.service';
+import api from '@/lib/api';
+import { 
+  FileText, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  AlertCircle, 
+  FolderOpen,
+  Send,
+  Search,
+  Eye,
+  ThumbsUp,
+  Ban,
+  Edit3,
+  Plus,
+  ChevronRight,
+  ChevronDown,
+  RefreshCw,
+  MessageSquare,
+  Check,
+  X,
+  ArrowRight,
+  CheckSquare,
+  Square,
+} from 'lucide-react';
+import Link from 'next/link';

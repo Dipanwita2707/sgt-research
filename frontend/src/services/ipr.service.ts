@@ -1,0 +1,612 @@
+import axios from 'axios';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+
+// TypeScript Interfaces
+export interface IprApplication {
+  id: string;
+  applicationNumber?: string;  // Unique reference number like PAT-2025-0001
+  applicantUserId?: string;
+  applicantType: 'internal_faculty' | 'internal_student' | 'internal_staff' | 'external_academic' | 'external_industry' | 'external_other';
+  iprType: 'patent' | 'copyright' | 'trademark' | 'design';
+  projectType: 'phd' | 'pg_project' | 'ug_project' | 'faculty_research' | 'industry_collaboration' | 'any_other';
+  filingType: 'provisional' | 'complete';
+  title: string;
+  description: string;
+  remarks?: string;
+  schoolId?: string;
+  departmentId?: string;
+  status: IprStatus;
+  currentReviewerId?: string;
+  annexureFilePath?: string;
+  supportingDocsFilePaths?: string[];
+  incentiveAmount?: number;
+  pointsAwarded?: number;
+  creditedAt?: string;
+  submittedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  applicantUser?: any;
+  applicantDetails?: IprApplicantDetails;
+  sdgs?: IprSdg[];
+  school?: any;
+  department?: any;
+  reviews?: IprReview[];
+  statusHistory?: IprStatusHistory[];
+  financeRecords?: IprFinance[];
+}
+
+export type IprStatus =
+  | 'draft'
+  | 'submitted'
+  | 'under_drd_review'
+  | 'changes_required'
+  | 'resubmitted'
+  | 'drd_approved'
+  | 'drd_rejected'
+  | 'under_dean_review'
+  | 'dean_approved'
+  | 'dean_rejected'
+  | 'under_finance_review'
+  | 'finance_approved'
+  | 'finance_rejected'
+  | 'completed'
+  | 'cancelled';
+
+export interface IprApplicantDetails {
+  id: string;
+  iprApplicationId: string;
+  // Internal
+  employeeCategory?: string;
+  employeeType?: string;
+  uid?: string;
+  email?: string;
+  phone?: string;
+  universityDeptName?: string;
+  // External
+  externalName?: string;
+  externalOption?: string;
+  instituteType?: string;
+  companyUniversityName?: string;
+  externalEmail?: string;
+  externalPhone?: string;
+  externalAddress?: string;
+  metadata?: any;
+}
+
+export interface IprSdg {
+  id: string;
+  iprApplicationId: string;
+  sdgCode: string;
+  sdgTitle?: string;
+  createdAt: string;
+}
+
+export interface IprReview {
+  id: string;
+  iprApplicationId: string;
+  reviewerId: string;
+  reviewerRole: 'drd_member' | 'drd_dean' | 'finance';
+  comments?: string;
+  edits?: any;
+  decision: 'pending' | 'approved' | 'rejected' | 'changes_required';
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewer?: any;
+}
+
+export interface IprStatusHistory {
+  id: string;
+  iprApplicationId: string;
+  fromStatus?: IprStatus;
+  toStatus: IprStatus;
+  changedById: string;
+  comments?: string;
+  metadata?: any;
+  changedAt: string;
+  changedBy?: any;
+}
+
+export interface IprFinance {
+  id: string;
+  iprApplicationId: string;
+  financeReviewerId: string;
+  auditStatus: string;
+  auditComments?: string;
+  incentiveAmount: number;
+  pointsAwarded?: number;
+  paymentReference?: string;
+  creditedToAccount?: string;
+  approvedAt?: string;
+  creditedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  financeReviewer?: any;
+}
+
+export interface CreateIprApplicationDto {
+  applicantType: string;
+  iprType: string;
+  projectType: string;
+  filingType: string;
+  title: string;
+  description: string;
+  remarks?: string;
+  schoolId?: string;
+  departmentId?: string;
+  sdgs?: { code: string; title: string }[];
+  applicantDetails: any;
+  annexureFilePath?: string;
+  supportingDocsFilePaths?: string[];
+}
+
+export interface UpdateIprApplicationDto {
+  title?: string;
+  description?: string;
+  remarks?: string;
+  annexureFilePath?: string;
+  supportingDocsFilePaths?: string[];
+}
+
+// IPR Service
+class IprService {
+  // Create new IPR application
+  async createApplication(data: CreateIprApplicationDto): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/ipr/create`, data, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Submit IPR application
+  async submitApplication(id: string): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/ipr/${id}/submit`, {}, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get all IPR applications (with filters)
+  async getAllApplications(filters?: {
+    status?: IprStatus;
+    iprType?: string;
+    schoolId?: string;
+    departmentId?: string;
+    applicantUserId?: string;
+  }): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/ipr`, {
+      params: filters,
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get single IPR application
+  async getApplicationById(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get my IPR applications
+  async getMyApplications(): Promise<{
+    data: IprApplication[];
+    grouped: any;
+    stats: any;
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/my-applications`, {
+      withCredentials: true,
+    });
+    return response.data;
+  }
+
+  // Update IPR application
+  async updateApplication(
+    id: string,
+    data: UpdateIprApplicationDto
+  ): Promise<IprApplication> {
+    const response = await axios.put(`${API_BASE_URL}/ipr/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Delete IPR application
+  async deleteApplication(id: string): Promise<void> {
+    await axios.delete(`${API_BASE_URL}/ipr/${id}`, {
+      withCredentials: true,
+    });
+  }
+
+  // Resubmit after changes
+  async resubmitApplication(id: string): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/ipr/${id}/resubmit`, {}, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Accept DRD edits and resubmit
+  async acceptEditsAndResubmit(id: string, updatedData: any): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/drd-review/accept-edits/${id}`, { updatedData }, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+}
+
+// DRD Review Service
+class DrdReviewService {
+  // Get pending DRD reviews
+  async getPendingReviews(params?: {
+    page?: number;
+    limit?: number;
+    iprType?: string;
+    schoolId?: string;
+  }): Promise<{ data: IprApplication[]; pagination: any }> {
+    const response = await axios.get(`${API_BASE_URL}/drd-review/pending`, {
+      params,
+      withCredentials: true,
+    });
+    return response.data;
+  }
+
+  // Get my DRD reviews
+  async getMyReviews(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/drd-review/my-reviews`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Submit DRD review
+  async submitReview(
+    id: string,
+    data: {
+      comments?: string;
+      edits?: any;
+      decision: 'approved' | 'rejected' | 'changes_required';
+    }
+  ): Promise<IprReview> {
+    const response = await axios.post(`${API_BASE_URL}/drd-review/review/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Final Approve DRD review with incentive calculation
+  async approveReview(id: string, comments?: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/drd-review/approve/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Recommend for approval (DRD Member -> DRD Head)
+  async recommendReview(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/drd-review/recommend/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Final Reject DRD review
+  async rejectReview(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/drd-review/reject/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Request changes (Recommend with edits)
+  async requestChanges(
+    id: string,
+    comments: string,
+    edits?: any
+  ): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/drd-review/request-changes/${id}`,
+      { comments, edits },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Dean approve application and send to finance
+  async deanApprove(id: string, comments?: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/dean-approval/approve/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Dean reject application
+  async deanReject(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/dean-approval/reject/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Finance approve and process incentives
+  async financeApprove(id: string, comments?: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/finance/approve/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Finance request additional audit
+  async financeAudit(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/finance/request-audit/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // System administrator override (for emergency situations)
+  async systemOverride(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/drd-review/system-override/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Get DRD review statistics
+  async getStatistics(): Promise<any> {
+    const response = await axios.get(`${API_BASE_URL}/drd-review/statistics`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get application details for review
+  async getReviewDetails(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+}
+
+// Dean Approval Service
+class DeanApprovalService {
+  // Get pending dean approvals
+  async getPendingApprovals(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/dean-approval/pending`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get my dean approvals
+  async getMyApprovals(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/dean-approval/my-approvals`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Approve application
+  async approve(id: string, comments?: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/dean-approval/approve/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Reject application
+  async reject(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/dean-approval/reject/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Get application details for approval
+  async getApprovalDetails(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/dean-approval/application/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+}
+
+// Finance Service
+class FinanceService {
+  // Get pending finance reviews
+  async getPendingReviews(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/finance/pending`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get my finance reviews
+  async getMyReviews(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/finance/my-reviews`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Submit finance review
+  async submitReview(
+    id: string,
+    data: {
+      auditStatus: string;
+      auditComments?: string;
+      incentiveAmount: number;
+      pointsAwarded?: number;
+      paymentReference?: string;
+      creditedToAccount?: string;
+    }
+  ): Promise<IprFinance> {
+    const response = await axios.post(`${API_BASE_URL}/finance/process-incentive/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Approve finance review
+  async approve(id: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/finance/approve/${id}`,
+      {},
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Reject finance review
+  async reject(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(
+      `${API_BASE_URL}/finance/reject/${id}`,
+      { comments },
+      {
+        withCredentials: true,
+      }
+    );
+    return response.data.data;
+  }
+
+  // Credit incentive
+  async creditIncentive(
+    id: string,
+    data: {
+      paymentReference: string;
+      creditedToAccount: string;
+    }
+  ): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/finance/credit-incentive/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get application details for finance review
+  async getReviewDetails(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/finance/application/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get finance statistics
+  async getStats(): Promise<any> {
+    const response = await axios.get(`${API_BASE_URL}/finance/stats`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+}
+
+// File Upload Service
+export interface DownloadUrlResponse {
+  downloadUrl: string;
+  expiresIn: number;
+}
+
+class FileUploadService {
+
+
+  // Get download URL for local files
+  async getDownloadUrl(filePath: string): Promise<DownloadUrlResponse> {
+    // For local files, return direct download URL
+    return {
+      downloadUrl: `${API_BASE_URL}/file-upload/download/${filePath}`,
+      expiresIn: 3600
+    };
+  }
+
+  // Upload file to local server
+  async uploadFile(file: File, folder: string = 'ipr'): Promise<string> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('folder', folder);
+
+      const response = await axios.post(`${API_BASE_URL}/file-upload/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        withCredentials: true,
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'File upload failed');
+      }
+
+      // Return the file path instead of S3 key
+      return response.data.data.filePath;
+    } catch (error) {
+      console.error('File upload error:', error);
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || 'Failed to upload file');
+      }
+      throw new Error('Failed to upload file. Please try again.');
+    }
+  }
+
+  // Delete file
+  async deleteFile(filePath: string): Promise<void> {
+    await axios.delete(`${API_BASE_URL}/file-upload/file`, {
+      data: { filePath },
+      withCredentials: true,
+    });
+  }
+}
+
+// Export service instances
+export const iprService = new IprService();
+export const drdReviewService = new DrdReviewService();
+export const deanApprovalService = new DeanApprovalService();
+export const financeService = new FinanceService();
+export const fileUploadService = new FileUploadService();
