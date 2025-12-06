@@ -468,6 +468,9 @@ const getDrdReviewStatistics = async (req, res) => {
       rejectedReviews,
       changesRequiredReviews,
       pendingApplications,
+      pendingHeadApproval,
+      activeApplications,
+      completedApplications,
     ] = await Promise.all([
       prisma.iprReview.count({
         where: {
@@ -496,9 +499,30 @@ const getDrdReviewStatistics = async (req, res) => {
           decision: 'changes_required',
         },
       }),
+      // Applications awaiting DRD member review
       prisma.iprApplication.count({
         where: {
           status: { in: ['submitted', 'under_drd_review', 'resubmitted'] },
+        },
+      }),
+      // Applications awaiting DRD Head approval (recommended by member)
+      prisma.iprApplication.count({
+        where: {
+          status: { in: ['recommended_to_head'] },
+        },
+      }),
+      // All active applications in the pipeline (not completed or rejected)
+      prisma.iprApplication.count({
+        where: {
+          status: { 
+            notIn: ['draft', 'completed', 'drd_rejected', 'withdrawn'] 
+          },
+        },
+      }),
+      // Completed/fully approved applications
+      prisma.iprApplication.count({
+        where: {
+          status: { in: ['completed', 'drd_head_approved', 'submitted_to_govt', 'govt_application_filed'] },
         },
       }),
     ]);
@@ -511,6 +535,9 @@ const getDrdReviewStatistics = async (req, res) => {
         rejected: rejectedReviews,
         changesRequired: changesRequiredReviews,
         pendingApplications,
+        pendingHeadApproval,
+        activeApplications,
+        completedApplications,
       },
     });
   } catch (error) {

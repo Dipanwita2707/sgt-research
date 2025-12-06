@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { iprService, fileUploadService } from '@/services/ipr.service';
 import { schoolService } from '@/services/school.service';
+import { useAuthStore } from '@/store/authStore';
 import { FileText, Upload, X, Plus, AlertCircle, CheckCircle, Eye, Download } from 'lucide-react';
 
 // Define field configurations for each IPR type
@@ -161,13 +162,13 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
   });
 
   const [applications, setApplications] = useState<any[]>([]);
+  const [contributedApplications, setContributedApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [consentChecked, setConsentChecked] = useState(false);
   const [sdgDropdownOpen, setSdgDropdownOpen] = useState(false);
-  const [isCurrentUserStudent, setIsCurrentUserStudent] = useState(false);
   const [contributors, setContributors] = useState<any[]>([]);
   const [uidSuggestions, setUidSuggestions] = useState<any[]>([]);
   const [mentorSuggestions, setMentorSuggestions] = useState<any[]>([]);
@@ -177,6 +178,10 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
   const uidSuggestionsRef = useRef<HTMLDivElement>(null);
   const mentorSuggestionsRef = useRef<HTMLDivElement>(null);
 
+  // Get user from auth store
+  const { user } = useAuthStore();
+  const isCurrentUserStudent = user?.userType === 'student';
+
   const config = IPR_FIELD_CONFIG[formData.ideaFor as keyof typeof IPR_FIELD_CONFIG] || IPR_FIELD_CONFIG.patent;
 
   useEffect(() => {
@@ -184,22 +189,6 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
       fetchApplications();
     }
   }, [activeTab]);
-
-  // Check if current user is a student
-  useEffect(() => {
-    const checkUserRole = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (token) {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          setIsCurrentUserStudent(payload.role === 'student');
-        }
-      } catch (error) {
-        console.error('Error checking user role:', error);
-      }
-    };
-    checkUserRole();
-  }, []);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -226,6 +215,16 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
       setLoading(true);
       const data = await iprService.getMyApplications();
       setApplications(data.data || []);
+      
+      // If the user is a student, also fetch contributed applications
+      if (isCurrentUserStudent) {
+        try {
+          const contributedData = await iprService.getContributedApplications();
+          setContributedApplications(contributedData.data || []);
+        } catch (err) {
+          console.error('Error fetching contributed applications:', err);
+        }
+      }
     } catch (error) {
       console.error('Error fetching applications:', error);
     } finally {
@@ -352,6 +351,22 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
     }
     if (formData.employeeCategory === 'external' && (!formData.externalName || !formData.externalEmail)) {
       setError('Please fill Name and Email for external contributors');
+      return;
+    }
+
+    // Check for duplicate contributors
+    const isDuplicate = contributors.some(contributor => {
+      if (formData.employeeCategory === 'internal') {
+        // For internal contributors, check by UID
+        return contributor.uid === formData.uid;
+      } else {
+        // For external contributors, check by email
+        return contributor.email === formData.externalEmail;
+      }
+    });
+
+    if (isDuplicate) {
+      setError('This contributor has already been added');
       return;
     }
 
@@ -517,22 +532,22 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#f5f7fa]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-orange-500 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-[#005b96] rounded-xl flex items-center justify-center">
                 <FileText className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-orange-600">{config.title}</h1>
-                <p className="text-gray-600 text-sm">SGT University</p>
+                <h1 className="text-xl font-bold text-gray-800">{config.title}</h1>
+                <p className="text-gray-500 text-sm">SGT University</p>
               </div>
             </div>
             <div className="flex items-center space-x-2 text-sm">
-              <span className="bg-gray-100 px-2 py-1 rounded">🏠 UMS</span>
+              <span className="bg-[#e6f2fa] text-[#005b96] px-3 py-1.5 rounded-lg font-medium">🏠 UMS</span>
             </div>
           </div>
         </div>
@@ -540,12 +555,11 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
 
       <div className="max-w-6xl mx-auto px-4">
         {/* Tab Navigation */}
-        <div className="border-b border-gray-300 mb-6">
+        <div className="border-b border-gray-200 mb-6">
           <nav className="flex space-x-8">
             <button
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'entry'
-                  ? 'border-blue-500 text-blue-600'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'entry'
+                  ? 'border-[#005b96] text-[#005b96]'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
               onClick={() => setActiveTab('entry')}
@@ -553,9 +567,8 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
               Idea Request Entry
             </button>
             <button
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'process'
-                  ? 'border-blue-500 text-blue-600'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'process'
+                  ? 'border-[#005b96] text-[#005b96]'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
               onClick={() => setActiveTab('process')}
@@ -983,7 +996,7 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                 <button
                   type="button"
                   onClick={addContributor}
-                  className="bg-orange-500 text-white px-6 py-2 rounded-md hover:bg-orange-600"
+                  className="bg-[#005b96] text-white px-6 py-2 rounded-xl hover:bg-[#03396c] transition-colors font-medium"
                 >
                   Add Other Details
                 </button>
@@ -1019,7 +1032,7 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                               <button
                                 type="button"
                                 onClick={() => removeContributor(contributor.id)}
-                                className="bg-red-500 text-white px-3 py-1 rounded-sm hover:bg-red-600 text-xs"
+                                className="bg-[#e74c3c] text-white px-3 py-1 rounded-lg hover:bg-[#c0392b] text-xs transition-colors"
                               >
                                 Remove
                               </button>
@@ -1053,13 +1066,13 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                 <button
                   type="submit"
                   disabled={loading || uploading || !consentChecked}
-                  className="bg-green-600 text-white px-8 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-300"
+                  className="bg-[#005b96] text-white px-8 py-2.5 rounded-xl hover:bg-[#03396c] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
                 >
                   {uploading ? 'Uploading...' : loading ? 'Submitting...' : 'Submit'}
                 </button>
                 <button
                   type="button"
-                  className="bg-gray-600 text-white px-8 py-2 rounded-md hover:bg-gray-700"
+                  className="bg-gray-100 text-gray-700 px-8 py-2.5 rounded-xl hover:bg-gray-200 border border-gray-200 transition-colors font-medium"
                 >
                   Reset
                 </button>
@@ -1070,6 +1083,77 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
 
         {activeTab === 'process' && (
           <div className="bg-white">
+            {/* Summary section for students showing total incentives and points */}
+            {isCurrentUserStudent && (() => {
+              const ownApps = applications.filter(app => app && app.id);
+              const contributedApps = contributedApplications.filter(app => app && app.id && !applications.some(ownApp => ownApp.id === app.id));
+              
+              // Calculate totals for published/completed applications only
+              const publishedStatuses = ['published', 'completed', 'drd_head_approved'];
+              
+              const ownTotalPoints = ownApps
+                .filter(app => publishedStatuses.includes(app.status))
+                .reduce((sum, app) => sum + (app.pointsAwarded || 0), 0);
+              const ownTotalIncentive = ownApps
+                .filter(app => publishedStatuses.includes(app.status))
+                .reduce((sum, app) => sum + (app.incentiveAmount || 0), 0);
+              
+              const contributedTotalPoints = contributedApps
+                .filter(app => publishedStatuses.includes(app.status))
+                .reduce((sum, app) => sum + (app.pointsAwarded || 0), 0);
+              const contributedTotalIncentive = contributedApps
+                .filter(app => publishedStatuses.includes(app.status))
+                .reduce((sum, app) => sum + (app.incentiveAmount || 0), 0);
+              
+              const grandTotalPoints = ownTotalPoints + contributedTotalPoints;
+              const grandTotalIncentive = ownTotalIncentive + contributedTotalIncentive;
+              
+              return (
+                <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Own IPR Stats */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-blue-800 mb-2">My IPR Applications</h3>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Total: {ownApps.length}</span>
+                      <span className="text-blue-600">Published: {ownApps.filter(a => publishedStatuses.includes(a.status)).length}</span>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-blue-200">
+                      <div className="text-xs text-gray-600">Points Earned: <span className="font-bold text-blue-700">{ownTotalPoints}</span></div>
+                      <div className="text-xs text-gray-600">Incentive: <span className="font-bold text-green-700">₹{ownTotalIncentive.toLocaleString()}</span></div>
+                    </div>
+                  </div>
+                  
+                  {/* Contributed IPR Stats */}
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-purple-800 mb-2">Contributed IPRs</h3>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Total: {contributedApps.length}</span>
+                      <span className="text-purple-600">Published: {contributedApps.filter(a => publishedStatuses.includes(a.status)).length}</span>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-purple-200">
+                      <div className="text-xs text-gray-600">Points Earned: <span className="font-bold text-purple-700">{contributedTotalPoints}</span></div>
+                      <div className="text-xs text-gray-600">Incentive: <span className="font-bold text-green-700">₹{contributedTotalIncentive.toLocaleString()}</span></div>
+                    </div>
+                  </div>
+                  
+                  {/* Grand Total */}
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-green-800 mb-2">Total Rewards</h3>
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Total Points:</span>
+                        <span className="text-lg font-bold text-green-700">{grandTotalPoints}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-sm text-gray-600">Total Incentive:</span>
+                        <span className="text-lg font-bold text-green-700">₹{grandTotalIncentive.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            
             <div className="overflow-x-auto">
               <table className="min-w-full border border-gray-300">
                 <thead className="bg-gray-50">
@@ -1079,20 +1163,37 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                     <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Entry Date</th>
                     <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">IdeaForType</th>
                     <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Role</th>
                     <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Incentives</th>
                     <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">View Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {applications.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                        No applications found
-                      </td>
-                    </tr>
-                  ) : (
-                    applications.filter(app => app && app.id).map((app, index) => (
-                      <tr key={app.id} className="hover:bg-gray-50">
+                  {(() => {
+                    // Merge own applications and contributed applications (only for students)
+                    const ownApps = applications.filter(app => app && app.id).map(app => ({ ...app, isContributor: false }));
+                    
+                    // For students, add contributed applications that aren't already in their own applications
+                    const contributedApps = isCurrentUserStudent 
+                      ? contributedApplications
+                          .filter(app => app && app.id && !applications.some(ownApp => ownApp.id === app.id))
+                          .map(app => ({ ...app, isContributor: true }))
+                      : [];
+                    
+                    const allApplications = [...ownApps, ...contributedApps];
+                    
+                    if (allApplications.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                            No applications found
+                          </td>
+                        </tr>
+                      );
+                    }
+                    
+                    return allApplications.map((app, index) => (
+                      <tr key={app.id} className={`hover:bg-gray-50 ${app.isContributor ? 'bg-purple-50' : ''}`}>
                         <td className="px-4 py-2 border text-sm text-center">
                           {index + 1}
                         </td>
@@ -1122,6 +1223,7 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                             app.status === 'under_dean_review' ? 'bg-purple-100 text-purple-800' :
                             app.status === 'dean_approved' ? 'bg-green-100 text-green-800' :
                             app.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            app.status === 'published' ? 'bg-green-100 text-green-800' :
                             app.status === 'rejected' ? 'bg-red-100 text-red-800' :
                             app.status === 'changes_required' ? 'bg-orange-100 text-orange-800' :
                             'bg-gray-100 text-gray-800'
@@ -1134,41 +1236,75 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                             </div>
                           )}
                         </td>
+                        <td className="px-4 py-2 border text-sm text-center">
+                          {app.isContributor ? (
+                            <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full font-medium">
+                              👥 Contributor
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
+                              👤 Applicant
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2 border text-sm">
-                          {app.pointsAwarded || app.incentiveAmount ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center text-green-700">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                <span className="font-medium text-xs">
-                                  {app.pointsAwarded || 0} Points
-                                </span>
-                              </div>
-                              <div className="text-xs text-green-600 font-medium">
-                                ₹{app.incentiveAmount || 0}
-                              </div>
-                              {app.creditedAt && (
-                                <div className="text-xs text-gray-500">
-                                  Credited: {new Date(app.creditedAt).toLocaleDateString('en-IN')}
+                          {/* Show incentives only for published applications */}
+                          {(app.status === 'published' || app.status === 'completed' || app.status === 'drd_head_approved') ? (
+                            app.pointsAwarded || app.incentiveAmount ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center text-green-700">
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  <span className="font-medium text-xs">
+                                    {app.pointsAwarded || 0} Points
+                                  </span>
                                 </div>
-                              )}
-                            </div>
+                                <div className="text-xs text-green-600 font-medium">
+                                  ₹{app.incentiveAmount || 0}
+                                </div>
+                                {app.creditedAt && (
+                                  <div className="text-xs text-gray-500">
+                                    Credited: {new Date(app.creditedAt).toLocaleDateString('en-IN')}
+                                  </div>
+                                )}
+                                {app.isContributor && (
+                                  <div className="text-xs text-purple-600 mt-1">
+                                    (As Contributor)
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-yellow-600 italic">
+                                Processing...
+                              </div>
+                            )
                           ) : (
                             <div className="text-xs text-gray-400 italic">
-                              {app.status === 'drd_approved' || app.status === 'completed' ? 'Processing...' : 'Pending approval'}
+                              Pending approval
                             </div>
                           )}
                         </td>
                         <td className="px-4 py-2 border text-sm text-center">
-                          <button
-                            onClick={() => window.location.href = `/ipr/applications/${app.id}`}
-                            className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
-                          >
-                            View Details
-                          </button>
+                          <div className="flex flex-col gap-1 items-center">
+                            <button
+                              onClick={() => window.location.href = `/ipr/applications/${app.id}`}
+                              className="bg-[#005b96] text-white px-3 py-1 rounded-lg text-xs hover:bg-[#03396c] transition-colors w-full"
+                            >
+                              View Details
+                            </button>
+                            {/* Show Edit button only for owner's draft or pending_mentor_approval applications */}
+                            {!app.isContributor && (app.status === 'draft' || app.status === 'pending_mentor_approval') && (
+                              <button
+                                onClick={() => window.location.href = `/ipr/applications/${app.id}/edit`}
+                                className="bg-orange-500 text-white px-3 py-1 rounded-lg text-xs hover:bg-orange-600 transition-colors w-full"
+                              >
+                                Edit
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>

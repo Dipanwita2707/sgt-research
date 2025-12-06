@@ -102,6 +102,7 @@ interface Application {
 
 const STATUS_CONFIG: Record<string, { color: string; bgColor: string; icon: any; label: string }> = {
   draft: { color: 'text-gray-600', bgColor: 'bg-gray-100', icon: FileText, label: 'Draft' },
+  pending_mentor_approval: { color: 'text-orange-600', bgColor: 'bg-orange-100', icon: Clock, label: 'Pending Mentor Approval' },
   submitted: { color: 'text-blue-600', bgColor: 'bg-blue-100', icon: Clock, label: 'Submitted' },
   under_drd_review: { color: 'text-yellow-600', bgColor: 'bg-yellow-100', icon: Clock, label: 'Under DRD Review' },
   under_dean_review: { color: 'text-orange-600', bgColor: 'bg-orange-100', icon: Clock, label: 'Under Dean Review' },

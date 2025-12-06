@@ -328,6 +328,12 @@ export default function MyIprApplications() {
         label: 'Draft',
         description: 'Not yet submitted'
       },
+      pending_mentor_approval: { 
+        color: 'bg-orange-100 text-orange-700 ring-1 ring-orange-300', 
+        icon: Clock, 
+        label: 'Pending Mentor Approval',
+        description: 'Awaiting mentor approval'
+      },
       submitted: { 
         color: 'bg-blue-100 text-blue-700 ring-1 ring-blue-300', 
         icon: Send, 
@@ -502,70 +508,65 @@ export default function MyIprApplications() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Hero Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-56 h-56 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2 blur-2xl" />
-        
-        <div className="relative z-10">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-white/20 backdrop-blur-sm rounded-2xl shadow-lg">
-                <FolderOpen className="w-10 h-10" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold">My IPR Applications</h1>
-                <p className="text-blue-100 mt-1">Track and manage your intellectual property filings</p>
-              </div>
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Hero Header - LMS Style */}
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-[#005b96] rounded-xl flex items-center justify-center">
+              <FolderOpen className="w-6 h-6 text-white" />
             </div>
-            
-            <Link
-              href="/ipr/apply"
-              className="flex items-center gap-2 px-6 py-3 bg-white text-blue-700 rounded-xl hover:bg-blue-50 transition-all font-semibold group shadow-lg"
-            >
-              <Plus className="w-5 h-5" />
-              New Application
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">My IPR Applications</h1>
+              <p className="text-gray-500 text-sm mt-0.5">Track and manage your intellectual property filings</p>
+            </div>
           </div>
           
-          {/* Stats Row */}
-          <div className="flex items-center gap-4 mt-8 flex-wrap">
-            <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-5 py-3 rounded-xl">
-              <FileText className="w-5 h-5" />
-              <span className="font-semibold text-lg">{stats.total || 0}</span>
-              <span className="text-blue-100">Total</span>
-            </div>
-            {stats.action_required > 0 && (
-              <div className="flex items-center gap-2 bg-orange-500 px-5 py-3 rounded-xl animate-pulse shadow-lg">
-                <AlertCircle className="w-5 h-5" />
-                <span className="font-semibold text-lg">{stats.action_required}</span>
-                <span>Need Action</span>
-              </div>
-            )}
-            {stats.in_progress > 0 && (
-              <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-5 py-3 rounded-xl">
-                <Clock className="w-5 h-5" />
-                <span className="font-semibold text-lg">{stats.in_progress}</span>
-                <span className="text-blue-100">In Progress</span>
-              </div>
-            )}
+          <Link
+            href="/ipr/apply"
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#005b96] text-white rounded-xl hover:bg-[#03396c] transition-all font-medium group shadow-sm"
+          >
+            <Plus className="w-5 h-5" />
+            New Application
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </div>
+        
+        {/* Stats Row */}
+        <div className="flex items-center gap-3 mt-6 flex-wrap">
+          <div className="flex items-center gap-2 bg-[#e6f2fa] text-[#005b96] px-4 py-2 rounded-xl">
+            <FileText className="w-4 h-4" />
+            <span className="font-semibold">{stats.total || 0}</span>
+            <span className="text-sm">Total</span>
           </div>
+          {stats.action_required > 0 && (
+            <div className="flex items-center gap-2 bg-[#f39c12] text-white px-4 py-2 rounded-xl">
+              <AlertCircle className="w-4 h-4" />
+              <span className="font-semibold">{stats.action_required}</span>
+              <span className="text-sm">Need Action</span>
+            </div>
+          )}
+          {stats.in_progress > 0 && (
+            <div className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-xl">
+              <Clock className="w-4 h-4" />
+              <span className="font-semibold">{stats.in_progress}</span>
+              <span className="text-sm">In Progress</span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Incentives & Points Summary Table */}
       {(stats.totalIncentives > 0 || stats.totalPoints > 0) && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-4">
+          <div className="bg-[#005b96] px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/20 rounded-xl">
                 <Award className="w-6 h-6 text-white" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-white">IPR Earnings Summary</h2>
-                <p className="text-emerald-100 text-sm">Your total incentives and research points earned</p>
+                <p className="text-blue-100 text-sm">Your total incentives and research points earned</p>
               </div>
             </div>
           </div>
@@ -685,29 +686,27 @@ export default function MyIprApplications() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key as any)}
-                  className={`flex items-center gap-2 px-5 py-3 text-sm font-medium rounded-xl whitespace-nowrap transition-all ${
-                    activeTab === tab.key
+                  className={`flex items-center gap-2 px-5 py-3 text-sm font-medium rounded-xl whitespace-nowrap transition-all ${activeTab === tab.key
                       ? tab.special
-                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-200'
+                        ? 'bg-[#27ae60] text-white shadow-sm'
                         : tab.highlight 
-                        ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' 
-                        : 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                        ? 'bg-[#f39c12] text-white shadow-sm' 
+                        : 'bg-[#005b96] text-white shadow-sm'
                       : tab.highlight && tab.count > 0
-                      ? 'text-orange-600 bg-orange-50 hover:bg-orange-100'
+                      ? 'text-[#f39c12] bg-[#fef5e7] hover:bg-[#fdeacd]'
                       : tab.special && tab.count > 0
-                      ? 'text-purple-600 bg-purple-50 hover:bg-purple-100'
+                      ? 'text-[#27ae60] bg-[#e8f8ef] hover:bg-[#d4f1e0]'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
                   {tab.label}
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    activeTab === tab.key 
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${activeTab === tab.key 
                       ? 'bg-white/25' 
                       : tab.highlight && tab.count > 0
-                      ? 'bg-orange-200 text-orange-700'
+                      ? 'bg-[#fef5e7] text-[#f39c12]'
                       : tab.special && tab.count > 0
-                      ? 'bg-purple-200 text-purple-700'
+                      ? 'bg-[#e8f8ef] text-[#27ae60]'
                       : 'bg-gray-100 text-gray-600'
                   }`}>
                     {tab.count}
@@ -723,8 +722,8 @@ export default function MyIprApplications() {
       <div className="space-y-4">
         {getApplicationsToDisplay().length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-16 text-center">
-            <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-12 h-12 text-blue-500" />
+            <div className="w-24 h-24 bg-[#e6f2fa] rounded-full flex items-center justify-center mx-auto mb-6">
+              <FileText className="w-12 h-12 text-[#005b96]" />
             </div>
             <h3 className="text-2xl font-semibold text-gray-900 mb-2">No Applications Found</h3>
             <p className="text-gray-500 mb-8 max-w-md mx-auto">
@@ -734,7 +733,7 @@ export default function MyIprApplications() {
             </p>
             <Link
               href="/ipr/apply"
-              className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:shadow-lg hover:shadow-blue-500/25 transition-all font-semibold"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-[#005b96] text-white rounded-xl hover:bg-[#03396c] hover:shadow-md transition-all font-semibold"
             >
               <Plus className="w-5 h-5" />
               Submit New Application
@@ -910,6 +909,26 @@ export default function MyIprApplications() {
                             >
                               <Edit3 className="w-4 h-4" />
                               Continue Editing
+                            </Link>
+                          </div>
+                        )}
+
+                        {/* Quick Actions for Pending Mentor Approval - Student can still edit */}
+                        {app.status === 'pending_mentor_approval' && (
+                          <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-5 border border-orange-200 mb-5">
+                            <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                              <Clock className="w-5 h-5 text-orange-600" />
+                              Awaiting Mentor Approval
+                            </h4>
+                            <p className="text-sm text-gray-600 mb-4">
+                              Your application is waiting for mentor approval. You can still make changes until your mentor approves it.
+                            </p>
+                            <Link
+                              href={`/ipr/applications/${app.id}/edit`}
+                              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg text-sm font-semibold hover:shadow-lg transition-all"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                              Edit Application
                             </Link>
                           </div>
                         )}

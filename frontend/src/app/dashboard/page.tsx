@@ -3,6 +3,7 @@
 import { useAuthStore } from '@/store/authStore';
 import StudentDashboard from '@/components/dashboard/StudentDashboard';
 import StaffDashboard from '@/components/dashboard/StaffDashboard';
+import AdminDashboard from '@/components/dashboard/AdminDashboard';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useEffect } from 'react';
 
@@ -32,6 +33,11 @@ export default function DashboardPage() {
     return <StudentDashboard />;
   }
 
-  // Staff and admin use the staff dashboard
+  // Admin gets separate admin dashboard
+  if (user?.userType === 'admin' || user?.role?.name === 'admin') {
+    return <AdminDashboard />;
+  }
+
+  // Staff/Faculty use the staff dashboard
   return <StaffDashboard />;
 }

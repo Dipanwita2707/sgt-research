@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useAuthStore } from '@/store/authStore';
 import Link from 'next/link';
 import { 
   FileText, 
@@ -16,7 +17,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  UserCheck
 } from 'lucide-react';
 import { iprService } from '@/services/ipr.service';
 
@@ -57,6 +59,7 @@ const IPR_TYPES = [
 
 const STATUS_CONFIG = {
   draft: { label: 'Draft', icon: Edit, color: 'text-gray-600 bg-gray-100' },
+  pending_mentor_approval: { label: 'Pending Mentor Approval', icon: UserCheck, color: 'text-orange-600 bg-orange-100' },
   submitted: { label: 'Submitted', icon: Clock, color: 'text-blue-600 bg-blue-100' },
   under_drd_review: { label: 'DRD Review', icon: Eye, color: 'text-yellow-600 bg-yellow-100' },
   drd_approved: { label: 'DRD Approved', icon: CheckCircle, color: 'text-green-600 bg-green-100' },
@@ -72,10 +75,23 @@ export default function IPRDashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingMentorCount, setPendingMentorCount] = useState(0);
+  const { user } = useAuthStore();
 
   useEffect(() => {
     fetchApplications();
+    fetchMentorPendingCount();
   }, []);
+
+  const fetchMentorPendingCount = async () => {
+    try {
+      const data = await iprService.getPendingMentorApprovals();
+      setPendingMentorCount(data?.length || 0);
+    } catch (error) {
+      // User might not be a mentor, ignore error
+      console.log('Not a mentor or no pending approvals');
+    }
+  };
 
   const fetchApplications = async () => {
     try {
@@ -122,13 +138,28 @@ export default function IPRDashboard() {
               <h1 className="text-3xl font-bold text-gray-900">IPR Management System</h1>
               <p className="text-gray-600 mt-1">Manage your Intellectual Property Rights</p>
             </div>
-            <Link
-              href="/ipr/filing"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              New IPR Request
-            </Link>
+            <div className="flex items-center gap-4">
+              {/* Only show mentor approvals if user is faculty and has pending mentor approvals */}
+              {user?.userType === 'faculty' && pendingMentorCount > 0 && (
+                <Link
+                  href="/ipr/mentor-approvals"
+                  className="relative bg-orange-500 hover:bg-orange-600 text-white px-5 py-3 rounded-lg font-medium transition-colors flex items-center"
+                >
+                  <UserCheck className="w-5 h-5 mr-2" />
+                  Mentor Approvals
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                    {pendingMentorCount}
+                  </span>
+                </Link>
+              )}
+              <Link
+                href="/ipr/filing"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                New IPR Request
+              </Link>
+            </div>
           </div>
         </div>
       </div>

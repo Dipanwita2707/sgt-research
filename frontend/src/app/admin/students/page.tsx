@@ -540,12 +540,15 @@ export default function StudentManagement() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Registration No</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Registration No <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         value={formData.registrationNo}
                         onChange={(e) => setFormData({ ...formData, registrationNo: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                        required
                       />
                     </div>
                     <div>
@@ -641,13 +644,12 @@ export default function StudentManagement() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Section <span className="text-red-500">*</span>
+                        Section
                       </label>
                       <select
                         value={formData.sectionId}
                         onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                        required
                         disabled={!formData.programId}
                       >
                         <option value="">Select Section</option>

@@ -388,6 +388,7 @@ export default function DrdReviewDashboard() {
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; color: string; bg: string; ring: string }> = {
       draft: { label: 'Draft', color: 'text-gray-700', bg: 'bg-gray-100', ring: 'ring-gray-200' },
+      pending_mentor_approval: { label: 'Pending Mentor', color: 'text-orange-700', bg: 'bg-orange-50', ring: 'ring-orange-200' },
       submitted: { label: 'Submitted', color: 'text-sgt-700', bg: 'bg-sgt-50', ring: 'ring-sgt-200' },
       under_drd_review: { label: 'Under Review', color: 'text-amber-700', bg: 'bg-amber-50', ring: 'ring-amber-200' },
       changes_required: { label: 'Changes Required', color: 'text-orange-700', bg: 'bg-orange-50', ring: 'ring-orange-200' },

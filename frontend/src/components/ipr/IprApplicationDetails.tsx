@@ -75,7 +75,22 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
   const fetchApplicationDetails = async () => {
     try {
       setLoading(true);
-      const data = await iprService.getApplicationById(applicationId);
+      // Try multiple endpoints in order:
+      // 1. Own application (applicant)
+      // 2. Mentor application (mentor reviewing)
+      // 3. DRD endpoint (DRD staff with permissions)
+      let data;
+      try {
+        data = await iprService.getMyApplicationById(applicationId);
+      } catch (ownError: any) {
+        try {
+          // Try mentor endpoint
+          data = await iprService.getMentorApplicationById(applicationId);
+        } catch (mentorError: any) {
+          // If mentor application fetch fails, try DRD endpoint
+          data = await iprService.getApplicationById(applicationId);
+        }
+      }
       setApplication(data);
     } catch (error: any) {
       console.error('Error fetching application:', error);
@@ -88,6 +103,7 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
   const getStatusBadge = (status: string) => {
     const statusConfig: any = {
       draft: { color: 'bg-gray-100 text-gray-800', icon: FileText },
+      pending_mentor_approval: { color: 'bg-orange-100 text-orange-800', icon: Clock },
       submitted: { color: 'bg-blue-100 text-blue-800', icon: Clock },
       under_drd_review: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle },
       under_dean_review: { color: 'bg-yellow-100 text-yellow-800', icon: AlertCircle },
@@ -312,6 +328,53 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
               </div>
             )}
           </div>
+
+          {/* Documents Section */}
+          {(application.annexureFilePath || (application.supportingDocsFilePaths && application.supportingDocsFilePaths.length > 0)) && (
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Download className="w-5 h-5 text-blue-600" />
+                Documents & Attachments
+              </h2>
+              
+              {/* Main Annexure Document */}
+              {application.annexureFilePath && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Main Document (Annexure)</label>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/uploads/${application.annexureFilePath}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Annexure
+                  </a>
+                </div>
+              )}
+              
+              {/* Supporting Documents */}
+              {application.supportingDocsFilePaths && application.supportingDocsFilePaths.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Supporting Documents</label>
+                  <div className="space-y-2">
+                    {application.supportingDocsFilePaths.map((filePath: string, index: number) => (
+                      <a
+                        key={index}
+                        href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/uploads/${filePath}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors w-fit"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Supporting Document {index + 1}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Applicant Information */}
           <div className="bg-white rounded-lg shadow p-6">

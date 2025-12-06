@@ -226,6 +226,7 @@ export default function DrdIprDashboard() {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       draft: 'bg-gray-100 text-gray-700 ring-gray-200',
+      pending_mentor_approval: 'bg-orange-50 text-orange-700 ring-orange-200',
       submitted: 'bg-sgt-50 text-sgt-700 ring-sgt-200',
       under_drd_review: 'bg-amber-50 text-amber-700 ring-amber-200',
       changes_required: 'bg-orange-50 text-orange-700 ring-orange-200',

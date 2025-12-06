@@ -6,34 +6,37 @@ import { useAuthStore } from '@/store/authStore';
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+  const { isAuthenticated, isLoading, user, checkAuth } = useAuthStore();
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    // Ensure auth is checked on mount
+    // Only check auth if we don't have a user and aren't already loading
     const initAuth = async () => {
+      // If already authenticated with user data, skip the check
+      if (isAuthenticated && user) {
+        console.log('ProtectedRoute - Already authenticated with user');
+        setIsInitialized(true);
+        return;
+      }
+      
+      // Otherwise, verify auth status
       await checkAuth();
       setIsInitialized(true);
     };
     
-    if (!isInitialized) {
+    if (!isInitialized && !isLoading) {
       initAuth();
     }
-  }, [checkAuth, isInitialized]);
+  }, [checkAuth, isInitialized, isLoading, isAuthenticated, user]);
 
   useEffect(() => {
-    console.log('ProtectedRoute - isAuthenticated:', isAuthenticated);
-    console.log('ProtectedRoute - isLoading:', isLoading);
-    console.log('ProtectedRoute - isInitialized:', isInitialized);
-    
     if (isInitialized && !isLoading && !isAuthenticated) {
-      console.log('ProtectedRoute - Redirecting to login');
+      console.log('ProtectedRoute - Not authenticated, redirecting to login');
       router.push('/login');
     }
   }, [isAuthenticated, isLoading, isInitialized, router]);
 
   if (!isInitialized || isLoading) {
-    console.log('ProtectedRoute - Showing loading spinner');
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -42,10 +45,8 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   }
 
   if (!isAuthenticated) {
-    console.log('ProtectedRoute - Not authenticated, returning null');
     return null;
   }
 
-  console.log('ProtectedRoute - Rendering children');
   return <>{children}</>;
 }

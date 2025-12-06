@@ -4,30 +4,140 @@
 
 :root {
   --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+  --background-rgb: 248, 250, 252;
+  /* LMS Theme Colors */
+  --lms-primary: #005b96;
+  --lms-primary-dark: #011f4b;
+  --lms-primary-mid: #03396c;
+  --lms-light: #6497b1;
+  --lms-very-light: #b3cde0;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background-color: rgb(var(--background-rgb));
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+/* LMS-Style Stat Cards */
+@layer components {
+  /* Card base styles */
+  .stat-card {
+    @apply rounded-lg p-3 shadow-card transition-all duration-200;
+  }
+  
+  .stat-card:hover {
+    @apply shadow-card-hover transform -translate-y-0.5;
+  }
+
+  /* Green card - for success metrics */
+  .stat-card-green {
+    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+    border-left: 3px solid #166534;
+  }
+  .stat-card-green .stat-value { @apply text-green-800; }
+  .stat-card-green .stat-label { @apply text-green-700; }
+  .stat-card-green .stat-icon { @apply text-green-600; }
+
+  /* Cream/Yellow card - for pending/warning */
+  .stat-card-cream {
+    background: linear-gradient(135deg, #fef9c3 0%, #fef08a 100%);
+    border-left: 3px solid #854d0e;
+  }
+  .stat-card-cream .stat-value { @apply text-yellow-800; }
+  .stat-card-cream .stat-label { @apply text-yellow-700; }
+  .stat-card-cream .stat-icon { @apply text-yellow-600; }
+
+  /* Blue card - for info/totals */
+  .stat-card-blue {
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    border-left: 3px solid #1e40af;
+  }
+  .stat-card-blue .stat-value { @apply text-blue-800; }
+  .stat-card-blue .stat-label { @apply text-blue-700; }
+  .stat-card-blue .stat-icon { @apply text-blue-600; }
+
+  /* Coral/Pink card - for alerts/urgent */
+  .stat-card-coral {
+    background: linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%);
+    border-left: 3px solid #be123c;
+  }
+  .stat-card-coral .stat-value { @apply text-rose-800; }
+  .stat-card-coral .stat-label { @apply text-rose-700; }
+  .stat-card-coral .stat-icon { @apply text-rose-600; }
+
+  /* Purple card - for special metrics */
+  .stat-card-purple {
+    background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+    border-left: 3px solid #7e22ce;
+  }
+  .stat-card-purple .stat-value { @apply text-purple-800; }
+  .stat-card-purple .stat-label { @apply text-purple-700; }
+  .stat-card-purple .stat-icon { @apply text-purple-600; }
+
+  /* Orange card - for in-progress */
+  .stat-card-orange {
+    background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+    border-left: 3px solid #c2410c;
+  }
+  .stat-card-orange .stat-value { @apply text-orange-800; }
+  .stat-card-orange .stat-label { @apply text-orange-700; }
+  .stat-card-orange .stat-icon { @apply text-orange-600; }
+
+  /* Stat card inner elements */
+  .stat-value {
+    @apply text-xl font-bold leading-tight;
+  }
+  
+  .stat-label {
+    @apply text-xs font-medium leading-tight;
+  }
+  
+  .stat-icon {
+    @apply w-8 h-8;
+  }
+
+  /* Compact button styles */
+  .btn-compact {
+    @apply px-3 py-1.5 text-xs font-medium rounded-md transition-colors;
+  }
+
+  .btn-primary {
+    @apply bg-lms-primary-mid text-white hover:bg-lms-primary-dark;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 text-gray-700 hover:bg-gray-200;
+  }
+
+  /* Table styles */
+  .table-compact th {
+    @apply text-xs font-semibold text-gray-600 py-2 px-3 bg-gray-50;
+  }
+  
+  .table-compact td {
+    @apply text-xs text-gray-700 py-2 px-3 border-b border-gray-100;
+  }
+
+  /* Form input compact styles */
+  .input-compact {
+    @apply text-xs px-2.5 py-1.5 rounded-md border border-gray-200 focus:border-lms-primary focus:ring-1 focus:ring-lms-primary/20;
+  }
+
+  /* Page header */
+  .page-header {
+    @apply text-lg font-semibold text-gray-800 mb-4;
+  }
+
+  /* Section card */
+  .section-card {
+    @apply bg-white rounded-lg shadow-card p-4;
   }
 }

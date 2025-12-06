@@ -8,6 +8,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // LMS Color Palette
+        lms: {
+          primary: '#005b96',
+          'primary-dark': '#011f4b',
+          'primary-mid': '#03396c',
+          light: '#6497b1',
+          'very-light': '#b3cde0',
+          background: '#f8fafc',
+        },
         // SGT University Blue Theme Palette
         sgt: {
           50: '#ADE1FB',   // Lightest - backgrounds, hover states
@@ -34,8 +43,25 @@ module.exports = {
           800: '#021340',
           900: '#01082D',
         },
+        // Stat card colors (from LMS design)
+        card: {
+          green: '#dcfce7',
+          'green-dark': '#166534',
+          cream: '#fef9c3',
+          'cream-dark': '#854d0e',
+          blue: '#dbeafe',
+          'blue-dark': '#1e40af',
+          coral: '#ffe4e6',
+          'coral-dark': '#be123c',
+          purple: '#f3e8ff',
+          'purple-dark': '#7e22ce',
+          orange: '#ffedd5',
+          'orange-dark': '#c2410c',
+        },
       },
       backgroundImage: {
+        'lms-sidebar': 'linear-gradient(180deg, #03396c 0%, #011f4b 100%)',
+        'lms-header': 'linear-gradient(90deg, #03396c 0%, #011f4b 100%)',
         'sgt-gradient': 'linear-gradient(135deg, #0F2573 0%, #041D56 50%, #01082D 100%)',
         'sgt-gradient-light': 'linear-gradient(135deg, #ADE1FB 0%, #266CA9 100%)',
         'sgt-gradient-radial': 'radial-gradient(ellipse at top, #266CA9 0%, #041D56 100%)',
@@ -44,9 +70,14 @@ module.exports = {
         'sgt': '0 4px 14px 0 rgba(4, 29, 86, 0.15)',
         'sgt-lg': '0 10px 40px -10px rgba(4, 29, 86, 0.25)',
         'sgt-xl': '0 25px 50px -12px rgba(1, 8, 45, 0.35)',
+        'card': '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+        'card-hover': '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+      },
+      fontSize: {
+        'xxs': ['10px', { lineHeight: '14px' }],
       },
     },
   },

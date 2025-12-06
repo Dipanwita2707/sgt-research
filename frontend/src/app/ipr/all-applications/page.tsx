@@ -14,12 +14,14 @@ import {
   AlertTriangle,
   User,
   Calendar,
-  Badge
+  Badge,
+  UserCheck
 } from 'lucide-react';
 import api from '@/lib/api';
 
 const STATUS_CONFIG = {
   draft: { label: 'Draft', icon: Edit, color: 'text-gray-600 bg-gray-100' },
+  pending_mentor_approval: { label: 'Pending Mentor', icon: UserCheck, color: 'text-orange-600 bg-orange-100' },
   submitted: { label: 'Submitted', icon: Clock, color: 'text-blue-600 bg-blue-100' },
   under_drd_review: { label: 'DRD Review', icon: Eye, color: 'text-yellow-600 bg-yellow-100' },
   drd_approved: { label: 'DRD Approved', icon: CheckCircle, color: 'text-green-600 bg-green-100' },

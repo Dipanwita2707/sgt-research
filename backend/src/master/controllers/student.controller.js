@@ -25,11 +25,11 @@ const createStudent = async (req, res) => {
       address,
     } = req.body;
 
-    // Validate required fields
-    if (!studentId || !firstName || !email || !programId || !sectionId) {
+    // Validate required fields (sectionId is optional)
+    if (!studentId || !firstName || !email || !programId || !registrationNo) {
       return res.status(400).json({
         success: false,
-        message: 'Required fields: studentId, firstName, email, programId, sectionId',
+        message: 'Required fields: studentId, firstName, email, programId, registrationNo',
       });
     }
 
@@ -42,6 +42,18 @@ const createStudent = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Student with this ID already exists',
+      });
+    }
+
+    // Check if registration number already exists
+    const existingRegistration = await prisma.studentDetails.findUnique({
+      where: { registrationNo },
+    });
+
+    if (existingRegistration) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student with this Registration Number already exists',
       });
     }
 
@@ -74,10 +86,8 @@ const createStudent = async (req, res) => {
           uid: studentId,
           email,
           passwordHash: hashedPassword,
-          userType: 'student',
           role: 'student',
-          isActive: true,
-          isEmailVerified: true,
+          status: 'active',
         },
       });
 
@@ -91,7 +101,7 @@ const createStudent = async (req, res) => {
         data: {
           userLoginId: user.id,
           studentId,
-          registrationNo: registrationNo || null,
+          registrationNo,
           firstName,
           middleName: middleName || null,
           lastName: lastName || null,
@@ -99,7 +109,7 @@ const createStudent = async (req, res) => {
           email,
           phone: phone || null,
           programId,
-          sectionId,
+          ...(sectionId && { sectionId }),
           currentSemester: currentSemester ? parseInt(currentSemester) : 1,
           admissionDate: admissionDate ? new Date(admissionDate) : null,
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
@@ -493,7 +503,7 @@ const getSectionsByProgram = async (req, res) => {
     const sections = await prisma.section.findMany({
       where: {
         programId,
-        isActive: true,
+        status: 'active',
       },
       select: {
         id: true,

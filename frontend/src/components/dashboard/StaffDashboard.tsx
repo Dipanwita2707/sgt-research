@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
+import { useRouter } from 'next/navigation';
 import { 
-  Briefcase, 
-  Shield, 
-  Clock, 
-  Award, 
-  TrendingUp, 
+  LayoutDashboard, 
   Users, 
-  FileText, 
-  Calendar,
-  ArrowUpRight,
-  Sparkles,
+  ChevronRight,
+  Bell,
+  Settings,
+  User,
   Building,
-  ChevronRight
+  Award,
+  Clock,
+  BookOpen,
+  GraduationCap,
+  Briefcase
 } from 'lucide-react';
 import api from '@/lib/api';
 import PermissionBasedDashboard from './PermissionBasedDashboard';
@@ -28,269 +29,365 @@ interface StaffStats {
     category: string;
     permissions: string[];
   }>;
-  activeStudents?: number;
-  coursesAssigned?: number;
-  pendingApprovals?: number;
-  departmentStrength?: number;
+}
+
+interface AdminOverview {
+  university: {
+    schools: { total: number; active: number };
+    departments: { total: number; active: number };
+    programmes: { total: number };
+  };
+  users: {
+    employees: { total: number; active: number };
+    students: { total: number; active: number };
+  };
+  ipr: {
+    total: number;
+    approved: number;
+    pending: number;
+  };
 }
 
 export default function StaffDashboard() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [stats, setStats] = useState<StaffStats | null>(null);
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  const isAdmin = user?.userType === 'admin' || user?.role?.name === 'admin';
+
   useEffect(() => {
-    fetchStaffData();
+    fetchData();
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  const fetchStaffData = async () => {
+  const fetchData = async () => {
     try {
-      const response = await api.get('/dashboard/staff');
-      const data = response.data.data;
-      setStats(data);
+      // Fetch staff data
+      const staffResponse = await api.get('/dashboard/staff');
+      setStats(staffResponse.data.data);
+
+      // If admin, fetch overview stats
+      if (user?.userType === 'admin' || user?.role?.name === 'admin') {
+        try {
+          const overviewResponse = await api.get('/analytics/overview');
+          if (overviewResponse.data.success) {
+            setAdminOverview(overviewResponse.data.data);
+          }
+        } catch (err) {
+          console.log('Analytics not available');
+        }
+      }
     } catch (error) {
-      console.error('Failed to fetch staff data:', error);
+      console.error('Failed to fetch data:', error);
       setStats({
         department: 'N/A',
         designation: 'N/A',
         faculty: 'N/A',
         permissions: [],
-        activeStudents: 0,
-        coursesAssigned: 0,
-        pendingApprovals: 0,
-        departmentStrength: 0
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getUserGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  };
-
-  const formatTime = () => {
-    return currentTime.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
+  const formatDate = () => {
+    return currentTime.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
     });
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[600px]">
+      <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-sgt-100 rounded-full animate-spin border-t-sgt-600"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-8 h-8 bg-sgt-gradient rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">S</span>
-              </div>
-            </div>
-          </div>
-          <p className="mt-4 text-gray-500 font-medium">Loading your dashboard...</p>
+          <div className="w-10 h-10 border-3 border-gray-200 rounded-full animate-spin border-t-[#03396c] mx-auto"></div>
+          <p className="mt-3 text-gray-500 text-sm">Loading dashboard...</p>
         </div>
       </div>
     );
   }
 
-  const isAdmin = user?.userType === 'admin' || user?.role?.name === 'admin';
+  // Calculate totals
+  const totalUsers = adminOverview 
+    ? (adminOverview.users.employees.total + adminOverview.users.students.total) 
+    : 0;
+  const totalStaff = adminOverview?.users.employees.total || 0;
+  const totalStudents = adminOverview?.users.students.total || 0;
+  const totalSchools = adminOverview?.university.schools.total || 0;
+  const totalDepartments = adminOverview?.university.departments.total || 0;
+  const pendingTasks = adminOverview?.ipr.pending || 0;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Hero Welcome Section */}
-      <div className="relative overflow-hidden bg-sgt-gradient rounded-3xl p-8 text-white shadow-sgt-xl">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-white rounded-full -translate-y-1/2 translate-x-1/2"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white rounded-full translate-y-1/2 -translate-x-1/2"></div>
+    <div className="space-y-5">
+      {/* Page Header - Like LMS */}
+      <div className="flex items-center gap-4 mb-2">
+        <div className="w-12 h-12 rounded-xl bg-[#005b96] flex items-center justify-center">
+          <LayoutDashboard className="w-6 h-6 text-white" />
         </div>
-        
-        {/* Content */}
-        <div className="relative z-10">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center mb-6 lg:mb-0">
-              {/* Avatar */}
-              <div className="relative mr-6">
-                <div className="w-20 h-20 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center border border-white/20 shadow-lg">
-                  <Briefcase className="w-10 h-10 text-white" />
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-400 rounded-lg flex items-center justify-center border-2 border-white">
-                  <span className="text-white text-[10px]">✓</span>
-                </div>
-              </div>
-              
-              {/* Greeting */}
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Sparkles className="w-4 h-4 text-sgt-50" />
-                  <span className="text-sgt-50 text-sm font-medium">{formatTime()}</span>
-                </div>
-                <h1 className="text-3xl lg:text-4xl font-bold mb-1">
-                  {getUserGreeting()}, {user?.firstName || user?.username}!
-                </h1>
-                <p className="text-sgt-100 text-lg">
-                  {isAdmin ? 'Administrator Dashboard' : 'Welcome to your Staff Portal'}
-                </p>
-              </div>
-            </div>
-
-            {/* Quick Action - Link to Dashboard Modules */}
-            <div className="flex gap-3">
-              <a 
-                href="#modules" 
-                className="flex items-center gap-2 px-5 py-3 bg-white/10 backdrop-blur hover:bg-white/20 rounded-xl transition-all duration-200 border border-white/20"
-              >
-                <FileText className="w-5 h-5" />
-                <span className="font-medium">View Modules</span>
-                <ArrowUpRight className="w-4 h-4" />
-              </a>
-            </div>
-          </div>
-
-          {/* Stats Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
-            <div className="bg-white/10 backdrop-blur rounded-2xl p-5 border border-white/10 hover:bg-white/15 transition-all duration-200 card-hover">
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 bg-white/20 rounded-xl">
-                  <Building className="w-5 h-5" />
-                </div>
-                <TrendingUp className="w-4 h-4 text-sgt-50" />
-              </div>
-              <p className="text-sgt-100 text-xs font-medium uppercase tracking-wider">Department</p>
-              <p className="text-lg font-bold mt-1 truncate">{stats?.department || 'N/A'}</p>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur rounded-2xl p-5 border border-white/10 hover:bg-white/15 transition-all duration-200 card-hover">
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 bg-white/20 rounded-xl">
-                  <Award className="w-5 h-5" />
-                </div>
-                <Sparkles className="w-4 h-4 text-sgt-50" />
-              </div>
-              <p className="text-sgt-100 text-xs font-medium uppercase tracking-wider">Designation</p>
-              <p className="text-lg font-bold mt-1 truncate">{stats?.designation || user?.employee?.designation || 'N/A'}</p>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur rounded-2xl p-5 border border-white/10 hover:bg-white/15 transition-all duration-200 card-hover">
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 bg-white/20 rounded-xl">
-                  <Shield className="w-5 h-5" />
-                </div>
-                <span className="text-xs font-semibold bg-white/20 px-2 py-1 rounded-full">Active</span>
-              </div>
-              <p className="text-sgt-100 text-xs font-medium uppercase tracking-wider">Departments</p>
-              <p className="text-3xl font-bold mt-1">{stats?.permissions?.length || 0}</p>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur rounded-2xl p-5 border border-white/10 hover:bg-white/15 transition-all duration-200 card-hover">
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 bg-white/20 rounded-xl">
-                  <Users className="w-5 h-5" />
-                </div>
-                <ChevronRight className="w-4 h-4 text-sgt-50" />
-              </div>
-              <p className="text-sgt-100 text-xs font-medium uppercase tracking-wider">Faculty</p>
-              <p className="text-lg font-bold mt-1 truncate">{stats?.faculty || 'N/A'}</p>
-            </div>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {isAdmin ? 'Admin Dashboard' : 'Staff Dashboard'}
+          </h1>
+          <p className="text-gray-500 text-sm">
+            Welcome back, {user?.firstName || user?.username}
+          </p>
         </div>
       </div>
 
-      {/* Quick Actions Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's Overview */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-sgt border border-gray-100">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Today's Overview</h2>
-              <p className="text-sm text-gray-500 mt-1">Your daily activity summary</p>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Calendar className="w-4 h-4" />
-              {currentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </div>
+      {/* Quick Info Cards Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 mb-1">
+            <Building className="w-4 h-4" />
+            <span className="text-xs font-medium">Department</span>
           </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 bg-gradient-to-br from-sgt-50 to-white rounded-xl border border-sgt-100">
-              <div className="w-10 h-10 bg-sgt-600 rounded-xl flex items-center justify-center mb-3">
-                <FileText className="w-5 h-5 text-white" />
-              </div>
-              <p className="text-2xl font-bold text-sgt-900">{stats?.pendingApprovals || 0}</p>
-              <p className="text-xs text-gray-500 font-medium">Pending Tasks</p>
-            </div>
-
-            <div className="p-4 bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100">
-              <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center mb-3">
-                <Users className="w-5 h-5 text-white" />
-              </div>
-              <p className="text-2xl font-bold text-emerald-900">{stats?.activeStudents || 0}</p>
-              <p className="text-xs text-gray-500 font-medium">Active Students</p>
-            </div>
-
-            <div className="p-4 bg-gradient-to-br from-amber-50 to-white rounded-xl border border-amber-100">
-              <div className="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center mb-3">
-                <Clock className="w-5 h-5 text-white" />
-              </div>
-              <p className="text-2xl font-bold text-amber-900">{stats?.coursesAssigned || 0}</p>
-              <p className="text-xs text-gray-500 font-medium">Courses</p>
-            </div>
-
-            <div className="p-4 bg-gradient-to-br from-purple-50 to-white rounded-xl border border-purple-100">
-              <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center mb-3">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <p className="text-2xl font-bold text-purple-900">{stats?.departmentStrength || 0}</p>
-              <p className="text-xs text-gray-500 font-medium">Dept. Strength</p>
-            </div>
+          <p className="text-lg font-semibold text-gray-800 truncate">{stats?.department || 'N/A'}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 mb-1">
+            <Award className="w-4 h-4" />
+            <span className="text-xs font-medium">Modules Active</span>
           </div>
+          <p className="text-lg font-semibold text-gray-800">{stats?.permissions?.length || 0}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 mb-1">
+            <Clock className="w-4 h-4" />
+            <span className="text-xs font-medium">Pending Tasks</span>
+          </div>
+          <p className="text-lg font-semibold text-gray-800">{pendingTasks}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 mb-1">
+            <BookOpen className="w-4 h-4" />
+            <span className="text-xs font-medium">Faculty</span>
+          </div>
+          <p className="text-lg font-semibold text-gray-800 truncate">{stats?.faculty || 'Central Department'}</p>
+        </div>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Today's Overview - LMS Style Colored Cards */}
+        <div className="lg:col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-gray-800">Today's Overview</h2>
+            <span className="text-xs text-gray-500 flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {formatDate()}
+            </span>
+          </div>
+          
+          {/* Different cards for Admin vs Staff */}
+          {isAdmin ? (
+            /* Admin Cards - System-wide stats */
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Blue Card - Total Users */}
+              <div 
+                onClick={() => router.push('/admin/employees')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#005b96] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Total Users</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{totalUsers}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      <span className="inline-flex items-center gap-1">
+                        <Briefcase className="w-3 h-3" /> {totalStaff}
+                      </span>
+                      {' · '}
+                      <span className="inline-flex items-center gap-1">
+                        <GraduationCap className="w-3 h-3" /> {totalStudents}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#e6f2fa] flex items-center justify-center">
+                    <Users className="w-6 h-6 text-[#005b96]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Green Card - Schools */}
+              <div 
+                onClick={() => router.push('/admin/schools')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#27ae60] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Schools</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{totalSchools}</p>
+                    <p className="text-xs text-gray-400 mt-1">Total schools</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#e8f8ef] flex items-center justify-center">
+                    <GraduationCap className="w-6 h-6 text-[#27ae60]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Pink Card - Departments */}
+              <div 
+                onClick={() => router.push('/admin/departments')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#e91e63] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Departments</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{totalDepartments}</p>
+                    <p className="text-xs text-gray-400 mt-1">Total departments</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#fce4ec] flex items-center justify-center">
+                    <Building className="w-6 h-6 text-[#e91e63]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Orange Card - Pending Tasks */}
+              <div 
+                onClick={() => router.push('/drd')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#f39c12] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Pending IPR</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{pendingTasks}</p>
+                    <p className="text-xs text-gray-400 mt-1">Awaiting action</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#fef5e7] flex items-center justify-center">
+                    <Clock className="w-6 h-6 text-[#f39c12]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Staff/Faculty Cards - Personal stats */
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Blue Card - My IPR Applications */}
+              <div 
+                onClick={() => router.push('/ipr/my-applications')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#005b96] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">My IPR</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">-</p>
+                    <p className="text-xs text-gray-400 mt-1">Applications filed</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#e6f2fa] flex items-center justify-center">
+                    <Award className="w-6 h-6 text-[#005b96]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Green Card - Published */}
+              <div 
+                onClick={() => router.push('/ipr/my-applications')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#27ae60] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Published</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">-</p>
+                    <p className="text-xs text-gray-400 mt-1">IPR published</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#e8f8ef] flex items-center justify-center">
+                    <BookOpen className="w-6 h-6 text-[#27ae60]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Purple Card - Incentives Earned */}
+              <div 
+                onClick={() => router.push('/ipr/my-applications')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#9b59b6] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Incentives</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">₹0</p>
+                    <p className="text-xs text-gray-400 mt-1">Total earned</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#f3e5f5] flex items-center justify-center">
+                    <Award className="w-6 h-6 text-[#9b59b6]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Orange Card - Pending Tasks */}
+              <div 
+                onClick={() => router.push('/drd')}
+                className="bg-white rounded-2xl p-5 border-l-4 border-[#f39c12] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500 font-medium">Pending</span>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{pendingTasks}</p>
+                    <p className="text-xs text-gray-400 mt-1">Action required</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-[#fef5e7] flex items-center justify-center">
+                    <Clock className="w-6 h-6 text-[#f39c12]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Quick Links */}
-        <div className="bg-white rounded-2xl p-6 shadow-sgt border border-gray-100">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Links</h2>
-          <div className="space-y-3">
+        {/* Quick Links - Like LMS */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <h2 className="text-base font-semibold text-gray-800 mb-3">Quick Links</h2>
+          <div className="space-y-2">
             <Link 
               href="/notifications" 
-              className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-50 to-white rounded-xl border border-amber-100 hover:border-amber-200 transition-all group"
+              className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors group"
             >
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-600 rounded-lg">
-                  <Clock className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <Bell className="w-4 h-4 text-amber-600" />
                 </div>
-                <span className="font-medium text-gray-900">Notifications</span>
+                <span className="text-sm font-medium text-gray-700">Notifications</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-amber-600 transition-colors" />
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
             </Link>
             
             <Link 
               href="/settings" 
-              className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100 hover:border-gray-200 transition-all group"
+              className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors group"
             >
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-gray-600 rounded-lg">
-                  <TrendingUp className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                  <Settings className="w-4 h-4 text-gray-600" />
                 </div>
-                <span className="font-medium text-gray-900">Settings</span>
+                <span className="text-sm font-medium text-gray-700">Settings</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
+            </Link>
+
+            <Link 
+              href="/profile" 
+              className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <User className="w-4 h-4 text-blue-600" />
+                </div>
+                <span className="text-sm font-medium text-gray-700">My Profile</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Permission-based Dashboard */}
-      <div id="modules" className="bg-white rounded-2xl p-6 shadow-sgt border border-gray-100">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900">Your Modules</h2>
-          <p className="text-sm text-gray-500 mt-1">Access your assigned modules and features</p>
+      {/* Your Modules Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-gray-800">Your Modules</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Access your assigned modules and features</p>
         </div>
         <PermissionBasedDashboard 
           userPermissions={stats?.permissions || []} 

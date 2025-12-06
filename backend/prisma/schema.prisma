@@ -704,7 +704,7 @@ model StudentDetails {
   phone                  String?   @db.VarChar(15)
   photoFilePath          String?   @map("photo_file_path")
   photo                  String?   @db.VarChar(64)
-  sectionId              String    @map("section_id") @db.Uuid
+  sectionId              String?   @map("section_id") @db.Uuid
   programId              String?   @map("program_id") @db.Uuid
   rollNumber             String?   @map("roll_number") @db.VarChar(32)
   admissionDate          DateTime? @map("admission_date") @db.Date
@@ -735,7 +735,7 @@ model StudentDetails {
 
   // Relations
   userLogin              UserLogin? @relation("StudentLogin", fields: [userLoginId], references: [id], onDelete: SetNull)
-  section                Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  section                Section?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   program                Program?   @relation(fields: [programId], references: [id], onDelete: SetNull)
   dataApprovedBy         UserLogin? @relation("DataApprovedBy", fields: [dataApprovedById], references: [id], onDelete: SetNull)
   parents                ParentDetails[]
@@ -797,6 +797,7 @@ enum IprFilingTypeEnum {
 // IPR Status
 enum IprStatusEnum {
   draft
+  pending_mentor_approval  // Waiting for mentor approval (student applications)
   submitted
   under_drd_review
   changes_required

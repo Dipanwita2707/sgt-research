@@ -39,15 +39,21 @@ export interface IprApplication {
 
 export type IprStatus =
   | 'draft'
+  | 'pending_mentor_approval'
   | 'submitted'
   | 'under_drd_review'
   | 'changes_required'
   | 'resubmitted'
+  | 'recommended_to_head'
+  | 'drd_head_approved'
   | 'drd_approved'
   | 'drd_rejected'
   | 'under_dean_review'
   | 'dean_approved'
   | 'dean_rejected'
+  | 'submitted_to_govt'
+  | 'govt_application_filed'
+  | 'published'
   | 'under_finance_review'
   | 'finance_approved'
   | 'finance_rejected'
@@ -183,9 +189,17 @@ class IprService {
     return response.data.data;
   }
 
-  // Get single IPR application
+  // Get single IPR application (requires DRD permissions)
   async getApplicationById(id: string): Promise<IprApplication> {
     const response = await axios.get(`${API_BASE_URL}/ipr/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get my own IPR application by ID (no DRD permissions needed)
+  async getMyApplicationById(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/my-applications/${id}`, {
       withCredentials: true,
     });
     return response.data.data;
@@ -232,6 +246,49 @@ class IprService {
   // Accept DRD edits and resubmit
   async acceptEditsAndResubmit(id: string, updatedData: any): Promise<IprApplication> {
     const response = await axios.post(`${API_BASE_URL}/drd-review/accept-edits/${id}`, { updatedData }, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get IPR applications where the user is a contributor (for students)
+  async getContributedApplications(): Promise<{
+    data: IprApplication[];
+    stats: any;
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/contributed`, {
+      withCredentials: true,
+    });
+    return response.data;
+  }
+
+  // Get pending mentor approvals (for faculty mentors)
+  async getPendingMentorApprovals(): Promise<IprApplication[]> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/mentor/pending`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get application by ID for mentor review
+  async getMentorApplicationById(id: string): Promise<IprApplication> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/mentor/application/${id}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Mentor approves IPR application
+  async approveMentorApplication(id: string, comments?: string): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/ipr/mentor/${id}/approve`, { comments }, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Mentor rejects IPR application
+  async rejectMentorApplication(id: string, comments: string): Promise<IprApplication> {
+    const response = await axios.post(`${API_BASE_URL}/ipr/mentor/${id}/reject`, { comments }, {
       withCredentials: true,
     });
     return response.data.data;

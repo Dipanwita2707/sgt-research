@@ -52,6 +52,60 @@ const createIprApplication = async (req, res) => {
     // Generate unique application number
     const applicationNumber = await generateApplicationNumber(iprType);
 
+    // Auto-detect schoolId and departmentId from user's profile if not provided
+    let resolvedSchoolId = schoolId;
+    let resolvedDepartmentId = departmentId;
+    
+    if (!resolvedSchoolId || !resolvedDepartmentId) {
+      // Try to get from employee details first (faculty/staff)
+      const employeeDetails = await prisma.employeeDetails.findUnique({
+        where: { userLoginId: userId },
+        select: {
+          primarySchoolId: true,
+          primaryDepartmentId: true,
+        }
+      });
+      
+      if (employeeDetails) {
+        if (!resolvedDepartmentId && employeeDetails.primaryDepartmentId) {
+          resolvedDepartmentId = employeeDetails.primaryDepartmentId;
+        }
+        if (!resolvedSchoolId && employeeDetails.primarySchoolId) {
+          resolvedSchoolId = employeeDetails.primarySchoolId;
+        }
+      }
+      
+      // If still no school, try from student details
+      if (!resolvedSchoolId) {
+        const studentDetails = await prisma.studentDetails.findUnique({
+          where: { userLoginId: userId },
+          select: {
+            programId: true,
+            program: {
+              select: {
+                departmentId: true,
+                department: {
+                  select: {
+                    id: true,
+                    facultyId: true,
+                  }
+                }
+              }
+            }
+          }
+        });
+        
+        if (studentDetails?.program?.department) {
+          if (!resolvedDepartmentId) {
+            resolvedDepartmentId = studentDetails.program.department.id;
+          }
+          if (!resolvedSchoolId && studentDetails.program.department.facultyId) {
+            resolvedSchoolId = studentDetails.program.department.facultyId;
+          }
+        }
+      }
+    }
+
     // Create IPR application
     const iprApplication = await prisma.iprApplication.create({
       data: {
@@ -66,8 +120,8 @@ const createIprApplication = async (req, res) => {
         title,
         description,
         remarks,
-        ...(schoolId && { school: { connect: { id: schoolId } } }),
-        ...(departmentId && { department: { connect: { id: departmentId } } }),
+        ...(resolvedSchoolId && { school: { connect: { id: resolvedSchoolId } } }),
+        ...(resolvedDepartmentId && { department: { connect: { id: resolvedDepartmentId } } }),
         status: 'draft',
         annexureFilePath: annexureFilePath || '',
         supportingDocsFilePaths: supportingDocsFilePaths || [],
@@ -228,6 +282,13 @@ const submitIprApplication = async (req, res) => {
           select: {
             id: true,
             uid: true,
+            role: true,
+            studentLogin: {
+              select: {
+                firstName: true,
+                lastName: true,
+              }
+            },
             employeeDetails: {
               select: {
                 firstName: true,
@@ -246,11 +307,24 @@ const submitIprApplication = async (req, res) => {
       });
     }
 
-    // Update status to submitted
+    // Check if the applicant is a student and has a mentor
+    const isStudent = iprApplication.applicantUser?.role === 'student';
+    const hasMentor = iprApplication.applicantDetails?.mentorUid && 
+                      iprApplication.applicantDetails.mentorUid.trim() !== '';
+
+    // Determine the new status
+    // If student with mentor: pending_mentor_approval
+    // Otherwise: submitted directly to DRD
+    const newStatus = (isStudent && hasMentor) ? 'pending_mentor_approval' : 'submitted';
+    const statusComment = (isStudent && hasMentor) 
+      ? 'Application submitted, awaiting mentor approval'
+      : 'Application submitted for DRD review';
+
+    // Update status
     const updated = await prisma.iprApplication.update({
       where: { id },
       data: {
-        status: 'submitted',
+        status: newStatus,
         submittedAt: new Date(),
       },
       include: {
@@ -266,16 +340,18 @@ const submitIprApplication = async (req, res) => {
       data: {
         iprApplicationId: id,
         fromStatus: 'draft',
-        toStatus: 'submitted',
+        toStatus: newStatus,
         changedById: userId,
-        comments: 'Application submitted for DRD review',
+        comments: statusComment,
       },
     });
 
     // Get applicant name
-    const applicantName = iprApplication.applicantUser?.employeeDetails 
-      ? `${iprApplication.applicantUser.employeeDetails.firstName} ${iprApplication.applicantUser.employeeDetails.lastName || ''}`.trim()
-      : 'An applicant';
+    const applicantName = iprApplication.applicantUser?.studentLogin
+      ? `${iprApplication.applicantUser.studentLogin.firstName} ${iprApplication.applicantUser.studentLogin.lastName || ''}`.trim()
+      : iprApplication.applicantUser?.employeeDetails 
+        ? `${iprApplication.applicantUser.employeeDetails.firstName} ${iprApplication.applicantUser.employeeDetails.lastName || ''}`.trim()
+        : 'An applicant';
 
     // Get IPR type label
     const iprTypeLabels = {
@@ -285,6 +361,35 @@ const submitIprApplication = async (req, res) => {
       'design': 'Design'
     };
     const iprTypeLabel = iprTypeLabels[iprApplication.iprType] || iprApplication.iprType;
+
+    // If pending mentor approval, notify the mentor
+    if (newStatus === 'pending_mentor_approval' && hasMentor) {
+      const mentorUid = iprApplication.applicantDetails.mentorUid;
+      const mentorUser = await prisma.userLogin.findFirst({
+        where: { uid: mentorUid }
+      });
+
+      if (mentorUser) {
+        await prisma.notification.create({
+          data: {
+            userId: mentorUser.id,
+            type: 'ipr_mentor_approval',
+            title: `IPR Application Needs Your Approval`,
+            message: `Your student ${applicantName} has submitted a ${iprTypeLabel} application titled "${iprApplication.title}" and requires your approval. Application ID: ${iprApplication.applicationNumber}`,
+            referenceType: 'ipr_application',
+            referenceId: id,
+            metadata: {
+              iprType: iprApplication.iprType,
+              applicantUserId: userId,
+              applicantName: applicantName,
+              applicationNumber: iprApplication.applicationNumber,
+              action: 'mentor_approval_required'
+            }
+          }
+        });
+        console.log(`Mentor approval notification sent to: ${mentorUid}`);
+      }
+    }
 
     // Notify contributors/inventors from metadata
     const contributors = iprApplication.applicantDetails?.metadata?.contributors || [];
@@ -303,7 +408,7 @@ const submitIprApplication = async (req, res) => {
               userId: contributorUser.id,
               type: 'ipr_contributor',
               title: `You've been added as an inventor/contributor`,
-              message: `${applicantName} has submitted a ${iprTypeLabel} application titled "${iprApplication.title}" and listed you as an inventor/contributor. Application ID: ${id.substring(0, 8).toUpperCase()}`,
+              message: `${applicantName} has submitted a ${iprTypeLabel} application titled "${iprApplication.title}" and listed you as an inventor/contributor. Application ID: ${iprApplication.applicationNumber}`,
               referenceType: 'ipr_application',
               referenceId: id,
               metadata: {
@@ -321,7 +426,9 @@ const submitIprApplication = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'IPR application submitted successfully',
+      message: newStatus === 'pending_mentor_approval' 
+        ? 'IPR application submitted. Awaiting mentor approval.'
+        : 'IPR application submitted successfully',
       data: updated,
     });
   } catch (error) {
@@ -550,7 +657,7 @@ const getIprApplicationById = async (req, res) => {
   }
 };
 
-// Update IPR application (only in draft status)
+// Update IPR application (allowed in draft or pending_mentor_approval status for applicant)
 const updateIprApplication = async (req, res) => {
   try {
     const { id } = req.params;
@@ -566,23 +673,23 @@ const updateIprApplication = async (req, res) => {
       departmentId,
       sdgs,
       applicantDetails,
-      annexureS3Key,
-      supportingDocsS3Keys,
+      annexureFilePath,
+      supportingDocsFilePaths,
     } = req.body;
 
-    // Check if application exists and is in draft status
+    // Check if application exists and is editable (draft or pending_mentor_approval)
     const existing = await prisma.iprApplication.findFirst({
       where: {
         id,
         applicantUserId: userId,
-        status: 'draft',
+        status: { in: ['draft', 'pending_mentor_approval'] },
       },
     });
 
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'IPR application not found or cannot be edited',
+        message: 'IPR application not found or cannot be edited. Only draft and pending mentor approval applications can be edited.',
       });
     }
 
@@ -598,8 +705,8 @@ const updateIprApplication = async (req, res) => {
         remarks,
         schoolId,
         departmentId,
-        annexureS3Key,
-        supportingDocsS3Keys,
+        ...(annexureFilePath && { annexureFilePath }),
+        ...(supportingDocsFilePaths && { supportingDocsFilePaths }),
       },
       include: {
         applicantDetails: true,
@@ -789,6 +896,150 @@ const getMyIprApplications = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch your IPR applications',
+      error: error.message,
+    });
+  }
+};
+
+// Get my IPR application by ID (for applicant to view their own application details)
+const getMyIprApplicationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const application = await prisma.iprApplication.findFirst({
+      where: {
+        id,
+        applicantUserId: userId,
+      },
+      include: {
+        applicantUser: {
+          select: {
+            uid: true,
+            email: true,
+            role: true,
+            studentLogin: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                studentId: true,
+              },
+            },
+            employeeDetails: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                empId: true,
+              },
+            },
+          },
+        },
+        applicantDetails: true,
+        sdgs: true,
+        school: {
+          select: {
+            facultyName: true,
+            facultyCode: true,
+            shortName: true,
+          },
+        },
+        department: {
+          select: {
+            departmentName: true,
+            departmentCode: true,
+            shortName: true,
+          },
+        },
+        reviews: {
+          include: {
+            reviewer: {
+              select: {
+                uid: true,
+                email: true,
+                employeeDetails: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+        statusHistory: {
+          include: {
+            changedBy: {
+              select: {
+                uid: true,
+                employeeDetails: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+                studentLogin: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            changedAt: 'desc',
+          },
+        },
+        contributors: {
+          select: {
+            id: true,
+            uid: true,
+            name: true,
+            email: true,
+            phone: true,
+            department: true,
+            employeeCategory: true,
+            employeeType: true,
+            role: true,
+          },
+        },
+        financeRecords: {
+          include: {
+            financeReviewer: {
+              select: {
+                uid: true,
+                employeeDetails: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found or you do not have permission to view it',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: application,
+    });
+  } catch (error) {
+    console.error('Get my IPR application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch IPR application',
       error: error.message,
     });
   }
@@ -1247,16 +1498,432 @@ const getContributedIprApplicationById = async (req, res) => {
   }
 };
 
+// Get IPR applications pending mentor approval (for faculty mentors)
+const getPendingMentorApprovals = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userUid = req.user.uid;
+
+    // Find all applications where this user is the mentor
+    const applications = await prisma.iprApplication.findMany({
+      where: {
+        status: 'pending_mentor_approval',
+        applicantDetails: {
+          mentorUid: userUid
+        }
+      },
+      include: {
+        applicantUser: {
+          select: {
+            uid: true,
+            studentLogin: {
+              select: {
+                firstName: true,
+                lastName: true,
+                studentId: true,
+                program: {
+                  select: {
+                    programName: true,
+                    programCode: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        applicantDetails: true,
+        school: {
+          select: {
+            facultyName: true,
+            facultyCode: true,
+          }
+        },
+        department: {
+          select: {
+            departmentName: true,
+            departmentCode: true,
+          }
+        },
+        sdgs: true,
+      },
+      orderBy: { submittedAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      data: applications,
+      total: applications.length,
+    });
+  } catch (error) {
+    console.error('Get pending mentor approvals error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pending mentor approvals',
+      error: error.message,
+    });
+  }
+};
+
+// Get IPR application by ID for mentor review
+const getMentorApplicationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userUid = req.user.uid;
+
+    // Find the application
+    const application = await prisma.iprApplication.findFirst({
+      where: {
+        id,
+        applicantDetails: {
+          mentorUid: userUid
+        }
+      },
+      include: {
+        applicantUser: {
+          select: {
+            uid: true,
+            email: true,
+            role: true,
+            studentLogin: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                studentId: true,
+              },
+            },
+            employeeDetails: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                empId: true,
+              },
+            },
+          },
+        },
+        applicantDetails: true,
+        sdgs: true,
+        school: {
+          select: {
+            facultyName: true,
+            facultyCode: true,
+            shortName: true,
+          },
+        },
+        department: {
+          select: {
+            departmentName: true,
+            departmentCode: true,
+            shortName: true,
+          },
+        },
+        reviews: {
+          include: {
+            reviewer: {
+              select: {
+                uid: true,
+                email: true,
+                employeeDetails: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+        statusHistory: {
+          include: {
+            changedBy: {
+              select: {
+                uid: true,
+                employeeDetails: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+                studentLogin: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            changedAt: 'desc',
+          },
+        },
+        contributors: {
+          select: {
+            id: true,
+            uid: true,
+            name: true,
+            email: true,
+            phone: true,
+            department: true,
+            employeeCategory: true,
+            employeeType: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found or you are not the mentor for this application',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: application,
+    });
+  } catch (error) {
+    console.error('Get mentor IPR application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch IPR application',
+      error: error.message,
+    });
+  }
+};
+
+// Mentor approves IPR application
+const approveMentorApplication = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { comments } = req.body;
+    const userId = req.user.id;
+    const userUid = req.user.uid;
+
+    // Check if application exists and is pending mentor approval
+    const iprApplication = await prisma.iprApplication.findFirst({
+      where: {
+        id,
+        status: 'pending_mentor_approval',
+      },
+      include: {
+        applicantDetails: true,
+        applicantUser: {
+          select: {
+            id: true,
+            uid: true,
+            studentLogin: {
+              select: {
+                firstName: true,
+                lastName: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!iprApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found or not pending mentor approval',
+      });
+    }
+
+    // Verify that the current user is the mentor
+    if (iprApplication.applicantDetails?.mentorUid !== userUid) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the mentor for this application',
+      });
+    }
+
+    // Update status to submitted (approved by mentor)
+    const updated = await prisma.iprApplication.update({
+      where: { id },
+      data: {
+        status: 'submitted',
+      },
+      include: {
+        applicantDetails: true,
+        sdgs: true,
+        school: true,
+        department: true,
+      },
+    });
+
+    // Create status history entry
+    await prisma.iprStatusHistory.create({
+      data: {
+        iprApplicationId: id,
+        fromStatus: 'pending_mentor_approval',
+        toStatus: 'submitted',
+        changedById: userId,
+        comments: comments || 'Mentor approved the application',
+      },
+    });
+
+    // Notify the student that mentor approved
+    const studentName = iprApplication.applicantUser?.studentLogin
+      ? `${iprApplication.applicantUser.studentLogin.firstName} ${iprApplication.applicantUser.studentLogin.lastName || ''}`.trim()
+      : 'Student';
+
+    await prisma.notification.create({
+      data: {
+        userId: iprApplication.applicantUserId,
+        type: 'ipr_mentor_approved',
+        title: 'Your IPR Application Has Been Approved by Mentor',
+        message: `Your mentor has approved your IPR application "${iprApplication.title}". It has now been submitted to DRD for review.`,
+        referenceType: 'ipr_application',
+        referenceId: id,
+        metadata: {
+          iprType: iprApplication.iprType,
+          applicationNumber: iprApplication.applicationNumber,
+          mentorUid: userUid,
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'IPR application approved and submitted to DRD',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Mentor approve IPR application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve IPR application',
+      error: error.message,
+    });
+  }
+};
+
+// Mentor rejects IPR application (sends back to student)
+const rejectMentorApplication = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { comments } = req.body;
+    const userId = req.user.id;
+    const userUid = req.user.uid;
+
+    if (!comments) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comments are required when rejecting an application',
+      });
+    }
+
+    // Check if application exists and is pending mentor approval
+    const iprApplication = await prisma.iprApplication.findFirst({
+      where: {
+        id,
+        status: 'pending_mentor_approval',
+      },
+      include: {
+        applicantDetails: true,
+        applicantUser: {
+          select: {
+            id: true,
+            uid: true,
+          }
+        }
+      }
+    });
+
+    if (!iprApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found or not pending mentor approval',
+      });
+    }
+
+    // Verify that the current user is the mentor
+    if (iprApplication.applicantDetails?.mentorUid !== userUid) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the mentor for this application',
+      });
+    }
+
+    // Update status back to draft (rejected by mentor, needs revision)
+    const updated = await prisma.iprApplication.update({
+      where: { id },
+      data: {
+        status: 'draft',
+      },
+      include: {
+        applicantDetails: true,
+        sdgs: true,
+        school: true,
+        department: true,
+      },
+    });
+
+    // Create status history entry
+    await prisma.iprStatusHistory.create({
+      data: {
+        iprApplicationId: id,
+        fromStatus: 'pending_mentor_approval',
+        toStatus: 'draft',
+        changedById: userId,
+        comments: `Mentor requested changes: ${comments}`,
+      },
+    });
+
+    // Notify the student that mentor requested changes
+    await prisma.notification.create({
+      data: {
+        userId: iprApplication.applicantUserId,
+        type: 'ipr_mentor_rejected',
+        title: 'Your IPR Application Needs Revision',
+        message: `Your mentor has requested changes to your IPR application "${iprApplication.title}". Please review the feedback and resubmit.`,
+        referenceType: 'ipr_application',
+        referenceId: id,
+        metadata: {
+          iprType: iprApplication.iprType,
+          applicationNumber: iprApplication.applicationNumber,
+          mentorUid: userUid,
+          mentorComments: comments,
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Application sent back to student for revision',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Mentor reject IPR application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject IPR application',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createIprApplication,
   submitIprApplication,
   resubmitIprApplication,
   getAllIprApplications,
   getIprApplicationById,
+  getMyIprApplicationById,
+  getMentorApplicationById,
   updateIprApplication,
   deleteIprApplication,
   getMyIprApplications,
   getIprStatistics,
   getContributedIprApplications,
   getContributedIprApplicationById,
+  getPendingMentorApprovals,
+  approveMentorApplication,
+  rejectMentorApplication,
 };

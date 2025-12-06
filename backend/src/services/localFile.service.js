@@ -32,53 +32,36 @@ const generateLocalFileName = (folder, userId, originalName) => {
 };
 
 /**
- * Configure multer for file uploads
+ * File filter for multer - allow common document types
  */
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const folder = req.body.folder || 'documents';
-    const userId = req.user.id;
-    const userDir = path.join(UPLOADS_DIR, folder, userId);
-    
-    // Create user-specific directory if it doesn't exist
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-    
-    cb(null, userDir);
-  },
-  filename: function (req, file, cb) {
-    const timestamp = Date.now();
-    const randomString = crypto.randomBytes(6).toString('hex');
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9.-]/g, '_');
-    
-    cb(null, `${timestamp}-${randomString}-${baseName}${ext}`);
-  }
-});
-
-// File filter
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
+  const allowedMimeTypes = [
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'image/jpeg',
-    'image/png',
-    'image/jpg',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'text/plain',
   ];
 
-  if (allowedTypes.includes(file.mimetype)) {
+  if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only PDF, Word, Excel, and images are allowed.'), false);
+    cb(new Error(`File type ${file.mimetype} is not allowed`), false);
   }
 };
 
-const upload = multer({
-  storage: storage,
+/**
+ * Configure multer for file uploads
+ * Note: Using memory storage first, then saving to disk to ensure folder is read from body
+ */
+const memoryStorage = multer.memoryStorage();
+
+const uploadMemory = multer({
+  storage: memoryStorage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
@@ -99,13 +82,31 @@ const uploadFile = async (req, res) => {
 
     const folder = req.body.folder || 'documents';
     const userId = req.user.id;
-    const relativePath = `${folder}/${userId}/${req.file.filename}`;
+    
+    // Create the directory
+    const userDir = path.join(UPLOADS_DIR, folder, userId);
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
+    }
+    
+    // Generate unique filename
+    const timestamp = Date.now();
+    const randomString = crypto.randomBytes(6).toString('hex');
+    const ext = path.extname(req.file.originalname);
+    const baseName = path.basename(req.file.originalname, ext).replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${timestamp}-${randomString}-${baseName}${ext}`;
+    
+    // Write file to disk
+    const filePath = path.join(userDir, filename);
+    fs.writeFileSync(filePath, req.file.buffer);
+    
+    const relativePath = `${folder}/${userId}/${filename}`;
 
     res.json({
       success: true,
       message: 'File uploaded successfully',
       data: {
-        fileName: req.file.filename,
+        fileName: filename,
         originalName: req.file.originalname,
         filePath: relativePath,
         fileSize: req.file.size,
@@ -127,7 +128,16 @@ const uploadFile = async (req, res) => {
  */
 const downloadFile = async (req, res) => {
   try {
-    const { filePath } = req.params;
+    // For wildcard routes, the path is in req.params[0]
+    const filePath = req.params[0] || req.params.filePath;
+    
+    if (!filePath) {
+      return res.status(400).json({
+        success: false,
+        message: 'File path is required',
+      });
+    }
+    
     const fullPath = path.join(UPLOADS_DIR, filePath);
 
     // Security check: ensure the file is within the uploads directory
@@ -146,6 +156,7 @@ const downloadFile = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'File not found',
+        path: filePath
       });
     }
 
@@ -263,7 +274,7 @@ const getFileInfo = async (req, res) => {
 };
 
 module.exports = {
-  upload,
+  upload: uploadMemory,
   uploadFile,
   downloadFile,
   deleteFile,

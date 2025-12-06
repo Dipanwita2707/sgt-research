@@ -4,8 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  Home, 
-  FileText, 
+  LayoutDashboard, 
   Settings, 
   Users, 
   Lightbulb, 
@@ -14,9 +13,9 @@ import {
   DollarSign, 
   Building, 
   ChevronDown,
-  Eye,
   Bell,
   ChevronRight,
+  ChevronLeft,
   GraduationCap,
   MapPin,
   Upload,
@@ -31,7 +30,6 @@ interface NavItem {
   href: string;
   icon: any;
   adminOnly?: boolean;
-  requiresPermission?: string; // Permission name required to see this item
   subItems?: NavItem[];
 }
 
@@ -40,182 +38,94 @@ interface DepartmentPermission {
   permissions: string[];
 }
 
-// Helper to check if user has a specific permission
-// Supports both naming conventions: 'ipr_file_new' and 'drd_ipr_file'
 const hasPermission = (permissions: DepartmentPermission[], permissionName: string): boolean => {
-  // Generate variants to check
-  const variants = [
-    permissionName,
-    `drd_${permissionName}`,
-    permissionName.replace('drd_', ''),
-    permissionName.replace('_new', ''),  // ipr_file_new -> ipr_file
-    `drd_${permissionName.replace('_new', '')}`,  // ipr_file_new -> drd_ipr_file
-  ];
-  
+  const variants = [permissionName, `drd_${permissionName}`, permissionName.replace('drd_', '')];
   for (const dept of permissions) {
-    if (dept.permissions.some(p => 
-      variants.some(variant => 
-        p.toLowerCase() === variant.toLowerCase() ||
-        p.toLowerCase().includes(permissionName.toLowerCase())
-      )
-    )) {
-      return true;
-    }
+    if (dept.permissions.some(p => variants.some(v => p.toLowerCase().includes(v.toLowerCase())))) return true;
   }
   return false;
 };
 
-// Helper to check if user has any DRD/IPR related permissions (ipr_review or ipr_approve)
 const hasDrdPermissions = (permissions: DepartmentPermission[]): boolean => {
-  // Check for new simplified permissions: ipr_review, ipr_approve, ipr_assign_school
-  const drdPermissionKeys = ['ipr_review', 'ipr_approve', 'ipr_assign_school'];
-  for (const dept of permissions) {
-    if (dept.permissions.some(p => 
-      drdPermissionKeys.some(key => p.toLowerCase() === key.toLowerCase())
-    )) {
-      return true;
-    }
-  }
-  return false;
-};
-
-// Helper to check if user has finance permissions
-const hasFinancePermissions = (permissions: DepartmentPermission[]): boolean => {
-  const financeKeywords = ['finance', 'incentive', 'payment', 'audit'];
-  for (const dept of permissions) {
-    if (dept.permissions.some(p => 
-      financeKeywords.some(keyword => p.toLowerCase().includes(keyword))
-    )) {
-      return true;
-    }
-  }
-  return false;
-};
-
-// Base IPR menu for faculty and students (can file IPR by default)
-const getIprSubItems = (permissions: DepartmentPermission[], userRole: string | undefined): NavItem[] => {
-  const items: NavItem[] = [
-    { name: 'My IPR', href: '/ipr/my-applications', icon: ClipboardCheck },
-    { name: 'Apply for IPR', href: '/ipr/apply', icon: Lightbulb },
+  // If no permissions, return false
+  if (!permissions || permissions.length === 0) return false;
+  
+  // Check for any DRD-related permission
+  const drdKeys = [
+    'ipr_review', 'ipr_approve', 'ipr_assign_school', 'ipr_recommend',
+    'drd_review', 'drd_approve', 'drd_recommend', 'drd_view_all',
+    'view_all_ipr', 'review_ipr', 'approve_ipr', 'ipr'
   ];
   
-  // Only show DRD Dashboard if user has DRD permissions (checkbox granted)
-  if (hasDrdPermissions(permissions)) {
-    items.push({ name: 'DRD Dashboard', href: '/drd', icon: UserCheck });
+  for (const dept of permissions) {
+    const category = dept.category?.toLowerCase() || '';
+    // Check if category is DRD related
+    if (category.includes('drd') || category.includes('research') || category.includes('development')) {
+      console.log('DRD Permission found via category:', category);
+      return true;
+    }
+    // Check for specific permissions
+    for (const perm of dept.permissions || []) {
+      const permLower = perm.toLowerCase();
+      if (drdKeys.some(k => permLower.includes(k.toLowerCase()))) {
+        console.log('DRD Permission found:', perm);
+        return true;
+      }
+    }
   }
-  
-  // Only show Finance Processing if user has finance permissions (checkbox granted)
-  if (hasFinancePermissions(permissions)) {
-    items.push({ name: 'Finance Processing', href: '/finance/processing', icon: DollarSign });
-  }
-  
-  return items;
+  console.log('No DRD permissions found in:', permissions);
+  return false;
 };
 
-// Student IPR menu - basic filing only
-const studentIprSubItems: NavItem[] = [
-  { name: 'My IPR', href: '/ipr/my-applications', icon: ClipboardCheck },
-  { name: 'Apply for IPR', href: '/ipr/apply', icon: Lightbulb },
-];
+const hasFinancePermissions = (permissions: DepartmentPermission[]): boolean => {
+  const keys = ['finance', 'incentive', 'payment'];
+  for (const dept of permissions) {
+    if (dept.permissions.some(p => keys.some(k => p.toLowerCase().includes(k)))) return true;
+  }
+  return false;
+};
 
-// Staff IPR menu (for non-teaching staff with ipr_file_new permission from admin)
-const staffIprSubItems: NavItem[] = [
-  { name: 'My IPR', href: '/ipr/my-applications', icon: ClipboardCheck },
-  { name: 'Apply for IPR', href: '/ipr/apply', icon: Lightbulb },
-];
-
-const getNavItems = (
-  userRole: string | undefined, 
-  userType: string | undefined,
-  permissions: DepartmentPermission[]
-): NavItem[] => {
+const getNavItems = (userRole: string | undefined, userType: string | undefined, permissions: DepartmentPermission[]): NavItem[] => {
   const isStudent = userRole === 'student' || userType === 'student';
   const isFaculty = userRole === 'faculty' || userType === 'faculty';
   const isStaff = userRole === 'staff' || userType === 'staff';
   const isAdmin = userRole === 'admin' || userType === 'admin';
   
-  const items: NavItem[] = [
-    { name: 'Dashboard', href: '/dashboard', icon: Home },
-  ];
+  console.log('getNavItems - role:', userRole, 'type:', userType, 'isAdmin:', isAdmin);
+  console.log('getNavItems - permissions:', permissions);
   
-  // Determine if user can file IPR
-  // Faculty and Student have inherent IPR filing rights
-  // Staff/Admin need explicit ipr_file_new permission
-  const canFileIpr = isFaculty || isStudent || hasPermission(permissions, 'ipr_file_new');
+  const items: NavItem[] = [{ name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }];
   
-  // Check if staff/admin has any IPR-related permissions (DRD review, finance, etc.)
-  const hasAnyIprPermission = (
-    hasDrdPermissions(permissions) || 
-    hasFinancePermissions(permissions) ||
-    hasPermission(permissions, 'ipr_review') ||
-    hasPermission(permissions, 'ipr_approve')
-  );
+  // Check permissions
+  const canFileIpr = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'ipr_file_new');
+  const hasDrdAccess = hasDrdPermissions(permissions) || isAdmin;
+  const hasFinanceAccess = hasFinancePermissions(permissions);
   
-  // Show IPR Management to users who can file OR have other IPR permissions
-  if (canFileIpr || hasAnyIprPermission) {
-    let subItems: NavItem[];
-    
-    if (isStudent) {
-      // Students: always have IPR filing rights
-      subItems = studentIprSubItems;
-    } else if (isFaculty) {
-      // Faculty: always have IPR filing rights, build full menu
-      subItems = [];
-      subItems.push(
-        { name: 'My IPR', href: '/ipr/my-applications', icon: ClipboardCheck },
-        { name: 'Apply for IPR', href: '/ipr/apply', icon: Lightbulb }
-      );
-      // Add DRD Dashboard if they have DRD permissions
-      if (hasDrdPermissions(permissions)) {
-        subItems.push({ name: 'DRD Dashboard', href: '/drd', icon: UserCheck });
-      }
-      // Add Finance if they have finance permissions
-      if (hasFinancePermissions(permissions)) {
-        subItems.push({ name: 'Finance Processing', href: '/finance/processing', icon: DollarSign });
-      }
-    } else if (isStaff || isAdmin) {
-      // Staff/Admin with permissions - build menu based on what they have
-      subItems = [];
-      
-      // Add filing options if they have ipr_file_new permission
-      if (canFileIpr) {
-        subItems.push(
-          { name: 'My IPR', href: '/ipr/my-applications', icon: ClipboardCheck },
-          { name: 'Apply for IPR', href: '/ipr/apply', icon: Lightbulb }
-        );
-      }
-      
-      // Add DRD Dashboard if they have DRD permissions
-      if (hasDrdPermissions(permissions)) {
-        subItems.push({ name: 'DRD Dashboard', href: '/drd', icon: UserCheck });
-      }
-      
-      // Add Finance if they have finance permissions
-      if (hasFinancePermissions(permissions)) {
-        subItems.push({ name: 'Finance Processing', href: '/finance/processing', icon: DollarSign });
-      }
-    } else {
-      subItems = canFileIpr ? getIprSubItems(permissions, userRole) : [];
-    }
-    
-    if (subItems.length > 0) {
-      items.push({ 
-        name: 'IPR Management', 
-        href: '/ipr', 
-        icon: Lightbulb,
-        subItems
-      });
-    }
+  console.log('getNavItems - canFileIpr:', canFileIpr, 'hasDrdAccess:', hasDrdAccess);
+  
+  // DRD Dashboard - Show for users with DRD permissions OR admins
+  if (hasDrdAccess) {
+    items.push({ name: 'DRD Dashboard', href: '/drd', icon: UserCheck });
   }
   
+  // Finance Dashboard - Show if user has finance permissions
+  if (hasFinanceAccess) {
+    items.push({ name: 'Finance', href: '/finance/dashboard', icon: DollarSign });
+  }
+  
+  // IPR Management is now accessed through DRD Dashboard
+  // Removed from sidebar to avoid duplication
+  
+  // Common items
   items.push(
     { name: 'Notifications', href: '/notifications', icon: Bell },
-    { name: 'Settings', href: '/settings', icon: Settings },
-    { 
-      name: 'Admin', 
-      href: '/admin', 
-      icon: Users, 
-      adminOnly: true,
+    { name: 'Settings', href: '/settings', icon: Settings }
+  );
+  
+  // Admin section - Only for admins
+  if (isAdmin) {
+    items.push({ 
+      name: 'Admin', href: '/admin', icon: Users, adminOnly: true,
       subItems: [
         { name: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
         { name: 'Bulk Upload', href: '/admin/bulk-upload', icon: Upload },
@@ -229,229 +139,141 @@ const getNavItems = (
         { name: 'DRD School Assignment', href: '/admin/drd-school-assignment', icon: MapPin },
         { name: 'Incentive Policies', href: '/admin/incentive-policies', icon: Settings },
       ]
-    }
-  );
+    });
+  }
   
   return items;
 };
 
-// Helper function to get department route
-const getDepartmentRoute = (category: string): string => {
-  const categoryLower = category.toLowerCase();
-  
-  const routeMap: { [key: string]: string } = {
-    'drd': '/drd',
-    'directorate of research and development': '/drd',
-    'directorate-of-research-and-development': '/drd',
-    'development & research department': '/drd',
-    'research projects': '/drd',
-    'research grants': '/drd',
-    'research publications': '/drd',
-    'ipr applications': '/drd',
-    'ipr review workflow': '/drd',
-    'analytics & reports': '/drd',
-    'system administration': '/drd',
-    'hr': '/hr/dashboard',
-    'human resources': '/hr/dashboard',
-    'finance': '/finance/processing',
-    'finance department': '/finance/processing',
-    'library': '/library/dashboard',
-    'library department': '/library/dashboard',
-    'it': '/it/dashboard',
-    'it department': '/it/dashboard',
-    'information technology': '/it/dashboard',
-    'admissions': '/admissions/dashboard',
-    'admissions office': '/admissions/dashboard',
-    'registrar': '/registrar/dashboard',
-    'students': '/students/dashboard',
-    'faculty': '/faculty/dashboard',
-    'courses': '/courses/dashboard',
-    'examinations': '/examinations/dashboard',
-    'research': '/research/dashboard',
-  };
-  
-  // Check for exact match first
-  if (routeMap[categoryLower]) {
-    return routeMap[categoryLower];
-  }
-  
-  // Check for partial matches (e.g., "drd" in "directorate of research...")
-  for (const [key, route] of Object.entries(routeMap)) {
-    if (categoryLower.includes(key) || key.includes(categoryLower)) {
-      return route;
-    }
-  }
-  
-  // Default fallback - go to dashboard
-  return '/dashboard';
+const getUserInitials = (user: any): string => {
+  if (user?.firstName && user?.lastName) return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
+  if (user?.firstName) return user.firstName.substring(0, 2).toUpperCase();
+  return user?.username?.substring(0, 2).toUpperCase() || 'U';
 };
 
-// Helper function to get display name for departments
-const getDepartmentDisplayName = (category: string): string => {
-  const categoryLower = category.toLowerCase();
-  
-  const displayMap: { [key: string]: string } = {
-    'drd': 'DRD Dashboard',
-    'directorate of research and development': 'DRD Dashboard',
-    'directorate-of-research-and-development': 'DRD Dashboard',
-    'development & research department': 'DRD Dashboard',
-    'research projects': 'Research Projects',
-    'research grants': 'Research Grants', 
-    'research publications': 'Publications',
-    'ipr applications': 'IPR Management',
-    'ipr review workflow': 'IPR Review',
-    'analytics & reports': 'Analytics',
-    'system administration': 'System Admin',
-    'hr': 'Human Resources',
-    'human resources': 'Human Resources',
-    'finance': 'Finance',
-    'finance department': 'Finance',
-    'library': 'Library',
-    'library department': 'Library',
-    'it': 'IT Department',
-    'it department': 'IT Department',
-    'information technology': 'IT Department',
-    'admissions': 'Admissions',
-    'admissions office': 'Admissions',
-    'registrar': 'Registrar',
-    'students': 'Student Management',
-    'faculty': 'Faculty Management',
-    'courses': 'Course Management',
-    'examinations': 'Examinations',
-    'research': 'Research',
-  };
-  
-  // Check for exact match
-  if (displayMap[categoryLower]) {
-    return displayMap[categoryLower];
-  }
-  
-  // Check for partial matches
-  for (const [key, displayName] of Object.entries(displayMap)) {
-    if (categoryLower.includes(key) || key.includes(categoryLower)) {
-      return displayName;
-    }
-  }
-  
-  // Format the category name as fallback
-  return category.split(/[\s_-]+/).map(word => 
-    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-  ).join(' ');
+const getUserDisplayName = (user: any): string => {
+  if (user?.firstName) return user.firstName;
+  return user?.username || 'User';
 };
 
-export default function Sidebar() {
+const getUserRoleLabel = (user: any): string => {
+  const type = user?.userType?.toUpperCase() || user?.role?.name?.toUpperCase() || 'USER';
+  if (type === 'ADMIN') return 'ADMINISTRATOR';
+  return type;
+};
+
+interface SidebarProps {
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+export default function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuthStore();
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [expandedItems, setExpandedItems] = useState<string[]>(['Admin']); // Admin expanded by default
   const [userPermissions, setUserPermissions] = useState<DepartmentPermission[]>([]);
-  const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
 
-  // Fetch permissions on mount/user change
   useEffect(() => {
-    if (user) {
-      fetchUserPermissions();
-    }
+    if (user) fetchUserPermissions();
   }, [user]);
 
   const fetchUserPermissions = async () => {
     try {
-      setIsLoadingPermissions(true);
       const response = await api.get('/dashboard/staff');
       if (response.data.success) {
-        setUserPermissions(response.data.data.permissions || []);
+        const perms = response.data.data.permissions || [];
+        console.log('Sidebar - User permissions loaded:', perms);
+        setUserPermissions(perms);
       }
     } catch (error) {
       console.error('Error fetching permissions:', error);
-    } finally {
-      setIsLoadingPermissions(false);
     }
   };
 
-  // Nav items depend on permissions, so compute after permissions are loaded
   const navItems = getNavItems(user?.role?.name, user?.userType, userPermissions);
+  // No need to filter - getNavItems already handles role-based visibility
+  const filteredNavItems = navItems;
 
-  // Filter admin-only items
-  const filteredNavItems = navItems.filter(
-    (item) => !item.adminOnly || user?.userType === 'admin' || user?.role?.name === 'admin'
-  );
-
-  const toggleExpand = (itemName: string) => {
-    setExpandedItems((prev) =>
-      prev.includes(itemName)
-        ? prev.filter((name) => name !== itemName)
-        : [...prev, itemName]
-    );
+  const toggleExpand = (name: string) => {
+    setExpandedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
   };
 
-  return (
-    <aside className="hidden md:flex md:flex-col w-72 bg-white border-r border-gray-100 shadow-sm">
-      {/* Logo Section */}
-      <div className="p-5 border-b border-gray-100">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-11 h-11 bg-sgt-gradient rounded-xl flex items-center justify-center shadow-sgt animate-pulse-glow">
-              <span className="text-white font-bold text-xl">S</span>
-            </div>
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-sgt-gradient">SGT University</h1>
-            <p className="text-[10px] text-gray-400 tracking-wider uppercase">Management Portal</p>
-          </div>
+  const sidebarContent = (
+    <div className="flex flex-col h-full">
+      {/* Collapse Toggle - Like LMS */}
+      <button
+        onClick={onToggleCollapse}
+        className="absolute -right-3 top-8 z-50 w-6 h-6 bg-white rounded-full shadow-lg flex items-center justify-center hover:bg-gray-50 transition-colors border border-gray-200"
+      >
+        <ChevronLeft className={`w-4 h-4 text-[#03396c] transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* User Section - Like LMS with avatar, name, role badge */}
+      <div className={`flex flex-col items-center py-6 border-b border-white/10 ${isCollapsed ? 'px-2' : 'px-4'}`}>
+        <div 
+          className={`rounded-full bg-gradient-to-br from-[#03396c] to-[#011f4b] flex items-center justify-center text-white font-bold shadow-lg border-4 border-white/20 ${
+            isCollapsed ? 'w-10 h-10 text-sm' : 'w-16 h-16 text-xl'
+          }`}
+        >
+          {getUserInitials(user)}
         </div>
+        {!isCollapsed && (
+          <div className="text-center mt-3">
+            <h3 className="text-white font-semibold text-sm">{getUserDisplayName(user)}</h3>
+            <span className="inline-block mt-2 px-3 py-1 bg-[#005b96] text-white text-[10px] font-bold rounded-full tracking-wide">
+              {getUserRoleLabel(user)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-5 space-y-1.5 overflow-y-auto">
-        {/* Main Navigation Label */}
-        <p className="px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Main Menu
-        </p>
-
+      <nav className="flex-1 py-4 overflow-y-auto">
         {filteredNavItems.map((item: NavItem) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           const isExpanded = expandedItems.includes(item.name);
+          const hasSubItems = item.subItems && item.subItems.length > 0;
           
           return (
-            <div key={item.name} className="animate-slideIn">
-              {item.subItems ? (
+            <div key={item.name} className="mb-1">
+              {hasSubItems && !isCollapsed ? (
                 <div>
                   <button
                     onClick={() => toggleExpand(item.name)}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${
-                      isActive
-                        ? 'bg-sgt-gradient text-white shadow-sgt'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-sgt-600'
+                    className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg transition-all duration-200 ${
+                      isActive 
+                        ? 'bg-[#1a5a8a] text-white' 
+                        : 'text-white/80 hover:bg-white/10 hover:text-white'
                     }`}
+                    style={{ width: 'calc(100% - 16px)' }}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${isActive ? 'bg-white/20' : 'bg-gray-100 group-hover:bg-sgt-50'}`}>
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-sgt-600'}`} />
-                      </div>
+                      <Icon className="w-5 h-5 flex-shrink-0" />
                       <span className="font-medium text-sm">{item.name}</span>
                     </div>
-                    <ChevronDown 
-                      className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''} ${isActive ? 'text-white/70' : 'text-gray-400'}`} 
-                    />
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                   </button>
                   
-                  {/* Sub Items */}
                   {isExpanded && (
-                    <div className="ml-4 mt-2 space-y-1 pl-4 border-l-2 border-sgt-100">
-                      {item.subItems.map((subItem: NavItem) => {
+                    <div className="mt-1 space-y-0.5 pl-4 pr-2">
+                      {item.subItems!.map((subItem: NavItem) => {
                         const SubIcon = subItem.icon;
                         const isSubActive = pathname === subItem.href;
                         return (
                           <Link
                             key={subItem.name}
                             href={subItem.href}
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                              isSubActive
-                                ? 'bg-sgt-50 text-sgt-700 font-medium border-l-2 border-sgt-600 -ml-[2px]'
-                                : 'text-gray-500 hover:bg-gray-50 hover:text-sgt-600'
+                            onClick={onMobileClose}
+                            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
+                              isSubActive 
+                                ? 'bg-[#1a5a8a] text-white font-medium' 
+                                : 'text-white/70 hover:bg-white/10 hover:text-white'
                             }`}
                           >
-                            <SubIcon className={`w-4 h-4 ${isSubActive ? 'text-sgt-600' : 'text-gray-400'}`} />
+                            <SubIcon className="w-4 h-4 flex-shrink-0" />
                             {subItem.name}
                           </Link>
                         );
@@ -461,98 +283,60 @@ export default function Sidebar() {
                 </div>
               ) : (
                 <Link
-                  href={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                    isActive
-                      ? 'bg-sgt-gradient text-white shadow-sgt'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-sgt-600'
+                  href={hasSubItems ? item.subItems![0]?.href || item.href : item.href}
+                  onClick={onMobileClose}
+                  className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-all duration-200 ${
+                    isCollapsed ? 'justify-center' : ''
+                  } ${isActive 
+                    ? 'bg-[#1a5a8a] text-white' 
+                    : 'text-white/80 hover:bg-white/10 hover:text-white'
                   }`}
+                  style={{ width: 'calc(100% - 16px)' }}
+                  title={isCollapsed ? item.name : undefined}
                 >
-                  <div className={`p-2 rounded-lg ${isActive ? 'bg-white/20' : 'bg-gray-100 group-hover:bg-sgt-50'}`}>
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-sgt-600'}`} />
-                  </div>
-                  <span className="font-medium text-sm">{item.name}</span>
-                  {isActive && <ChevronRight className="w-4 h-4 ml-auto text-white/70" />}
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  {!isCollapsed && <span className="font-medium text-sm">{item.name}</span>}
                 </Link>
               )}
             </div>
           );
         })}
-
-        {/* My Departments Section */}
-        {user?.userType !== 'admin' && userPermissions.length > 0 && (
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <p className="px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              My Departments
-            </p>
-            {userPermissions.map((dept, index) => {
-              const isExpanded = expandedItems.includes(dept.category);
-              const departmentRoute = getDepartmentRoute(dept.category);
-              const isActive = pathname === departmentRoute || pathname.startsWith(departmentRoute + '/');
-              
-              return (
-                <div key={index} className="mb-2">
-                  <Link
-                    href={departmentRoute}
-                    className={`flex items-center justify-between px-4 py-2.5 text-sm rounded-xl transition-all duration-200 ${
-                      isActive
-                        ? 'bg-gradient-to-r from-sgt-50 to-sgt-100 text-sgt-700 font-medium border border-sgt-200'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Building className={`w-4 h-4 ${isActive ? 'text-sgt-600' : 'text-gray-400'}`} />
-                      <span>{getDepartmentDisplayName(dept.category)}</span>
-                    </div>
-                    <span className="text-[10px] bg-sgt-600 text-white px-2 py-0.5 rounded-full">
-                      {dept.permissions.length}
-                    </span>
-                  </Link>
-                  
-                  {/* Permissions Preview Toggle */}
-                  <button
-                    onClick={() => toggleExpand(dept.category)}
-                    className="w-full flex items-center justify-center px-4 py-1 text-xs text-gray-400 hover:text-sgt-600 transition-colors"
-                  >
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {isExpanded && (
-                    <div className="ml-6 mt-1 space-y-1 animate-slideUp">
-                      {dept.permissions.slice(0, 3).map((permission, permIndex) => (
-                        <div key={permIndex} className="text-[11px] text-gray-500 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100">
-                          {permission.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                        </div>
-                      ))}
-                      {dept.permissions.length > 3 && (
-                        <div className="text-[11px] text-sgt-600 px-3 font-medium">
-                          +{dept.permissions.length - 3} more permissions
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-100 bg-gradient-to-br from-gray-50 to-white">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-sgt-gradient rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">S</span>
-          </div>
-          <div className="flex-1">
-            <p className="text-[10px] text-gray-500">Powered by</p>
-            <p className="text-xs font-semibold text-sgt-700">SGT University</p>
-          </div>
+      {/* Footer - Like LMS */}
+      {!isCollapsed && (
+        <div className="border-t border-white/10 p-4 text-center">
+          <p className="text-[10px] text-white/50">© 2025 SGT Learning Platform</p>
+          <p className="text-[10px] text-white/40">Version 2.0</p>
         </div>
-        <p className="text-[10px] text-gray-400 text-center mt-3">
-          © 2024 All Rights Reserved
-        </p>
-      </div>
-    </aside>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside 
+        className={`hidden md:flex md:flex-col fixed left-0 top-14 bottom-0 z-30 transition-all duration-300 ease-in-out ${
+          isCollapsed ? 'w-16' : 'w-60'
+        }`}
+        style={{ background: 'linear-gradient(180deg, #03396c 0%, #011f4b 100%)' }}
+      >
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Sidebar Overlay */}
+      {isMobileOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={onMobileClose} />
+          <aside 
+            className="fixed inset-y-0 left-0 w-60 z-50 md:hidden flex flex-col pt-14"
+            style={{ background: 'linear-gradient(180deg, #03396c 0%, #011f4b 100%)' }}
+          >
+            {sidebarContent}
+          </aside>
+        </>
+      )}
+    </>
   );
 }

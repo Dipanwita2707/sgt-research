@@ -25,12 +25,9 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Unauthorized - redirect to login (cookie is handled by server)
-      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-    }
+    // Don't auto-redirect on 401 - let the ProtectedRoute component handle it
+    // This prevents race conditions and allows proper auth state management
+    console.log('API Error:', error.response?.status, error.config?.url);
     return Promise.reject(error);
   }
 );
