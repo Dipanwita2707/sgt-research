@@ -28,6 +28,12 @@ router.post('/reject/:id', requirePermission('central-department', 'ipr_approve'
 // DRD Head can view but not fill these - this is the reviewer's task after head approval
 router.post('/govt-application/:id', requirePermission('central-department', 'ipr_review'), drdReviewController.addGovtApplicationId);
 router.post('/publication/:id', requirePermission('central-department', 'ipr_review'), drdReviewController.addPublicationId);
+router.post('/mark-govt-rejected/:id', requirePermission('central-department', 'ipr_review'), drdReviewController.markGovtRejected);
+
+// Status Updates - For DRD to communicate with applicants/inventors (hearings, document requests, milestones)
+router.post('/status-update/:id', requireAnyPermission('central-department', ['ipr_review', 'ipr_approve']), drdReviewController.addStatusUpdate);
+router.get('/status-updates/:id', drdReviewController.getStatusUpdates);  // Accessible by applicant, inventors, and DRD
+router.delete('/status-update/:updateId', requireAnyPermission('central-department', ['ipr_review', 'ipr_approve']), drdReviewController.deleteStatusUpdate);
 
 // System Override - Approve permission (DRD Head level)
 router.post('/system-override/:id', requirePermission('central-department', 'ipr_approve'), drdReviewController.systemOverride);

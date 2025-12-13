@@ -56,4 +56,22 @@ router.get('/:iprApplicationId/history',
   collaborativeEditingController.getReviewHistory
 );
 
+// ========== MENTOR COLLABORATIVE EDITING ROUTES ==========
+// These routes are for mentors to review student IPR applications
+
+// Mentor creates individual edit suggestion
+router.post('/mentor/:iprApplicationId/suggestions', 
+  collaborativeEditingController.mentorCreateEditSuggestion
+);
+
+// Mentor gets their edit suggestions for an application
+router.get('/mentor/:iprApplicationId/suggestions', 
+  collaborativeEditingController.getMentorEditSuggestions
+);
+
+// Mentor submits batch suggestions
+router.post('/mentor/:iprApplicationId/suggestions/batch', 
+  collaborativeEditingController.mentorSubmitBatchSuggestions
+);
+
 module.exports = router;

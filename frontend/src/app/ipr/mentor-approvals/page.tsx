@@ -15,9 +15,14 @@ import {
   ArrowLeft,
   AlertCircle,
   CheckCheck,
-  MessageSquare
+  MessageSquare,
+  Edit3,
+  History,
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { iprService, IprApplication } from '@/services/ipr.service';
+import MentorCollaborativeReviewModal from '@/components/ipr/MentorCollaborativeReviewModal';
 
 const IPR_TYPE_CONFIG = {
   patent: { label: 'Patent', icon: Lightbulb, color: 'bg-blue-500' },
@@ -26,8 +31,30 @@ const IPR_TYPE_CONFIG = {
   design: { label: 'Design', icon: FileText, color: 'bg-orange-500' },
 };
 
+const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending_mentor_approval: { label: 'Pending Your Approval', color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  changes_required: { label: 'Changes Requested', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
+  submitted: { label: 'Submitted to DRD', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  under_drd_review: { label: 'Under DRD Review', color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
+  recommended_to_head: { label: 'Recommended to Head', color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  drd_head_approved: { label: 'DRD Head Approved', color: 'text-teal-700', bgColor: 'bg-teal-100' },
+  published: { label: 'Published', color: 'text-green-700', bgColor: 'bg-green-100' },
+  completed: { label: 'Completed', color: 'text-green-700', bgColor: 'bg-green-100' },
+  draft: { label: 'Draft (Rejected)', color: 'text-gray-700', bgColor: 'bg-gray-100' },
+  rejected: { label: 'Rejected', color: 'text-red-700', bgColor: 'bg-red-100' },
+};
+
+type TabType = 'pending' | 'history';
+
 export default function MentorApprovalsPage() {
-  const [applications, setApplications] = useState<IprApplication[]>([]);
+  const [activeTab, setActiveTab] = useState<TabType>('pending');
+  const [pendingApplications, setPendingApplications] = useState<IprApplication[]>([]);
+  const [historyData, setHistoryData] = useState<{
+    all: IprApplication[];
+    approved: IprApplication[];
+    changesRequired: IprApplication[];
+    stats: { total: number; pending: number; approved: number; changesRequired: number; rejected: number };
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedApp, setSelectedApp] = useState<IprApplication | null>(null);
@@ -38,19 +65,49 @@ export default function MentorApprovalsPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectComments, setRejectComments] = useState('');
 
+  // Collaborative review modal state
+  const [showCollaborativeModal, setShowCollaborativeModal] = useState(false);
+
   useEffect(() => {
+    // Always fetch pending count for the tab badge
     fetchPendingApprovals();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchMentorHistory();
+    }
+  }, [activeTab]);
 
   const fetchPendingApprovals = async () => {
     try {
       setLoading(true);
       setError('');
       const data = await iprService.getPendingMentorApprovals();
-      setApplications(data);
+      setPendingApplications(data);
     } catch (err: any) {
       console.error('Error fetching pending approvals:', err);
       setError(err.response?.data?.message || 'Failed to fetch pending approvals');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMentorHistory = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await iprService.getMentorReviewHistory();
+      // Response has { data: { all, pending, ... }, stats: {...} }
+      setHistoryData({
+        all: response.data.all,
+        approved: response.data.approved,
+        changesRequired: response.data.changesRequired,
+        stats: response.stats
+      });
+    } catch (err: any) {
+      console.error('Error fetching mentor history:', err);
+      setError(err.response?.data?.message || 'Failed to fetch history');
     } finally {
       setLoading(false);
     }
@@ -111,6 +168,10 @@ export default function MentorApprovalsPage() {
       const { firstName, lastName } = app.applicantUser.studentDetails;
       return `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown Student';
     }
+    if (app.applicantUser?.studentLogin) {
+      const { firstName, lastName } = app.applicantUser.studentLogin;
+      return `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown Student';
+    }
     if (app.applicantUser?.employeeDetails) {
       const { firstName, lastName } = app.applicantUser.employeeDetails;
       return `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown';
@@ -121,6 +182,12 @@ export default function MentorApprovalsPage() {
   const getIprTypeConfig = (type: string) => {
     return IPR_TYPE_CONFIG[type as keyof typeof IPR_TYPE_CONFIG] || IPR_TYPE_CONFIG.patent;
   };
+
+  const getStatusConfig = (status: string) => {
+    return STATUS_CONFIG[status] || { label: status, color: 'text-gray-700', bgColor: 'bg-gray-100' };
+  };
+
+  const applications = activeTab === 'pending' ? pendingApplications : (historyData?.all || []);
 
   if (loading) {
     return (
@@ -144,6 +211,89 @@ export default function MentorApprovalsPage() {
         </p>
       </div>
 
+      {/* Stats Cards (for history tab) */}
+      {activeTab === 'history' && historyData && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{historyData.stats.total}</p>
+                <p className="text-sm text-gray-500">Total Applications</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{historyData.stats.approved}</p>
+                <p className="text-sm text-gray-500">Approved</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                <Clock className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{historyData.stats.pending}</p>
+                <p className="text-sm text-gray-500">Pending</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                <RefreshCw className="w-5 h-5 text-yellow-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{historyData.stats.changesRequired}</p>
+                <p className="text-sm text-gray-500">Changes Requested</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('pending')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+              activeTab === 'pending'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            Pending Approvals
+            {pendingApplications.length > 0 && (
+              <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded-full">
+                {pendingApplications.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+              activeTab === 'history'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            My Mentee Applications
+          </button>
+        </nav>
+      </div>
+
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600" />
@@ -153,17 +303,31 @@ export default function MentorApprovalsPage() {
 
       {applications.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <CheckCheck className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Pending Approvals</h3>
-          <p className="text-gray-600">
-            You don't have any IPR applications waiting for your approval.
-          </p>
+          {activeTab === 'pending' ? (
+            <>
+              <CheckCheck className="w-16 h-16 text-green-500 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Pending Approvals</h3>
+              <p className="text-gray-600">
+                You don't have any IPR applications waiting for your approval.
+              </p>
+            </>
+          ) : (
+            <>
+              <History className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Applications Yet</h3>
+              <p className="text-gray-600">
+                No students have submitted IPR applications with you as mentor.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid gap-6">
           {applications.map((app) => {
             const typeConfig = getIprTypeConfig(app.iprType);
             const TypeIcon = typeConfig.icon;
+            const statusConfig = getStatusConfig(app.status);
+            const isPending = app.status === 'pending_mentor_approval';
 
             return (
               <div
@@ -185,9 +349,12 @@ export default function MentorApprovalsPage() {
                         </p>
                       </div>
                     </div>
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700">
-                      <Clock className="w-4 h-4 mr-1" />
-                      Pending Approval
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusConfig.bgColor} ${statusConfig.color}`}>
+                      {isPending ? <Clock className="w-4 h-4 mr-1" /> : 
+                       app.status === 'submitted' || app.status === 'under_drd_review' ? <Send className="w-4 h-4 mr-1" /> :
+                       app.status === 'changes_required' ? <RefreshCw className="w-4 h-4 mr-1" /> :
+                       <CheckCircle className="w-4 h-4 mr-1" />}
+                      {statusConfig.label}
                     </span>
                   </div>
 
@@ -207,7 +374,7 @@ export default function MentorApprovalsPage() {
                     <div className="flex items-center gap-2 text-gray-600">
                       <Building className="w-4 h-4" />
                       <span className="text-sm">
-                        <strong>School:</strong> {app.school?.name || 'N/A'}
+                        <strong>School:</strong> {app.school?.facultyName || app.school?.name || 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -228,26 +395,40 @@ export default function MentorApprovalsPage() {
                       <Eye className="w-4 h-4 mr-2" />
                       View Details
                     </Link>
-                    <button
-                      onClick={() => {
-                        setSelectedApp(app);
-                        setShowRejectModal(true);
-                      }}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Request Changes
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedApp(app);
-                        setShowApprovalModal(true);
-                      }}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Approve
-                    </button>
+                    {isPending && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setSelectedApp(app);
+                            setShowCollaborativeModal(true);
+                          }}
+                          className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
+                        >
+                          <Edit3 className="w-4 h-4 mr-2" />
+                          Collaborative Review
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedApp(app);
+                            setShowRejectModal(true);
+                          }}
+                          className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          <XCircle className="w-4 h-4 mr-2" />
+                          Request Changes
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedApp(app);
+                            setShowApprovalModal(true);
+                          }}
+                          className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Approve
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -377,6 +558,20 @@ export default function MentorApprovalsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Collaborative Review Modal */}
+      {showCollaborativeModal && selectedApp && (
+        <MentorCollaborativeReviewModal
+          application={selectedApp}
+          onClose={() => {
+            setShowCollaborativeModal(false);
+            setSelectedApp(null);
+          }}
+          onReviewComplete={() => {
+            fetchPendingApprovals();
+          }}
+        />
       )}
     </div>
   );

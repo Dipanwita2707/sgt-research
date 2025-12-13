@@ -9,6 +9,9 @@ router.use(protect);
 // Upload file directly to local storage
 router.post('/upload', localFileService.upload.single('file'), localFileService.uploadFile);
 
+// Upload prototype ZIP file (up to 50MB) for IPR Complete Filing
+router.post('/upload-prototype', localFileService.uploadPrototype.single('file'), localFileService.uploadPrototypeFile);
+
 // Download file from local storage
 router.get('/download/*', localFileService.downloadFile);
 

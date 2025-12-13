@@ -9,6 +9,7 @@ router.use(protect);
 // Applicant routes - available to users with file/edit own permissions
 router.get('/my-applications', iprController.getMyIprApplications);
 router.get('/my-applications/:id', iprController.getMyIprApplicationById);  // View own application details
+router.get('/my-published-provisionals', iprController.getMyPublishedProvisionals);  // Get published provisionals for complete filing conversion
 router.get('/contributed', iprController.getContributedIprApplications);  // Get applications where user is a contributor
 router.get('/contributed/:id', iprController.getContributedIprApplicationById);  // View single contributed application
 // IPR Filing: Faculty/Student can file by default, Staff needs ipr_file_new permission from admin
@@ -20,6 +21,7 @@ router.delete('/:id', requireAnyPermission('central-department', ['ipr_delete', 
 
 // Mentor approval routes (for faculty mentors)
 router.get('/mentor/pending', restrictTo('faculty', 'admin'), iprController.getPendingMentorApprovals);
+router.get('/mentor/history', restrictTo('faculty', 'admin'), iprController.getMentorReviewHistory);  // Mentor's review history
 router.get('/mentor/application/:id', restrictTo('faculty', 'admin'), iprController.getMentorApplicationById);  // View application as mentor
 router.post('/mentor/:id/approve', restrictTo('faculty', 'admin'), iprController.approveMentorApplication);
 router.post('/mentor/:id/reject', restrictTo('faculty', 'admin'), iprController.rejectMentorApplication);

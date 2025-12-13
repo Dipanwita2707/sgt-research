@@ -322,11 +322,67 @@ const checkIprFilePermission = (req, res, next) => {
   }
 };
 
+const checkResearchFilePermission = (req, res, next) => {
+  try {
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - user not found'
+      });
+    }
+
+    const role = user.role;
+
+    // Faculty and Student can file Research Contributions by default (inherent rights)
+    if (role === 'faculty' || role === 'student') {
+      return next();
+    }
+
+    // For Staff AND Admin: Check if they have research_file_new permission from checkbox
+    // Admin is IT head - manages users/permissions, NOT research operations
+    if (role === 'staff' || role === 'admin') {
+      const permissionVariants = ['research_file_new', 'drd_research_file', 'research_file'];
+      
+      // Check central department permissions for research_file_new
+      const hasFilePermission = user.centralDeptPermissions?.some(deptPerm => 
+        deptPerm.permissions && permissionVariants.some(variant =>
+          deptPerm.permissions[variant] === true
+        )
+      );
+
+      if (hasFilePermission) {
+        return next();
+      }
+
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - You require Research filing permission from administrator. Please contact admin to enable "File New Research Contributions" permission.',
+        requiredPermission: 'research_file_new'
+      });
+    }
+
+    // Default deny for unknown roles
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied - You do not have permission to file Research Contributions'
+    });
+  } catch (error) {
+    console.error('Research file permission check error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Permission check failed'
+    });
+  }
+};
+
 module.exports = {
   protect,
   restrictTo,
   checkDepartmentPermission,
   requirePermission,
   requireAnyPermission,
-  checkIprFilePermission
+  checkIprFilePermission,
+  checkResearchFilePermission
 };

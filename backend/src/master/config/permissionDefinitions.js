@@ -94,6 +94,7 @@ const CENTRAL_DEPARTMENT_PERMISSIONS = {
   
   // DRD (Development & Research Department) - Simplified 4 IPR Permission Model
   drd: [
+    // ========== IPR Permissions ==========
     // IPR Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
     { key: 'ipr_file_new', label: 'IPR Filing', category: 'IPR Permissions', type: 'action', description: 'Can file new IPR applications (Faculty/Student have this by default)' },
     
@@ -104,7 +105,20 @@ const CENTRAL_DEPARTMENT_PERMISSIONS = {
     { key: 'ipr_approve', label: 'IPR Approve', category: 'IPR Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on IPR applications' },
     
     // Assign Schools - DRD Head can assign schools to DRD member reviewers
-    { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members', category: 'IPR Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers' },
+    { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members (IPR)', category: 'IPR Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for IPR' },
+    
+    // ========== Research Contribution Permissions ==========
+    // Research Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
+    { key: 'research_file_new', label: 'Research Filing', category: 'Research Permissions', type: 'action', description: 'Can file new research contributions (Faculty/Student have this by default)' },
+    
+    // Research Review - DRD Member can review applications from assigned schools
+    { key: 'research_review', label: 'Research Review', category: 'Research Permissions', type: 'action', description: 'DRD Member - Can review research contributions from assigned schools' },
+    
+    // Research Approve - DRD Head can give final approval/rejection
+    { key: 'research_approve', label: 'Research Approve', category: 'Research Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on research contributions' },
+    
+    // Assign Schools for Research - DRD Head can assign schools to DRD member reviewers
+    { key: 'research_assign_school', label: 'Assign Schools to DRD Members (Research)', category: 'Research Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Research' },
   ],
   
   // Finance Department

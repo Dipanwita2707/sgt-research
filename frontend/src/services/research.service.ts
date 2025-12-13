@@ -1,0 +1,379 @@
+import api from '@/lib/api';
+
+// TypeScript Interfaces
+export type ResearchPublicationType = 
+  | 'research_paper'
+  | 'book'
+  | 'book_chapter'
+  | 'conference_paper'
+  | 'grant';
+
+export type ResearchContributionStatus = 
+  | 'draft'
+  | 'submitted'
+  | 'under_review'
+  | 'changes_required'
+  | 'resubmitted'
+  | 'approved'
+  | 'rejected'
+  | 'completed';
+
+export type ResearchAuthorType = 
+  | 'internal_faculty'
+  | 'internal_student'
+  | 'external_academic'
+  | 'external_industry'
+  | 'external_other';
+
+export type TargetedResearchType = 
+  | 'research_based_journal'
+  | 'community_based_journal'
+  | 'na';
+
+export interface ResearchContribution {
+  id: string;
+  applicationNumber?: string;
+  applicantUserId?: string;
+  publicationType: ResearchPublicationType;
+  title: string;
+  abstract?: string;
+  
+  // Common fields
+  publishedYear?: number;
+  publishedMonth?: number;
+  publishedDate?: string;
+  doi?: string;
+  url?: string;
+  publisherName?: string;
+  
+  // Research paper specific
+  journalName?: string;
+  volume?: string;
+  issue?: string;
+  pageNumbers?: string;
+  issn?: string;
+  indexedIn?: string[];
+  impactFactor?: number;
+  sjr?: number;
+  hasInternationalAuthor?: boolean;
+  internationalAuthor?: boolean;
+  targetedResearchType?: TargetedResearchType | string;
+  quartile?: string;
+  
+  // Research characteristics
+  foreignCollaborationsCount?: number;
+  interdisciplinaryFromSgt?: boolean;
+  studentsFromSgt?: boolean;
+  sgtAffiliatedAuthors?: number;
+  internalCoAuthors?: number;
+  totalAuthors?: number;
+  
+  // Book specific
+  bookTitle?: string;
+  publisher?: string;
+  isbn?: string;
+  edition?: string;
+  chapterTitle?: string;
+  chapterNumber?: string;
+  
+  // Conference specific
+  conferenceName?: string;
+  conferenceDate?: string;
+  conferenceLocation?: string;
+  conferenceType?: string;
+  proceedingsTitle?: string;
+  isInvited?: boolean;
+  
+  // Grant specific
+  grantTitle?: string;
+  fundingAgency?: string;
+  grantAmount?: number;
+  grantStartDate?: string;
+  grantEndDate?: string;
+  grantStatus?: string;
+  
+  // Author info
+  totalInternalAuthors?: number;
+  totalExternalAuthors?: number;
+  
+  // School/Department
+  schoolId?: string;
+  departmentId?: string;
+  
+  // Status
+  status: ResearchContributionStatus;
+  currentReviewerId?: string;
+  
+  // Incentives
+  calculatedIncentiveAmount?: number;
+  calculatedPoints?: number;
+  incentiveAmount?: number;
+  pointsAwarded?: number;
+  creditedAt?: string;
+  
+  // Timestamps
+  submittedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Relations
+  applicantUser?: any;
+  applicantDetails?: ResearchApplicantDetails;
+  authors?: ResearchContributionAuthor[];
+  school?: any;
+  department?: any;
+  reviews?: ResearchReview[];
+  statusHistory?: ResearchStatusHistory[];
+  editSuggestions?: ResearchEditSuggestion[];
+}
+
+export interface ResearchApplicantDetails {
+  id: string;
+  researchContributionId: string;
+  employeeCategory?: string;
+  employeeType?: string;
+  uid?: string;
+  email?: string;
+  phone?: string;
+  universityDeptName?: string;
+  metadata?: any;
+}
+
+export interface ResearchContributionAuthor {
+  id: string;
+  researchContributionId: string;
+  userId?: string;
+  authorType: ResearchAuthorType;
+  authorCategory?: string;
+  authorRole?: string;
+  name: string;
+  email?: string;
+  affiliation?: string;
+  registrationNumber?: string;
+  isCorresponding?: boolean;
+  orderNumber: number;
+  
+  // PhD linkage
+  linkedForPhd?: boolean;
+  usePublicationAddress?: boolean;
+  usePermanentAddress?: boolean;
+  
+  // Incentives
+  incentiveShare?: number;
+  pointsShare?: number;
+  
+  // For fetched user data
+  user?: any;
+}
+
+export interface ResearchReview {
+  id: string;
+  researchContributionId: string;
+  reviewerId: string;
+  reviewerRole: string;
+  comments?: string;
+  decision: string;
+  reviewedAt?: string;
+  reviewer?: any;
+}
+
+export interface ResearchStatusHistory {
+  id: string;
+  researchContributionId: string;
+  fromStatus?: string;
+  toStatus: string;
+  changedById: string;
+  comments?: string;
+  createdAt: string;
+  changedBy?: any;
+}
+
+export interface ResearchEditSuggestion {
+  id: string;
+  researchContributionId: string;
+  reviewerId: string;
+  fieldName: string;
+  fieldPath?: string;
+  originalValue?: string;
+  suggestedValue: string;
+  suggestionNote?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  applicantResponse?: string;
+  respondedAt?: string;
+  createdAt: string;
+  reviewer?: any;
+}
+
+export interface ResearchIncentivePolicy {
+  id: string;
+  publicationType: ResearchPublicationType;
+  indexingType?: string;
+  impactFactorMin?: number;
+  impactFactorMax?: number;
+  baseIncentive: number;
+  basePoints: number;
+  firstAuthorMultiplier?: number;
+  correspondingAuthorMultiplier?: number;
+  internalAuthorMultiplier?: number;
+  externalAuthorMultiplier?: number;
+  internationalBonus?: number;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  isActive: boolean;
+}
+
+// Service class
+class ResearchService {
+  // ============================================
+  // Research Contribution CRUD
+  // ============================================
+
+  async createContribution(data: Partial<ResearchContribution>) {
+    const response = await api.post('/research', data);
+    return response.data;
+  }
+
+  async getMyContributions() {
+    const response = await api.get('/research/my-contributions');
+    return response.data;
+  }
+
+  async getContributedResearch() {
+    const response = await api.get('/research/contributed');
+    return response.data;
+  }
+
+  async getContributionById(id: string) {
+    const response = await api.get(`/research/${id}`);
+    return response.data;
+  }
+
+  async updateContribution(id: string, data: Partial<ResearchContribution>) {
+    const response = await api.put(`/research/${id}`, data);
+    return response.data;
+  }
+
+  async submitContribution(id: string) {
+    const response = await api.post(`/research/${id}/submit`);
+    return response.data;
+  }
+
+  async resubmitContribution(id: string) {
+    const response = await api.post(`/research/${id}/resubmit`);
+    return response.data;
+  }
+
+  async deleteContribution(id: string) {
+    const response = await api.delete(`/research/${id}`);
+    return response.data;
+  }
+
+  // ============================================
+  // Author Management
+  // ============================================
+
+  async addAuthor(contributionId: string, author: Partial<ResearchContributionAuthor>) {
+    const response = await api.post(`/research/${contributionId}/authors`, author);
+    return response.data;
+  }
+
+  async updateAuthor(contributionId: string, authorId: string, data: Partial<ResearchContributionAuthor>) {
+    const response = await api.put(`/research/${contributionId}/authors/${authorId}`, data);
+    return response.data;
+  }
+
+  async removeAuthor(contributionId: string, authorId: string) {
+    const response = await api.delete(`/research/${contributionId}/authors/${authorId}`);
+    return response.data;
+  }
+
+  async lookupByRegistration(registrationNumber: string) {
+    const response = await api.get(`/research/lookup/${registrationNumber}`);
+    return response.data;
+  }
+
+  async searchUsers(query: string, role?: string) {
+    const params = role ? `?role=${role}` : '';
+    const response = await api.get(`/users/suggestions/${query}${params}`);
+    return response.data;
+  }
+
+  // ============================================
+  // Incentive Policies
+  // ============================================
+
+  async getIncentivePolicies() {
+    const response = await api.get('/research/incentive-policies');
+    return response.data;
+  }
+
+  // ============================================
+  // DRD Review (for reviewers)
+  // ============================================
+
+  async getPendingReviews(params?: { status?: string; publicationType?: string; schoolId?: string }) {
+    const response = await api.get('/research/review/pending', { params });
+    return response.data;
+  }
+
+  async getReviewStatistics(params?: { schoolId?: string; publicationType?: string; startDate?: string; endDate?: string }) {
+    const response = await api.get('/research/review/statistics', { params });
+    return response.data;
+  }
+
+  async getSchoolsForFilter() {
+    const response = await api.get('/research/review/schools');
+    return response.data;
+  }
+
+  async startReview(id: string) {
+    const response = await api.post(`/research/${id}/review/start`);
+    return response.data;
+  }
+
+  async requestChanges(id: string, data: { comments: string; suggestions?: any[] }) {
+    const response = await api.post(`/research/${id}/review/request-changes`, data);
+    return response.data;
+  }
+
+  async approveContribution(id: string, data?: { comments?: string }) {
+    const response = await api.post(`/research/${id}/review/approve`, data);
+    return response.data;
+  }
+
+  async recommendForApproval(id: string, data?: { comments?: string }) {
+    const response = await api.post(`/research/${id}/review/recommend`, data);
+    return response.data;
+  }
+
+  async rejectContribution(id: string, data: { comments?: string; reason?: string }) {
+    const response = await api.post(`/research/${id}/review/reject`, data);
+    return response.data;
+  }
+
+  async markCompleted(id: string) {
+    const response = await api.post(`/research/${id}/review/complete`);
+    return response.data;
+  }
+
+  // ============================================
+  // Edit Suggestions
+  // ============================================
+
+  async respondToSuggestion(suggestionId: string, data: { accept: boolean; response?: string }) {
+    const response = await api.post(`/research/suggestions/${suggestionId}/respond`, data);
+    return response.data;
+  }
+
+  async acceptSuggestion(contributionId: string, suggestionId: string) {
+    return this.respondToSuggestion(suggestionId, { accept: true });
+  }
+
+  async rejectSuggestion(contributionId: string, suggestionId: string, response?: string) {
+    return this.respondToSuggestion(suggestionId, { accept: false, response });
+  }
+}
+
+export const researchService = new ResearchService();
+export default researchService;

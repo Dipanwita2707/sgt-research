@@ -27,6 +27,9 @@ const collaborativeEditingRoutes = require('./collaborativeEditing.routes');
 const googleDocsRoutes = require('./googleDocs.routes');
 const notificationRoutes = require('./notification.routes');
 const incentivePolicyRoutes = require('./incentivePolicy.routes');
+
+// Research Contribution Module Routes
+const researchContributionRoutes = require('./researchContribution.routes');
 // const fileUploadRoutes = require('./fileUpload.routes'); // TODO: Install @aws-sdk/client-s3 first
 
 // Mount routes
@@ -55,6 +58,10 @@ router.use('/collaborative-editing', collaborativeEditingRoutes); // Real-time c
 router.use('/google-docs', googleDocsRoutes); // Google Docs-style change tracking
 router.use('/notifications', notificationRoutes); // User notifications
 router.use('/incentive-policies', incentivePolicyRoutes); // Admin incentive policy management
+router.use('/research-policies', require('./researchPolicy.routes')); // Research paper incentive policy management
 router.use('/file-upload', require('./fileUpload.routes')); // S3 file upload service
+
+// Research Contribution Module
+router.use('/research', researchContributionRoutes); // Research paper, book, conference, grant submissions
 
 module.exports = router;

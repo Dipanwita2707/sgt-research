@@ -26,9 +26,11 @@ import {
   Search,
   MoreHorizontal,
   Calendar,
-  RefreshCcw
+  RefreshCcw,
+  Download
 } from 'lucide-react';
 import CollaborativeEditor from './CollaborativeEditor';
+import IPRStatusUpdates from './IPRStatusUpdates';
 import collaborativeEditingService from '@/services/collaborativeEditing.service';
 import api from '@/lib/api';
 
@@ -38,6 +40,7 @@ export default function DrdReviewDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState<any>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
   const [isCollaborativeMode, setIsCollaborativeMode] = useState(false);
   const [pendingSuggestions, setPendingSuggestions] = useState<Record<string, number>>({});
   const [userPermissions, setUserPermissions] = useState<Record<string, boolean>>({});
@@ -50,10 +53,12 @@ export default function DrdReviewDashboard() {
   // New workflow states
   const [showGovtIdModal, setShowGovtIdModal] = useState(false);
   const [showPubIdModal, setShowPubIdModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [showViewDetailsModal, setShowViewDetailsModal] = useState(false);
   const [govtApplicationId, setGovtApplicationId] = useState('');
   const [publicationId, setPublicationId] = useState('');
-  const [activeTab, setActiveTab] = useState<'pending' | 'recommended' | 'govt' | 'published'>('pending');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [activeTab, setActiveTab] = useState<'pending' | 'recommended' | 'govt' | 'published' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Form field states for collaborative editing
@@ -69,8 +74,11 @@ export default function DrdReviewDashboard() {
   const [error, setError] = useState('');
 
   // Permission flags - simplified 4 permission model
-  const canApprove = userPermissions.ipr_approve || userPermissions.drd_ipr_approve;
-  const canRecommend = userPermissions.ipr_review || userPermissions.drd_ipr_review || userPermissions.drd_ipr_recommend;
+  // canApprove requires BOTH review AND approve permissions
+  const hasReviewPermission = userPermissions.ipr_review || userPermissions.drd_ipr_review || userPermissions.drd_ipr_recommend;
+  const hasApprovePermission = userPermissions.ipr_approve || userPermissions.drd_ipr_approve;
+  const canApprove = hasReviewPermission && hasApprovePermission;
+  const canRecommend = hasReviewPermission;
   const canAssignSchools = userPermissions.ipr_assign_school;
 
   useEffect(() => {
@@ -385,6 +393,34 @@ export default function DrdReviewDashboard() {
     }
   };
 
+  const handleMarkAsRejected = async () => {
+    if (!selectedApp || !rejectionReason.trim()) {
+      alert('Please enter rejection reason');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const response = await api.post(`/drd-review/mark-govt-rejected/${selectedApp.id}`, { 
+        comments: rejectionReason 
+      });
+      if (response.data.success) {
+        alert('Application marked as Government Rejected.');
+        setShowRejectModal(false);
+        setRejectionReason('');
+        setSelectedApp(null);
+        fetchPendingReviews();
+      } else {
+        alert(response.data.message || 'Failed to mark as rejected');
+      }
+    } catch (error: any) {
+      console.error('Mark as rejected error:', error);
+      alert(error.response?.data?.message || 'Failed to mark as rejected');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; color: string; bg: string; ring: string }> = {
       draft: { label: 'Draft', color: 'text-gray-700', bg: 'bg-gray-100', ring: 'ring-gray-200' },
@@ -397,8 +433,10 @@ export default function DrdReviewDashboard() {
       drd_approved: { label: 'Approved', color: 'text-emerald-700', bg: 'bg-emerald-50', ring: 'ring-emerald-200' },
       submitted_to_govt: { label: 'Govt Submitted', color: 'text-teal-700', bg: 'bg-teal-50', ring: 'ring-teal-200' },
       govt_application_filed: { label: 'Govt Filed', color: 'text-cyan-700', bg: 'bg-cyan-50', ring: 'ring-cyan-200' },
+      govt_rejected: { label: 'Govt Rejected', color: 'text-red-700', bg: 'bg-red-50', ring: 'ring-red-200' },
       published: { label: 'Published', color: 'text-emerald-700', bg: 'bg-emerald-50', ring: 'ring-emerald-200' },
-      drd_rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50', ring: 'ring-red-200' },
+      drd_rejected: { label: 'DRD Rejected', color: 'text-red-700', bg: 'bg-red-50', ring: 'ring-red-200' },
+      drd_head_rejected: { label: 'Head Rejected', color: 'text-red-700', bg: 'bg-red-50', ring: 'ring-red-200' },
     };
     const config = statusConfig[status] || { label: status, color: 'text-gray-700', bg: 'bg-gray-100', ring: 'ring-gray-200' };
     return (
@@ -417,9 +455,11 @@ export default function DrdReviewDashboard() {
     } else if (activeTab === 'recommended') {
       tabMatch = ['recommended_to_head'].includes(app.status);
     } else if (activeTab === 'govt') {
-      tabMatch = ['submitted_to_govt', 'govt_application_filed'].includes(app.status);
+      tabMatch = ['drd_head_approved', 'submitted_to_govt', 'govt_application_filed'].includes(app.status);
     } else if (activeTab === 'published') {
       tabMatch = ['published', 'completed'].includes(app.status);
+    } else if (activeTab === 'rejected') {
+      tabMatch = ['drd_rejected', 'drd_head_rejected', 'govt_rejected'].includes(app.status);
     }
     
     // Search filter
@@ -433,8 +473,9 @@ export default function DrdReviewDashboard() {
   const tabStats = {
     pending: applications.filter(a => ['submitted', 'under_drd_review', 'resubmitted', 'changes_required'].includes(a.status)).length,
     recommended: applications.filter(a => ['recommended_to_head'].includes(a.status)).length,
-    govt: applications.filter(a => ['submitted_to_govt', 'govt_application_filed'].includes(a.status)).length,
+    govt: applications.filter(a => ['drd_head_approved', 'submitted_to_govt', 'govt_application_filed'].includes(a.status)).length,
     published: applications.filter(a => ['published', 'completed'].includes(a.status)).length,
+    rejected: applications.filter(a => ['drd_rejected', 'drd_head_rejected', 'govt_rejected'].includes(a.status)).length,
   };
 
   if (loading) {
@@ -626,6 +667,7 @@ export default function DrdReviewDashboard() {
                 { key: 'recommended', label: 'Recommended', icon: ChevronRight, count: tabStats.recommended },
                 { key: 'govt', label: 'Govt Filing', icon: Building, count: tabStats.govt },
                 { key: 'published', label: 'Published', icon: Award, count: tabStats.published },
+                { key: 'rejected', label: 'Rejected', icon: XCircle, count: tabStats.rejected },
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -713,8 +755,8 @@ export default function DrdReviewDashboard() {
                       </div>
                     </div>
 
-                    {/* Government & Publication IDs */}
-                    {(app.govtApplicationId || app.publicationId) && (
+                    {/* Government & Publication IDs - Hide for rejected applications */}
+                    {(app.govtApplicationId || app.publicationId) && !['drd_rejected', 'drd_head_rejected', 'govt_rejected'].includes(app.status) && (
                       <div className="flex flex-wrap gap-2 mb-3">
                         {app.govtApplicationId && (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-700 rounded-xl text-sm font-medium ring-1 ring-teal-100">
@@ -773,6 +815,21 @@ export default function DrdReviewDashboard() {
 
                   {/* Actions */}
                   <div className="flex flex-col gap-2 flex-shrink-0">
+                    {/* Status Update Button - For Complete Filings (Hide when at Publication ID stage or rejected) */}
+                    {app.filingType === 'complete' && 
+                     !['govt_application_filed', 'published', 'govt_rejected', 'drd_rejected', 'drd_head_rejected', 'completed'].includes(app.status) && (
+                      <button
+                        onClick={() => {
+                          setSelectedApp(app);
+                          setShowStatusUpdateModal(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all duration-200 text-sm font-medium"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        Status Update
+                      </button>
+                    )}
+                    
                     {/* Pending Review Actions */}
                     {['submitted', 'under_drd_review', 'resubmitted'].includes(app.status) && (
                       <>
@@ -861,19 +918,33 @@ export default function DrdReviewDashboard() {
                       </span>
                     )}
 
-                    {/* Govt Filed - Add Publication ID (Only users with ipr_review permission can do this) */}
+                    {/* Govt Filed - Add Publication ID OR Mark as Rejected (Only users with ipr_review permission can do this) */}
                     {app.status === 'govt_application_filed' && canRecommend && (
-                      <button
-                        onClick={() => {
-                          setSelectedApp(app);
-                          setShowPubIdModal(true);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all duration-200 font-medium"
-                      >
-                        <Award className="w-4 h-4" />
-                        Add Publication ID
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedApp(app);
+                            setShowPubIdModal(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all duration-200 font-medium"
+                        >
+                          <Award className="w-4 h-4" />
+                          Add Publication ID
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedApp(app);
+                            setShowRejectModal(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all duration-200 font-medium"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          Mark as Rejected
+                        </button>
+                      </div>
                     )}
+
+
 
                     {/* Govt Filed - View only for users with only ipr_approve permission */}
                     {app.status === 'govt_application_filed' && canApprove && !canRecommend && (
@@ -961,14 +1032,14 @@ export default function DrdReviewDashboard() {
       {showPubIdModal && selectedApp && (
         <div className="fixed inset-0 bg-sgt-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-slideUp">
-            <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 p-6 text-white">
+            <div className={`bg-gradient-to-r ${selectedApp.status === 'govt_rejected' ? 'from-red-600 to-red-700' : 'from-emerald-600 to-emerald-700'} p-6 text-white`}>
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
                   <Award className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">Publication ID</h3>
-                  <p className="text-emerald-100 text-sm">Complete the IPR publication</p>
+                  <h3 className="text-xl font-bold">{selectedApp.status === 'govt_rejected' ? 'Rejection Reference' : 'Publication ID'}</h3>
+                  <p className={`${selectedApp.status === 'govt_rejected' ? 'text-red-100' : 'text-emerald-100'} text-sm`}>{selectedApp.status === 'govt_rejected' ? 'Document the rejection details' : 'Complete the IPR publication'}</p>
                 </div>
               </div>
             </div>
@@ -984,14 +1055,14 @@ export default function DrdReviewDashboard() {
               
               <div className="mb-6">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Publication/Grant ID <span className="text-red-500">*</span>
+                  {selectedApp.status === 'govt_rejected' ? 'Rejection Reference/Note' : 'Publication/Grant ID'} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={publicationId}
                   onChange={(e) => setPublicationId(e.target.value)}
-                  placeholder="e.g., IN-PAT-2024-12345"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition-all"
+                  placeholder={selectedApp.status === 'govt_rejected' ? 'e.g., Rejection letter ref: REJ-2024-001' : 'e.g., IN-PAT-2024-12345'}
+                  className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 ${selectedApp.status === 'govt_rejected' ? 'focus:ring-red-400 focus:border-red-400' : 'focus:ring-emerald-400 focus:border-emerald-400'} transition-all`}
                 />
               </div>
               
@@ -1009,9 +1080,72 @@ export default function DrdReviewDashboard() {
                 <button
                   onClick={handleAddPublicationId}
                   disabled={submitting || !publicationId.trim()}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl hover:shadow-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={`flex-1 px-4 py-3 bg-gradient-to-r ${selectedApp.status === 'govt_rejected' ? 'from-red-600 to-red-700' : 'from-emerald-600 to-emerald-700'} text-white rounded-xl hover:shadow-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  {submitting ? 'Adding...' : 'Add & Publish'}
+                  {submitting ? 'Adding...' : (selectedApp.status === 'govt_rejected' ? 'Add Reference' : 'Add & Publish')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark as Rejected Modal */}
+      {showRejectModal && selectedApp && (
+        <div className="fixed inset-0 bg-sgt-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-slideUp">
+            <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 text-white">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
+                  <XCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">Mark as Rejected</h3>
+                  <p className="text-red-100 text-sm">Government rejected this application</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+                <p className="text-xs text-red-600 uppercase tracking-wider font-medium mb-1">Application</p>
+                <p className="font-semibold text-gray-900">{selectedApp.title}</p>
+                {selectedApp.govtApplicationId && (
+                  <p className="text-sm text-gray-500 mt-1">Govt ID: {selectedApp.govtApplicationId}</p>
+                )}
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Rejection Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Enter the reason for government rejection..."
+                  rows={4}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-400 focus:border-red-400 transition-all resize-none"
+                />
+                <p className="text-xs text-gray-500 mt-2">This will be communicated to the applicant.</p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowRejectModal(false);
+                    setRejectionReason('');
+                    setSelectedApp(null);
+                  }}
+                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMarkAsRejected}
+                  disabled={submitting || !rejectionReason.trim()}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:shadow-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? 'Processing...' : 'Mark as Rejected'}
                 </button>
               </div>
             </div>
@@ -1198,11 +1332,21 @@ export default function DrdReviewDashboard() {
                         </div>
                         <div className="flex-1">
                           <p className="font-semibold text-gray-900">{contributor.name}</p>
-                          <p className="text-sm text-gray-500">{contributor.email} • {contributor.role || 'Inventor'}</p>
+                          <p className="text-sm text-gray-500">
+                            {contributor.email} • {contributor.role || 'Inventor'}
+                            {contributor.uid && ` • ${contributor.uid}`}
+                          </p>
                         </div>
                         {contributor.department && (
                           <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm">{contributor.department}</span>
                         )}
+                        <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                          contributor.employeeCategory === 'internal' || contributor.userId
+                            ? 'bg-blue-100 text-blue-700' 
+                            : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          {contributor.employeeCategory === 'internal' || contributor.userId ? 'Internal' : 'External'}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1344,36 +1488,88 @@ export default function DrdReviewDashboard() {
                 )}
               </div>
 
-              {/* Review History */}
+              {/* Review History - Enhanced Timeline */}
               {selectedApp.reviews && selectedApp.reviews.length > 0 && (
-                <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="bg-gradient-to-br from-gray-50 to-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
                     <Clock className="w-5 h-5 text-sgt-600" />
                     Review History
                   </h3>
-                  <div className="space-y-3">
-                    {selectedApp.reviews.map((review: any, index: number) => (
-                      <div key={index} className="p-4 bg-white rounded-xl border border-gray-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-1 rounded-lg text-xs font-semibold ${
-                              review.decision === 'approved' || review.decision === 'recommended' ? 'bg-emerald-100 text-emerald-700' :
-                              review.decision === 'rejected' ? 'bg-red-100 text-red-700' :
-                              'bg-amber-100 text-amber-700'
-                            }`}>
-                              {review.decision?.replace(/_/g, ' ').toUpperCase()}
-                            </span>
-                            <span className="text-sm text-gray-500">by {review.reviewer?.employeeDetails?.displayName || review.reviewer?.uid || 'Reviewer'}</span>
+                  <div className="space-y-4 relative">
+                    {/* Timeline line */}
+                    <div className="absolute left-[23px] top-8 bottom-8 w-0.5 bg-gradient-to-b from-sgt-200 via-sgt-300 to-sgt-200"></div>
+                    
+                    {selectedApp.reviews.map((review: any, index: number) => {
+                      const isApproved = review.decision === 'approved' || review.decision === 'recommended';
+                      const isRejected = review.decision === 'rejected';
+                      const isChangesRequired = review.decision === 'changes_required';
+                      
+                      return (
+                        <div key={index} className="relative pl-14 pb-4">
+                          {/* Timeline dot */}
+                          <div className={`absolute left-3 top-3 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg z-10 ${
+                            isApproved ? 'bg-gradient-to-br from-emerald-400 to-emerald-600' :
+                            isRejected ? 'bg-gradient-to-br from-red-400 to-red-600' :
+                            'bg-gradient-to-br from-amber-400 to-amber-600'
+                          }`}>
+                            {isApproved ? <CheckCircle className="w-5 h-5 text-white" /> :
+                             isRejected ? <XCircle className="w-5 h-5 text-white" /> :
+                             <Edit3 className="w-5 h-5 text-white" />}
                           </div>
-                          <span className="text-xs text-gray-400">
-                            {review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString('en-IN') : ''}
-                          </span>
+                          
+                          {/* Review card */}
+                          <div className={`bg-white rounded-xl border-2 shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden ${
+                            isApproved ? 'border-emerald-200 hover:border-emerald-300' :
+                            isRejected ? 'border-red-200 hover:border-red-300' :
+                            'border-amber-200 hover:border-amber-300'
+                          }`}>
+                            {/* Header */}
+                            <div className={`px-4 py-3 border-b ${
+                              isApproved ? 'bg-emerald-50 border-emerald-100' :
+                              isRejected ? 'bg-red-50 border-red-100' :
+                              'bg-amber-50 border-amber-100'
+                            }`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide ${
+                                    isApproved ? 'bg-emerald-100 text-emerald-700' :
+                                    isRejected ? 'bg-red-100 text-red-700' :
+                                    'bg-amber-100 text-amber-700'
+                                  }`}>
+                                    {review.decision?.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-sm font-medium text-gray-700">
+                                    Review #{selectedApp.reviews.length - index}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-gray-500 font-medium">
+                                  {review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString('en-IN', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  }) : ''}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Content */}
+                            <div className="p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <User className="w-4 h-4 text-gray-400" />
+                                <span className="text-sm font-semibold text-gray-900">
+                                  {review.reviewer?.employeeDetails?.displayName || review.reviewer?.uid || 'Reviewer'}
+                                </span>
+                              </div>
+                              {review.comments && (
+                                <p className="text-sm text-gray-700 leading-relaxed pl-6">
+                                  {review.comments}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        {review.comments && (
-                          <p className="text-sm text-gray-600">{review.comments}</p>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1502,42 +1698,277 @@ export default function DrdReviewDashboard() {
                   Applicant Information
                 </h3>
                 <div className="grid md:grid-cols-2 gap-4">
-                  {selectedApp.applicantDetails?.uid ? (
-                    <>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">UID</p>
-                        <p className="font-semibold text-gray-900 font-mono">{selectedApp.applicantDetails.uid}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Email</p>
-                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.email}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Phone</p>
-                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.phone}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Department</p>
-                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.universityDeptName}</p>
-                      </div>
-                    </>
-                  ) : (
+                  {/* Check for internal applicant - either from applicantDetails or applicantUser */}
+                  {(selectedApp.applicantDetails?.uid || selectedApp.applicantDetails?.employeeCategory === 'internal' || selectedApp.applicantUser) ? (
                     <>
                       <div>
                         <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Name</p>
-                        <p className="font-semibold text-gray-900">{selectedApp.applicantDetails?.externalName}</p>
+                        <p className="font-semibold text-gray-900">
+                          {selectedApp.applicantUser?.employeeDetails?.displayName || 
+                           (selectedApp.applicantUser?.employeeDetails?.firstName && selectedApp.applicantUser?.employeeDetails?.lastName 
+                             ? `${selectedApp.applicantUser.employeeDetails.firstName} ${selectedApp.applicantUser.employeeDetails.lastName}`
+                             : null) ||
+                           selectedApp.applicantUser?.studentLogin?.displayName ||
+                           (selectedApp.applicantUser?.studentLogin?.firstName && selectedApp.applicantUser?.studentLogin?.lastName
+                             ? `${selectedApp.applicantUser.studentLogin.firstName} ${selectedApp.applicantUser.studentLogin.lastName}`
+                             : null) ||
+                           selectedApp.applicantDetails?.inventorName || 'N/A'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">UID</p>
+                        <p className="font-semibold text-gray-900 font-mono">
+                          {selectedApp.applicantDetails?.uid || selectedApp.applicantUser?.uid || 'N/A'}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Email</p>
-                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails?.externalEmail}</p>
+                        <p className="font-medium text-gray-700">
+                          {selectedApp.applicantDetails?.email || selectedApp.applicantUser?.email || 'N/A'}
+                        </p>
                       </div>
-                      <div className="md:col-span-2">
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Phone</p>
+                        <p className="font-medium text-gray-700">
+                          {selectedApp.applicantDetails?.phone || 
+                           selectedApp.applicantUser?.studentLogin?.phone ||
+                           selectedApp.applicantUser?.employeeDetails?.phoneNumber || 'N/A'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Department</p>
+                        <p className="font-medium text-gray-700">
+                          {selectedApp.applicantDetails?.universityDeptName || 
+                           selectedApp.applicantUser?.employeeDetails?.primaryDepartment?.departmentName ||
+                           selectedApp.applicantUser?.studentLogin?.program?.programName ||
+                           selectedApp.department?.departmentName || 'N/A'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Applicant Type</p>
+                        <p className="font-medium text-gray-700 capitalize">
+                          {selectedApp.applicantUser?.employeeDetails?.designation ||
+                           (selectedApp.applicantUser?.role === 'staff' ? 'Staff' : 
+                            selectedApp.applicantUser?.role === 'faculty' ? 'Faculty' :
+                            selectedApp.applicantUser?.employeeDetails ? 'Staff' : null) || 
+                           (selectedApp.applicantUser?.studentLogin ? 'Student' : null) ||
+                           selectedApp.applicantDetails?.employeeType || selectedApp.applicantType || 'N/A'}
+                        </p>
+                      </div>
+                      {selectedApp.applicantDetails?.mentorName && (
+                        <div className="md:col-span-2">
+                          <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Mentor</p>
+                          <p className="font-medium text-gray-700">
+                            {selectedApp.applicantDetails.mentorName} 
+                            {selectedApp.applicantDetails.mentorUid && ` (${selectedApp.applicantDetails.mentorUid})`}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : selectedApp.applicantDetails?.externalName ? (
+                    <>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Name</p>
+                        <p className="font-semibold text-gray-900">{selectedApp.applicantDetails.externalName}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Email</p>
+                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.externalEmail || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Phone</p>
+                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.externalPhone || 'N/A'}</p>
+                      </div>
+                      <div>
                         <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Organization</p>
-                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails?.companyUniversityName}</p>
+                        <p className="font-medium text-gray-700">{selectedApp.applicantDetails.companyUniversityName || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Type</p>
+                        <p className="font-medium text-gray-700 capitalize">{selectedApp.applicantDetails.externalOption || 'External'}</p>
                       </div>
                     </>
+                  ) : (
+                    <div className="md:col-span-2 text-gray-500 italic">No applicant details available</div>
                   )}
                 </div>
+              </div>
+
+              {/* Contributors/Inventors */}
+              {selectedApp.contributors && selectedApp.contributors.length > 0 && (
+                <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-sgt-600" />
+                    Inventors/Contributors
+                  </h3>
+                  <div className="grid gap-3">
+                    {selectedApp.contributors.map((contributor: any, index: number) => (
+                      <div key={index} className="flex items-center gap-4 p-3 bg-white rounded-xl border border-gray-100">
+                        <div className="w-10 h-10 bg-sgt-100 rounded-full flex items-center justify-center">
+                          <User className="w-5 h-5 text-sgt-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-900">{contributor.name}</p>
+                          <p className="text-sm text-gray-500">
+                            {contributor.email} • {contributor.role || 'Inventor'}
+                            {contributor.uid && ` • ${contributor.uid}`}
+                          </p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                          contributor.employeeCategory === 'internal' || contributor.userId
+                            ? 'bg-blue-100 text-blue-700' 
+                            : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          {contributor.employeeCategory === 'internal' || contributor.userId ? 'Internal' : 'External'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Documents Section */}
+              <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-sgt-600" />
+                  Uploaded Documents
+                </h3>
+                {(selectedApp.annexureFilePath || selectedApp.supportingDocsFilePaths || selectedApp.prototypeFilePath || 
+                  selectedApp.abstractFile || selectedApp.supportingDocs || selectedApp.nocDocument || 
+                  selectedApp.formIDocument || selectedApp.formIIDocument || selectedApp.formIIIDocument || 
+                  selectedApp.formIVDocument) ? (
+                  <div className="grid gap-3">
+                    {/* Main Document (annexureFilePath) */}
+                    {selectedApp.annexureFilePath && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.annexureFilePath.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Main Document</p>
+                          <p className="text-xs text-gray-500">{selectedApp.annexureFilePath.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    
+                    {/* Prototype ZIP (prototypeFilePath) */}
+                    {selectedApp.prototypeFilePath && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.prototypeFilePath.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-purple-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Prototype Package (ZIP)</p>
+                          <p className="text-xs text-gray-500">{selectedApp.prototypeFilePath.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    
+                    {/* Supporting Documents (supportingDocsFilePaths - JSON array) */}
+                    {selectedApp.supportingDocsFilePaths && Array.isArray(selectedApp.supportingDocsFilePaths) && selectedApp.supportingDocsFilePaths.map((docPath: string, idx: number) => (
+                      <a key={idx} href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${docPath.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Supporting Document {idx + 1}</p>
+                          <p className="text-xs text-gray-500">{docPath.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    ))}
+                    
+                    {/* Legacy fields for backward compatibility */}
+                    {selectedApp.abstractFile && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.abstractFile.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-red-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Abstract Document</p>
+                          <p className="text-xs text-gray-500">{selectedApp.abstractFile.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.supportingDocs && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.supportingDocs.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Supporting Documents</p>
+                          <p className="text-xs text-gray-500">{selectedApp.supportingDocs.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.nocDocument && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.nocDocument.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">NOC Document</p>
+                          <p className="text-xs text-gray-500">{selectedApp.nocDocument.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.formIDocument && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.formIDocument.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Form I</p>
+                          <p className="text-xs text-gray-500">{selectedApp.formIDocument.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.formIIDocument && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.formIIDocument.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Form II</p>
+                          <p className="text-xs text-gray-500">{selectedApp.formIIDocument.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.formIIIDocument && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.formIIIDocument.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Form III</p>
+                          <p className="text-xs text-gray-500">{selectedApp.formIIIDocument.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                    {selectedApp.formIVDocument && (
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}/uploads/ipr/${selectedApp.formIVDocument.split('/').pop()}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 hover:border-sgt-200 transition-all">
+                        <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Form IV</p>
+                          <p className="text-xs text-gray-500">{selectedApp.formIVDocument.split('/').pop()}</p>
+                        </div>
+                        <Download className="w-5 h-5 text-gray-400" />
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">No documents uploaded for this application</p>
+                )}
               </div>
 
               {/* Review Form */}
@@ -1760,6 +2191,54 @@ export default function DrdReviewDashboard() {
         </div>
       )}
 
+      {/* Separate Status Update Modal */}
+      {showStatusUpdateModal && selectedApp && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-purple-800 text-white p-6 rounded-t-2xl z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-3">
+                    <MessageSquare className="w-7 h-7" />
+                    Status Updates
+                  </h2>
+                  <p className="text-purple-100 mt-1">
+                    {selectedApp.applicationNumber} - {selectedApp.title}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowStatusUpdateModal(false);
+                    setSelectedApp(null);
+                  }}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-all"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Status Updates Component */}
+            <div className="p-6">
+              <IPRStatusUpdates applicationId={selectedApp.id} isDRD={true} />
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 bg-gray-50 p-6 rounded-b-2xl border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowStatusUpdateModal(false);
+                  setSelectedApp(null);
+                }}
+                className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

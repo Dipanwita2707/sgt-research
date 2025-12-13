@@ -91,10 +91,12 @@ const getPendingDrdReviews = async (req, res) => {
     const recommendedStatuses = ['recommended_to_head'];
     // Post-approval statuses (for assigned reviewer to update govt filing)
     const postApprovalStatuses = ['drd_head_approved', 'submitted_to_govt', 'govt_application_filed', 'published'];
+    // Rejected statuses (for tracking rejected applications)
+    const rejectedStatuses = ['drd_rejected', 'drd_head_rejected', 'govt_rejected'];
     // All statuses for DRD Head
-    const allStatuses = [...pendingStatuses, ...recommendedStatuses, ...postApprovalStatuses, 'completed'];
-    // DRD Member statuses - includes recommended so they can track what they've recommended
-    const memberStatuses = [...pendingStatuses, ...recommendedStatuses];
+    const allStatuses = [...pendingStatuses, ...recommendedStatuses, ...postApprovalStatuses, ...rejectedStatuses, 'completed'];
+    // DRD Member statuses - includes recommended and rejected so they can track what they've recommended/rejected
+    const memberStatuses = [...pendingStatuses, ...recommendedStatuses, ...rejectedStatuses];
 
     let statusFilter;
     if (status) {
@@ -151,11 +153,33 @@ const getPendingDrdReviews = async (req, res) => {
             select: {
               uid: true,
               email: true,
+              role: true,
               employeeDetails: {
                 select: {
                   firstName: true,
                   lastName: true,
                   displayName: true,
+                  phoneNumber: true,
+                  designation: true,
+                  primaryDepartment: {
+                    select: {
+                      departmentName: true,
+                    },
+                  },
+                },
+              },
+              studentLogin: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  displayName: true,
+                  registrationNo: true,
+                  phone: true,
+                  program: {
+                    select: {
+                      programName: true,
+                    },
+                  },
                 },
               },
             },
@@ -333,7 +357,7 @@ const submitDrdReview = async (req, res) => {
     // Determine new status
     let newStatus;
     if (decision === 'approved') {
-      newStatus = 'recommended_to_head';  // DRD Member recommends to DRD Head
+      newStatus = 'drd_head_approved';  // Direct approval - ready for govt filing
     } else if (decision === 'changes_required') {
       newStatus = 'changes_required';
     } else {
@@ -345,6 +369,7 @@ const submitDrdReview = async (req, res) => {
       where: { id },
       data: {
         status: newStatus,
+        ...(decision === 'approved' ? { approvedAt: new Date() } : {}),
       },
     });
 
@@ -361,9 +386,9 @@ const submitDrdReview = async (req, res) => {
 
     // Notify contributors about status change
     const statusMessages = {
-      'recommended_to_head': {
-        title: 'IPR Application Recommended by DRD Member',
-        message: `The IPR application "${application.title}" has been recommended by DRD and moved to DRD Head for approval.`
+      'drd_head_approved': {
+        title: 'IPR Application Approved!',
+        message: `Great news! The IPR application "${application.title}" has been approved by DRD and is ready for government filing.`
       },
       'changes_required': {
         title: 'Changes Required for IPR Application',
@@ -515,7 +540,7 @@ const getDrdReviewStatistics = async (req, res) => {
       prisma.iprApplication.count({
         where: {
           status: { 
-            notIn: ['draft', 'completed', 'drd_rejected', 'withdrawn'] 
+            notIn: ['draft', 'completed', 'drd_rejected', 'cancelled'] 
           },
         },
       }),
@@ -617,13 +642,12 @@ const finalApproval = async (req, res) => {
       });
     }
 
-    // Update application status - DRD Head approved, ready for govt filing
+    // Update application status - DRD Head approved, submitted to govt for filing
     const updated = await prisma.iprApplication.update({
       where: { id },
       data: {
-        status: 'drd_head_approved',
-        // Keep the same reviewer so they can update govt filing details
-        // currentReviewerId stays as is
+        status: 'submitted_to_govt',
+        currentReviewerId: userId, // Assign to DRD Head for govt filing updates
       }
     });
 
@@ -644,9 +668,9 @@ const finalApproval = async (req, res) => {
       data: {
         iprApplicationId: id,
         fromStatus: application.status,
-        toStatus: 'drd_head_approved',
+        toStatus: 'submitted_to_govt',
         changedById: userId,
-        comments: comments || 'DRD Head approved - ready for government filing'
+        comments: comments || 'DRD Head approved - submitted to government for filing'
       }
     });
 
@@ -656,11 +680,11 @@ const finalApproval = async (req, res) => {
         data: {
           userId: application.applicantUserId,
           type: 'ipr_approved',
-          title: 'IPR Application Approved by DRD Head!',
-          message: `Your IPR application "${application.title}" has been approved by DRD Head and is ready for government filing.`,
+          title: 'IPR Application Approved - Submitted to Government!',
+          message: `Your IPR application "${application.title}" has been approved by DRD Head and submitted to government for filing.`,
           referenceType: 'ipr_application',
           referenceId: id,
-          metadata: { newStatus: 'drd_head_approved' }
+          metadata: { newStatus: 'submitted_to_govt' }
         }
       });
     }
@@ -669,17 +693,17 @@ const finalApproval = async (req, res) => {
     await notifyContributors(
       id,
       'ipr_approved',
-      'IPR Application Approved!',
-      `The IPR application "${application.title}" has been approved by DRD Head.`,
-      { newStatus: 'drd_head_approved' }
+      'IPR Application Approved - Submitted to Government!',
+      `The IPR application "${application.title}" has been approved by DRD Head and submitted to government.`,
+      { newStatus: 'submitted_to_govt' }
     );
 
     res.json({
       success: true,
-      message: 'IPR application approved by DRD Head - ready for government filing',
+      message: 'IPR application approved by DRD Head - submitted to government for filing',
       data: {
         application: updated,
-        status: 'drd_head_approved'
+        status: 'submitted_to_govt'
       }
     });
 
@@ -1354,6 +1378,7 @@ const creditIncentivesToInventors = async (application, userId) => {
 };
 
 // Add Publication ID (after patent/copyright is granted) - Auto credits incentives
+// Also handles govt_rejected status to record rejection reference
 const addPublicationId = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1363,7 +1388,7 @@ const addPublicationId = async (req, res) => {
     if (!publicationId) {
       return res.status(400).json({
         success: false,
-        message: 'Publication ID is required'
+        message: 'Publication ID or Rejection Reference is required'
       });
     }
 
@@ -1381,6 +1406,72 @@ const addPublicationId = async (req, res) => {
       });
     }
 
+    // Check if this is a rejection case
+    const isRejection = application.status === 'govt_rejected';
+
+    // For rejections, just update the application with rejection reference - no incentives
+    if (isRejection) {
+      const updated = await prisma.iprApplication.update({
+        where: { id },
+        data: {
+          publicationId, // Store rejection reference in publicationId field
+          publicationDate: publicationDate ? new Date(publicationDate) : new Date(),
+          // Status remains govt_rejected - no further status change
+        },
+        include: {
+          applicantUser: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: { select: { firstName: true, lastName: true } }
+            }
+          },
+          applicantDetails: true,
+          contributors: true,
+          sdgs: true
+        }
+      });
+
+      // Create status history
+      await prisma.iprStatusHistory.create({
+        data: {
+          iprApplicationId: id,
+          fromStatus: application.status,
+          toStatus: 'govt_rejected',
+          changedById: userId,
+          comments: `Rejection reference added: ${publicationId}. ${comments || 'Government rejected the application.'}`,
+          metadata: { 
+            rejectionReference: publicationId, 
+            rejectionDate: publicationDate
+          }
+        }
+      });
+
+      // Notify applicant about rejection
+      if (application.applicantUserId) {
+        await prisma.notification.create({
+          data: {
+            userId: application.applicantUserId,
+            type: 'ipr_govt_rejected',
+            title: 'IPR Application Rejected by Government',
+            message: `Your IPR "${application.title}" has been rejected by the government. Rejection Reference: ${publicationId}. ${comments || 'Please contact DRD for more details.'}`,
+            referenceType: 'ipr_application',
+            referenceId: id,
+            metadata: { 
+              rejectionReference: publicationId
+            }
+          }
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Rejection reference added successfully',
+        data: updated
+      });
+    }
+
+    // Original publication flow (for successful applications)
     // Calculate incentives based on policy
     const iprType = application.iprType?.toLowerCase() || 'patent';
     let policy = await prisma.incentivePolicy.findFirst({
@@ -1518,6 +1609,385 @@ const addPublicationId = async (req, res) => {
   }
 };
 
+/**
+ * Mark IPR application as Government Rejected
+ * Used when government rejects the application after filing
+ */
+const markGovtRejected = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { comments } = req.body;
+    const userId = req.user.id;
+
+    if (!comments || !comments.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason/comments are required'
+      });
+    }
+
+    const application = await prisma.iprApplication.findUnique({
+      where: { id },
+      include: {
+        applicantUser: {
+          select: {
+            uid: true,
+            email: true,
+            employeeDetails: { select: { firstName: true, lastName: true } }
+          }
+        }
+      }
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found'
+      });
+    }
+
+    // Update application status to govt_rejected
+    const updated = await prisma.iprApplication.update({
+      where: { id },
+      data: {
+        status: 'govt_rejected',
+      }
+    });
+
+    // Create status history
+    await prisma.iprStatusHistory.create({
+      data: {
+        iprApplicationId: id,
+        fromStatus: application.status,
+        toStatus: 'govt_rejected',
+        changedById: userId,
+        comments: `Government rejected the application. Reason: ${comments}`,
+        metadata: { 
+          rejectionReason: comments
+        }
+      }
+    });
+
+    // Notify applicant about rejection
+    if (application.applicantUserId) {
+      await prisma.notification.create({
+        data: {
+          userId: application.applicantUserId,
+          type: 'ipr_govt_rejected',
+          title: 'IPR Application Rejected by Government',
+          message: `Your IPR "${application.title}" has been rejected by the government. Reason: ${comments}. Please contact DRD for more details.`,
+          referenceType: 'ipr_application',
+          referenceId: id,
+          metadata: { 
+            rejectionReason: comments
+          }
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Application marked as Government Rejected',
+      data: updated
+    });
+  } catch (error) {
+    console.error('Mark govt rejected error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark application as rejected',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Add a status update for an IPR application (DRD communication to applicant/inventors)
+ * Used for complete filing to communicate hearing schedules, document requests, milestones, etc.
+ */
+const addStatusUpdate = async (req, res) => {
+  try {
+    const { id } = req.params; // IPR application ID
+    const { updateMessage, updateType, priority, notifyApplicant, notifyInventors } = req.body;
+    const userId = req.user.id;
+
+    // Validate the IPR application exists
+    const iprApplication = await prisma.iprApplication.findUnique({
+      where: { id },
+      include: {
+        applicantUser: {
+          select: {
+            id: true,
+            uid: true,
+          }
+        },
+        applicantDetails: {
+          select: {
+            inventorUid: true,
+          }
+        },
+        contributors: {
+          where: { userId: { not: null } },
+          select: { userId: true, uid: true, name: true }
+        }
+      }
+    });
+
+    if (!iprApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found',
+      });
+    }
+
+    // Create the status update
+    const statusUpdate = await prisma.iprStatusUpdate.create({
+      data: {
+        iprApplication: { connect: { id } },
+        createdBy: { connect: { id: userId } },
+        updateMessage,
+        updateType: updateType || 'general',
+        priority: priority || 'medium',
+        isVisibleToApplicant: notifyApplicant !== false,
+        isVisibleToInventors: notifyInventors !== false,
+      },
+      include: {
+        createdBy: {
+          select: {
+            uid: true,
+            employeeDetails: {
+              select: { firstName: true, lastName: true }
+            }
+          }
+        }
+      }
+    });
+
+    // Send notifications based on settings
+    const notificationTitle = updateType === 'hearing' 
+      ? 'IPR Hearing Scheduled'
+      : updateType === 'document_request'
+      ? 'Document Required for IPR'
+      : updateType === 'milestone'
+      ? 'IPR Milestone Update'
+      : 'IPR Application Update';
+
+    if (notifyApplicant !== false) {
+      // Notify the applicant
+      await prisma.notification.create({
+        data: {
+          userId: iprApplication.applicantUser.id,
+          type: 'ipr_status_update',
+          title: notificationTitle,
+          message: updateMessage,
+          referenceType: 'ipr_application',
+          referenceId: id,
+          metadata: {
+            updateType,
+            priority,
+            statusUpdateId: statusUpdate.id,
+          }
+        }
+      });
+    }
+
+    if (notifyInventors !== false && iprApplication.contributors?.length > 0) {
+      // Notify all inventors/contributors
+      for (const contributor of iprApplication.contributors) {
+        if (contributor.userId && contributor.userId !== iprApplication.applicantUser.id) {
+          await prisma.notification.create({
+            data: {
+              userId: contributor.userId,
+              type: 'ipr_status_update',
+              title: notificationTitle,
+              message: updateMessage,
+              referenceType: 'ipr_application',
+              referenceId: id,
+              metadata: {
+                updateType,
+                priority,
+                statusUpdateId: statusUpdate.id,
+              }
+            }
+          });
+        }
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Status update added and notifications sent',
+      data: statusUpdate,
+    });
+  } catch (error) {
+    console.error('Add status update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add status update',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all status updates for an IPR application
+ * Accessible by DRD, applicant, and inventors
+ */
+const getStatusUpdates = async (req, res) => {
+  try {
+    const { id } = req.params; // IPR application ID
+    const userId = req.user.id;
+
+    // Check if user has access to this application
+    const iprApplication = await prisma.iprApplication.findFirst({
+      where: {
+        id,
+        OR: [
+          { applicantUserId: userId }, // Applicant
+          { contributors: { some: { userId } } }, // Contributor/Inventor
+        ]
+      }
+    });
+
+    // If not applicant/inventor, check DRD permissions
+    if (!iprApplication) {
+      const drdDept = await prisma.centralDepartment.findFirst({
+        where: {
+          OR: [
+            { departmentCode: 'DRD' },
+            { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+            { shortName: 'DRD' },
+          ],
+        },
+      });
+
+      if (drdDept) {
+        const userDrdPermission = await prisma.centralDepartmentPermission.findFirst({
+          where: {
+            userId,
+            centralDeptId: drdDept.id,
+            isActive: true,
+          }
+        });
+
+        if (!userDrdPermission) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have permission to view updates for this application',
+          });
+        }
+      }
+    }
+
+    // Get status updates
+    const statusUpdates = await prisma.iprStatusUpdate.findMany({
+      where: { iprApplicationId: id },
+      include: {
+        createdBy: {
+          select: {
+            uid: true,
+            employeeDetails: {
+              select: { firstName: true, lastName: true }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      data: statusUpdates,
+    });
+  } catch (error) {
+    console.error('Get status updates error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get status updates',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Delete a status update (DRD only, for corrections)
+ */
+const deleteStatusUpdate = async (req, res) => {
+  try {
+    const { updateId } = req.params;
+    const userId = req.user.id;
+
+    // Verify the update exists and get the creator
+    const statusUpdate = await prisma.iprStatusUpdate.findUnique({
+      where: { id: updateId },
+      select: {
+        id: true,
+        createdById: true,
+        createdAt: true,
+      }
+    });
+
+    if (!statusUpdate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Status update not found',
+      });
+    }
+
+    // Only allow deletion if:
+    // 1. User created the update
+    // 2. Or user has DRD admin/head permissions
+    if (statusUpdate.createdById !== userId) {
+      // Check DRD head permissions
+      const drdDept = await prisma.centralDepartment.findFirst({
+        where: {
+          OR: [
+            { departmentCode: 'DRD' },
+            { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          ],
+        },
+      });
+
+      if (drdDept) {
+        const userDrdPermission = await prisma.centralDepartmentPermission.findFirst({
+          where: {
+            userId,
+            centralDeptId: drdDept.id,
+            isActive: true,
+          },
+          select: { permissions: true }
+        });
+
+        const permissions = userDrdPermission?.permissions || {};
+        const isDrdHead = permissions.ipr_approve === true || permissions.drd_ipr_approve === true;
+
+        if (!isDrdHead) {
+          return res.status(403).json({
+            success: false,
+            message: 'You can only delete your own status updates',
+          });
+        }
+      }
+    }
+
+    // Delete the update
+    await prisma.iprStatusUpdate.delete({
+      where: { id: updateId }
+    });
+
+    res.json({
+      success: true,
+      message: 'Status update deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete status update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete status update',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getPendingDrdReviews,
   assignDrdReviewer,
@@ -1532,4 +2002,8 @@ module.exports = {
   headApproveAndSubmitToGovt,
   addGovtApplicationId,
   addPublicationId,
+  markGovtRejected,
+  addStatusUpdate,
+  getStatusUpdates,
+  deleteStatusUpdate,
 };

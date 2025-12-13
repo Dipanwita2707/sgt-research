@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import IPRStatusUpdates from '@/components/ipr/IPRStatusUpdates';
 
 interface EditSuggestion {
   id: string;
@@ -66,6 +67,7 @@ interface IprApplication {
 
 const statusColors: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
+  pending_mentor_approval: 'bg-orange-100 text-orange-700',
   submitted: 'bg-blue-100 text-blue-700',
   under_drd_review: 'bg-yellow-100 text-yellow-700',
   changes_required: 'bg-orange-100 text-orange-700',
@@ -85,6 +87,7 @@ const statusColors: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   draft: 'Draft',
+  pending_mentor_approval: 'Pending Mentor Approval',
   submitted: 'Submitted',
   under_drd_review: 'Under DRD Review',
   changes_required: 'Changes Required',
@@ -150,16 +153,32 @@ function IprApplicationDetailContent() {
   };
 
   const getReviewerName = (suggestion: EditSuggestion) => {
-    return (
-      suggestion.reviewer?.employeeDetails?.displayName ||
+    // Check if this is a mentor suggestion
+    const isMentorSuggestion = suggestion.suggestionNote?.startsWith('[MENTOR]');
+    const name = suggestion.reviewer?.employeeDetails?.displayName ||
       suggestion.reviewer?.employeeDetails?.firstName ||
       suggestion.reviewer?.uid ||
-      'Reviewer'
-    );
+      'Reviewer';
+    
+    return isMentorSuggestion ? `${name} (Mentor)` : name;
+  };
+
+  const isMentorSuggestion = (suggestion: EditSuggestion) => {
+    return suggestion.suggestionNote?.startsWith('[MENTOR]');
+  };
+
+  const getSuggestionNote = (suggestion: EditSuggestion) => {
+    // Remove [MENTOR] prefix if present
+    if (suggestion.suggestionNote?.startsWith('[MENTOR]')) {
+      return suggestion.suggestionNote.replace('[MENTOR]', '').trim();
+    }
+    return suggestion.suggestionNote;
   };
 
   const pendingSuggestions = suggestions.filter((s) => s.status === 'pending');
   const resolvedSuggestions = suggestions.filter((s) => s.status !== 'pending');
+
+  const readyToResubmit = pendingSuggestions.length === 0 && application?.status === 'changes_required';
 
   if (loading) {
     return (
@@ -198,12 +217,10 @@ function IprApplicationDetailContent() {
 
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-3 mb-1">
-              {application.applicationNumber && (
-                <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-sm rounded-lg font-bold tracking-wide">
-                  {application.applicationNumber}
-                </span>
-              )}
+            <div className="flex items-center gap-3 mb-2">
+              <span className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm rounded-lg font-bold tracking-wide shadow-sm">
+                ID: {application.applicationNumber || application.id.slice(0, 8).toUpperCase()}
+              </span>
             </div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
               <FileText className="w-7 h-7 text-blue-600" />
@@ -256,8 +273,11 @@ function IprApplicationDetailContent() {
             <div>
               <h3 className="font-medium text-orange-800">Changes Required</h3>
               <p className="text-sm text-orange-700 mt-1">
-                The DRD reviewer has requested {pendingSuggestions.length} change(s) to your application.
-                Please review and respond to each suggestion below.
+                {pendingSuggestions.some(s => isMentorSuggestion(s))
+                  ? `Your mentor has requested ${pendingSuggestions.filter(s => isMentorSuggestion(s)).length} change(s) to your application.`
+                  : `The DRD reviewer has requested ${pendingSuggestions.length} change(s) to your application.`
+                }
+                {' '}Please review and respond to each suggestion below.
               </p>
             </div>
           </div>
@@ -279,18 +299,25 @@ function IprApplicationDetailContent() {
 
           <div className="divide-y divide-gray-200">
             {pendingSuggestions.map((suggestion) => (
-              <div key={suggestion.id} className="p-4 bg-orange-50">
+              <div key={suggestion.id} className={`p-4 ${isMentorSuggestion(suggestion) ? 'bg-purple-50' : 'bg-orange-50'}`}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <span className="text-xs font-medium text-orange-600 uppercase tracking-wide">
-                      {suggestion.fieldName}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium uppercase tracking-wide ${isMentorSuggestion(suggestion) ? 'text-purple-600' : 'text-orange-600'}`}>
+                        {suggestion.fieldName}
+                      </span>
+                      {isMentorSuggestion(suggestion) && (
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                          Mentor
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-600 mt-1">
                       Suggested by {getReviewerName(suggestion)} •{' '}
                       {new Date(suggestion.createdAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium">
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${isMentorSuggestion(suggestion) ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
                     Pending
                   </span>
                 </div>
@@ -307,10 +334,12 @@ function IprApplicationDetailContent() {
                   <p className="text-sm text-green-800">{suggestion.suggestedValue}</p>
                 </div>
 
-                {suggestion.suggestionNote && (
+                {getSuggestionNote(suggestion) && (
                   <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                    <p className="text-xs text-gray-600 font-medium mb-1">Reviewer Note:</p>
-                    <p className="text-sm text-gray-800">{suggestion.suggestionNote}</p>
+                    <p className="text-xs text-gray-600 font-medium mb-1">
+                      {isMentorSuggestion(suggestion) ? 'Mentor Note:' : 'Reviewer Note:'}
+                    </p>
+                    <p className="text-sm text-gray-800">{getSuggestionNote(suggestion)}</p>
                   </div>
                 )}
 
@@ -358,6 +387,52 @@ function IprApplicationDetailContent() {
           </div>
         </div>
       )}
+
+      {/* Prompt to resubmit when all suggestions are resolved */}
+      {readyToResubmit && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-semibold text-green-800">All suggestions resolved</h4>
+              <p className="text-sm text-green-700">You have resolved all suggested edits. You can resubmit your application for review.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    await api.post(`/ipr/${applicationId}/resubmit`, {}, { withCredentials: true });
+                    await fetchData();
+                    alert('Application resubmitted successfully');
+                  } catch (err) {
+                    console.error('Resubmit failed', err);
+                    alert('Failed to resubmit. Please try from application details to attach files, if needed.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+              >
+                Resubmit Application
+              </button>
+              <a href={`/ipr/applications/${applicationId}`} className="px-3 py-2 bg-white border border-green-200 text-green-700 rounded-md">Open Details</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status Updates Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Status History</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Track all updates and communications from DRD
+          </p>
+        </div>
+        <div className="p-6">
+          <IPRStatusUpdates applicationId={application.id} isDRD={false} />
+        </div>
+      </div>
 
       {/* Resolved Suggestions */}
       {resolvedSuggestions.length > 0 && (

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { iprService } from '@/services/ipr.service';
 import api from '@/lib/api';
+import IPRStatusUpdates from './IPRStatusUpdates';
 import { 
   FileText, 
   Clock, 
@@ -124,69 +125,110 @@ export default function MyIprApplications() {
   const [responseNotes, setResponseNotes] = useState<Record<string, string>>({});
   const [submittingBatch, setSubmittingBatch] = useState(false);
 
-  const fetchMyApplications = useCallback(async () => {
+  // Helper function to calculate stats from both own and contributed applications
+  const calculateCombinedStats = useCallback((ownApps: any[], contribApps: any[], baseStats: any) => {
+    const validOwnApps = ownApps.filter((app: any) => app && app.id);
+    // Filter contributed apps to exclude own applications (prevent double counting)
+    const validContribApps = contribApps.filter((app: any) => 
+      app && app.id && !validOwnApps.some(own => own.id === app.id)
+    );
+    
+    // Calculate action required count (own apps only)
+    const actionRequired = validOwnApps.filter((app: any) => 
+      app.status === 'changes_required' || app.status === 'draft'
+    ).length;
+    
+    // Calculate total incentives and points earned (from published/completed applications)
+    const publishedStatuses = ['published', 'completed', 'under_finance_review', 'finance_approved'];
+    
+    // Own published applications
+    const ownCompletedApps = validOwnApps.filter((app: any) => 
+      publishedStatuses.includes(app.status)
+    );
+    
+    // Contributed published applications
+    const contribCompletedApps = validContribApps.filter((app: any) => 
+      publishedStatuses.includes(app.status)
+    );
+    
+    // Calculate incentives from own applications
+    const ownIncentives = ownCompletedApps.reduce((sum: number, app: any) => {
+      const incentive = Number(app.incentiveAmount) || 0;
+      return sum + incentive;
+    }, 0);
+    
+    const ownPoints = ownCompletedApps.reduce((sum: number, app: any) => {
+      const points = Number(app.pointsAwarded) || 0;
+      return sum + points;
+    }, 0);
+    
+    // Calculate incentives from contributed applications (these are already per-inventor shares)
+    const contribIncentives = contribCompletedApps.reduce((sum: number, app: any) => {
+      const incentive = Number(app.incentiveAmount) || 0;
+      return sum + incentive;
+    }, 0);
+    
+    const contribPoints = contribCompletedApps.reduce((sum: number, app: any) => {
+      const points = Number(app.pointsAwarded) || 0;
+      return sum + points;
+    }, 0);
+    
+    // Total combined
+    const totalIncentives = ownIncentives + contribIncentives;
+    const totalPoints = ownPoints + contribPoints;
+    const publishedCount = ownCompletedApps.length + contribCompletedApps.length;
+    
+    return {
+      ...baseStats,
+      action_required: actionRequired,
+      in_progress: (baseStats?.submitted || 0) + (baseStats?.under_review || 0),
+      completed: (baseStats?.approved || 0) + (baseStats?.rejected || 0),
+      totalIncentives,
+      totalPoints,
+      publishedCount,
+      // Store breakdown for display
+      ownIncentives,
+      ownPoints,
+      ownPublishedCount: ownCompletedApps.length,
+      contribIncentives,
+      contribPoints,
+      contribPublishedCount: contribCompletedApps.length,
+    };
+  }, []);
+
+  const fetchAllApplications = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await iprService.getMyApplications();
       
-      const validApplications = (data.data || []).filter((app: any) => app && app.id);
-      setApplications(validApplications);
+      // Fetch both own and contributed applications in parallel
+      const [ownData, contribResponse] = await Promise.all([
+        iprService.getMyApplications(),
+        api.get('/ipr/contributed').catch(() => ({ data: { success: false, data: [] } }))
+      ]);
       
-      // Calculate action required count
-      const actionRequired = validApplications.filter((app: any) => 
-        app.status === 'changes_required' || app.status === 'draft'
-      ).length;
+      const validOwnApps = (ownData.data || []).filter((app: any) => app && app.id);
+      const validContribApps = contribResponse.data?.success ? (contribResponse.data.data || []) : [];
       
-      // Calculate total incentives and points earned (from published/completed applications)
-      const completedApps = validApplications.filter((app: any) => 
-        ['published', 'completed', 'under_finance_review', 'finance_approved'].includes(app.status)
-      );
+      setApplications(validOwnApps);
+      setContributedApplications(validContribApps);
       
-      // Use only actual credited values from database - no hardcoded fallbacks
-      const totalIncentives = completedApps.reduce((sum: number, app: any) => {
-        const incentive = Number(app.incentiveAmount) || 0;
-        return sum + incentive;
-      }, 0);
+      // Calculate combined stats
+      const combinedStats = calculateCombinedStats(validOwnApps, validContribApps, ownData.stats);
+      setStats(combinedStats);
       
-      const totalPoints = completedApps.reduce((sum: number, app: any) => {
-        const points = Number(app.pointsAwarded) || 0;
-        return sum + points;
-      }, 0);
-      
-      setStats({
-        ...data.stats,
-        action_required: actionRequired,
-        in_progress: (data.stats?.submitted || 0) + (data.stats?.under_review || 0),
-        completed: (data.stats?.approved || 0) + (data.stats?.rejected || 0),
-        totalIncentives,
-        totalPoints,
-        publishedCount: completedApps.length,
-      });
     } catch (error) {
       console.error('Error fetching applications:', error);
       setApplications([]);
+      setContributedApplications([]);
       setStats({});
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  const fetchContributedApplications = useCallback(async () => {
-    try {
-      const response = await api.get('/ipr/contributed');
-      if (response.data.success) {
-        setContributedApplications(response.data.data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching contributed applications:', error);
-      setContributedApplications([]);
-    }
-  }, []);
+  }, [calculateCombinedStats]);
 
   useEffect(() => {
-    fetchMyApplications();
-    fetchContributedApplications();
-  }, [fetchMyApplications, fetchContributedApplications]);
+    fetchAllApplications();
+  }, [fetchAllApplications]);
 
   const fetchSuggestions = async (appId: string) => {
     if (suggestions[appId]) return;
@@ -309,7 +351,7 @@ export default function MyIprApplications() {
         [appId]: response.data.data?.suggestions || []
       }));
       
-      await fetchMyApplications();
+      await fetchAllApplications();
       alert('All responses submitted successfully!');
     } catch (error: any) {
       console.error('Failed to submit batch responses:', error);
@@ -474,6 +516,8 @@ export default function MyIprApplications() {
         );
       case 'draft':
         return applications.filter(app => app.status === 'draft');
+      case 'contributed':
+        return contributedApplications;
       default:
         return applications;
     }
@@ -612,46 +656,99 @@ export default function MyIprApplications() {
                     </td>
                   </tr>
                   
-                  {/* Breakdown by IPR Type */}
-                  {applications
-                    .filter((app: any) => ['published', 'completed', 'under_finance_review', 'finance_approved'].includes(app.status))
-                    .reduce((acc: any[], app: any) => {
-                      const type = app.iprType?.toLowerCase() || 'other';
-                      const existing = acc.find(item => item.type === type);
-                      // Use only actual credited values from database
-                      const incentive = Number(app.incentiveAmount) || 0;
-                      const points = Number(app.pointsAwarded) || 0;
-                      
-                      if (existing) {
-                        existing.count++;
-                        existing.incentive += incentive;
-                        existing.points += points;
-                      } else {
-                        acc.push({ type, count: 1, incentive, points });
-                      }
-                      return acc;
-                    }, [])
-                    .map((item: any) => (
-                      <tr key={item.type} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-3">
-                            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium uppercase">
-                              {item.type}
-                            </span>
+                  {/* My Applications Earnings */}
+                  {(stats.ownIncentives > 0 || stats.ownPoints > 0) && (
+                    <tr className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-1.5 bg-blue-100 rounded-lg">
+                            <FileText className="w-4 h-4 text-blue-600" />
                           </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="font-semibold text-gray-700">{item.count}</span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <span className="font-semibold text-amber-600">₹{item.incentive.toLocaleString()}</span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <span className="font-semibold text-purple-600">{item.points}</span>
-                        </td>
-                      </tr>
-                    ))
-                  }
+                          <span className="font-medium text-gray-700">My Applications</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="font-semibold text-gray-700">{stats.ownPublishedCount || 0}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="font-semibold text-blue-600">₹{(stats.ownIncentives || 0).toLocaleString()}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="font-semibold text-blue-600">{stats.ownPoints || 0}</span>
+                      </td>
+                    </tr>
+                  )}
+                  
+                  {/* Contributed Applications Earnings */}
+                  {(stats.contribIncentives > 0 || stats.contribPoints > 0) && (
+                    <tr className="border-b border-gray-100 hover:bg-green-50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-1.5 bg-green-100 rounded-lg">
+                            <ThumbsUp className="w-4 h-4 text-green-600" />
+                          </div>
+                          <span className="font-medium text-gray-700">As Contributor</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="font-semibold text-gray-700">{stats.contribPublishedCount || 0}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="font-semibold text-green-600">₹{(stats.contribIncentives || 0).toLocaleString()}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="font-semibold text-green-600">{stats.contribPoints || 0}</span>
+                      </td>
+                    </tr>
+                  )}
+                  
+                  {/* Breakdown by IPR Type - combined from both own and contributed */}
+                  {(() => {
+                    const publishedStatuses = ['published', 'completed', 'under_finance_review', 'finance_approved'];
+                    const allPublishedApps = [
+                      ...applications.filter((app: any) => publishedStatuses.includes(app.status)),
+                      ...contributedApplications
+                        .filter((app: any) => publishedStatuses.includes(app.status))
+                        .filter((app: any) => !applications.some(own => own.id === app.id))
+                    ];
+                    
+                    return allPublishedApps
+                      .reduce((acc: any[], app: any) => {
+                        const type = app.iprType?.toLowerCase() || 'other';
+                        const existing = acc.find(item => item.type === type);
+                        const incentive = Number(app.incentiveAmount) || 0;
+                        const points = Number(app.pointsAwarded) || 0;
+                        
+                        if (existing) {
+                          existing.count++;
+                          existing.incentive += incentive;
+                          existing.points += points;
+                        } else {
+                          acc.push({ type, count: 1, incentive, points });
+                        }
+                        return acc;
+                      }, [])
+                      .map((item: any) => (
+                        <tr key={item.type} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium uppercase">
+                                {item.type}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="font-semibold text-gray-700">{item.count}</span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-semibold text-amber-600">₹{item.incentive.toLocaleString()}</span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-semibold text-purple-600">{item.points}</span>
+                          </td>
+                        </tr>
+                      ));
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -761,11 +858,10 @@ export default function MyIprApplications() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-3 flex-wrap">
-                        {app.applicationNumber && (
-                          <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg font-bold tracking-wide">
-                            {app.applicationNumber}
-                          </span>
-                        )}
+                        {/* Application ID - Always show */}
+                        <span className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm rounded-lg font-bold tracking-wide shadow-sm">
+                          {app.applicationNumber || `ID: ${app.id.slice(0, 8).toUpperCase()}`}
+                        </span>
                         <h3 className="font-bold text-lg text-gray-900 truncate">{app.title}</h3>
                         {getStatusBadge(app.status, pendingSuggestions.length > 0)}
                         
@@ -798,11 +894,6 @@ export default function MyIprApplications() {
                         <span className="px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium uppercase tracking-wide">
                           {getEnumLabel('iprType', app.iprType)}
                         </span>
-                        {!app.applicationNumber && (
-                          <span className="font-mono text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                            #{app.id.slice(-8).toUpperCase()}
-                          </span>
-                        )}
                         
                         {/* Show actual credited incentive & points for published/completed applications */}
                         {['published', 'completed', 'under_finance_review', 'finance_approved'].includes(app.status) && (app.incentiveAmount || app.pointsAwarded) && (
@@ -913,23 +1004,16 @@ export default function MyIprApplications() {
                           </div>
                         )}
 
-                        {/* Quick Actions for Pending Mentor Approval - Student can still edit */}
+                        {/* Quick Actions for Pending Mentor Approval - Waiting only, no edit */}
                         {app.status === 'pending_mentor_approval' && (
                           <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-5 border border-orange-200 mb-5">
                             <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                               <Clock className="w-5 h-5 text-orange-600" />
                               Awaiting Mentor Approval
                             </h4>
-                            <p className="text-sm text-gray-600 mb-4">
-                              Your application is waiting for mentor approval. You can still make changes until your mentor approves it.
+                            <p className="text-sm text-gray-600">
+                              Your application has been submitted and is waiting for mentor approval. You will be notified once your mentor reviews it.
                             </p>
-                            <Link
-                              href={`/ipr/applications/${app.id}/edit`}
-                              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg text-sm font-semibold hover:shadow-lg transition-all"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                              Edit Application
-                            </Link>
                           </div>
                         )}
 
@@ -1250,6 +1334,11 @@ export default function MyIprApplications() {
                             </p>
                           </div>
                         )}
+
+                        {/* Status Updates Section */}
+                        <div className="mt-6 mb-5">
+                          <IPRStatusUpdates applicationId={app.id} isDRD={false} />
+                        </div>
 
                         {/* View Full Details */}
                         <div className="pt-4 border-t border-gray-200">

@@ -173,6 +173,42 @@ class CollaborativeEditingService {
       return 0;
     }
   }
+
+  // ========== MENTOR COLLABORATIVE EDITING METHODS ==========
+
+  /**
+   * Mentor creates an individual edit suggestion
+   */
+  async mentorCreateEditSuggestion(iprApplicationId: string, suggestion: BatchSuggestion) {
+    const response = await api.post(
+      `/collaborative-editing/mentor/${iprApplicationId}/suggestions`,
+      suggestion
+    );
+    return response.data;
+  }
+
+  /**
+   * Mentor submits batch suggestions
+   */
+  async mentorSubmitBatchSuggestions(
+    iprApplicationId: string, 
+    suggestions: BatchSuggestion[], 
+    overallComments?: string
+  ) {
+    const response = await api.post(
+      `/collaborative-editing/mentor/${iprApplicationId}/suggestions/batch`,
+      { suggestions, overallComments }
+    );
+    return response.data;
+  }
+
+  /**
+   * Get mentor's edit suggestions for an application
+   */
+  async getMentorEditSuggestions(iprApplicationId: string) {
+    const response = await api.get(`/collaborative-editing/mentor/${iprApplicationId}/suggestions`);
+    return response.data;
+  }
 }
 
 export const collaborativeEditingService = new CollaborativeEditingService();

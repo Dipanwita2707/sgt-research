@@ -208,8 +208,8 @@ export default function PatentFilingForm() {
           title: SDG_OPTIONS.find((s) => s.code === code)?.title || '',
         })),
         applicantDetails,
-        annexureS3Key,
-        supportingDocsS3Keys,
+        annexureFilePath: annexureS3Key,
+        supportingDocsFilePaths: supportingDocsS3Keys,
       });
 
       // If submit type is 'submit', submit the application

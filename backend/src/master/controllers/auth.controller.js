@@ -199,7 +199,8 @@ exports.getMe = async (req, res) => {
                 faculty: true
               }
             },
-            primarySchool: true
+            primarySchool: true,
+            primaryCentralDept: true
           }
         },
         studentLogin: {
@@ -256,22 +257,60 @@ exports.getMe = async (req, res) => {
         designation: user.employeeDetails.designation,
         displayName: user.employeeDetails.displayName
       };
+      
+      // Determine school/department display
+      let departmentInfo = null;
+      let schoolInfo = null;
+      
+      // Priority: Use primarySchool if directly assigned
+      if (user.employeeDetails.primarySchool) {
+        schoolInfo = {
+          id: user.employeeDetails.primarySchool.id,
+          name: user.employeeDetails.primarySchool.facultyName
+        };
+      }
+      // Otherwise, use school from department if department exists
+      else if (user.employeeDetails.primaryDepartment?.faculty) {
+        schoolInfo = {
+          id: user.employeeDetails.primaryDepartment.faculty.id,
+          name: user.employeeDetails.primaryDepartment.faculty.facultyName
+        };
+      }
+      
+      // Set department info if exists
+      if (user.employeeDetails.primaryDepartment) {
+        departmentInfo = {
+          id: user.employeeDetails.primaryDepartment.id,
+          name: user.employeeDetails.primaryDepartment.departmentName,
+          school: schoolInfo
+        };
+      }
+      // If no department but has central department, create a special structure
+      else if (user.employeeDetails.primaryCentralDept) {
+        departmentInfo = {
+          id: user.employeeDetails.primaryCentralDept.id,
+          name: user.employeeDetails.primaryCentralDept.departmentName,
+          school: {
+            id: user.employeeDetails.primaryCentralDept.id,
+            name: 'Central Department'
+          }
+        };
+      }
+      // If only school, no department
+      else if (schoolInfo) {
+        departmentInfo = {
+          id: null,
+          name: 'Not Assigned',
+          school: schoolInfo
+        };
+      }
+      
       userDetails.employeeDetails = {
         employeeId: user.employeeDetails.empId,
         phone: user.employeeDetails.phoneNumber,
         email: user.employeeDetails.email,
         joiningDate: user.employeeDetails.joinDate,
-        department: user.employeeDetails.primaryDepartment ? {
-          id: user.employeeDetails.primaryDepartment.id,
-          name: user.employeeDetails.primaryDepartment.departmentName,
-          school: user.employeeDetails.primaryDepartment.faculty ? {
-            id: user.employeeDetails.primaryDepartment.faculty.id,
-            name: user.employeeDetails.primaryDepartment.faculty.facultyName
-          } : (user.employeeDetails.primarySchool ? {
-            id: user.employeeDetails.primarySchool.id,
-            name: user.employeeDetails.primarySchool.facultyName
-          } : null)
-        } : null,
+        department: departmentInfo,
         designation: user.employeeDetails.designation ? {
           name: user.employeeDetails.designation
         } : null

@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { iprService, drdReviewService } from '@/services/ipr.service';
+import { iprService, drdReviewService, fileUploadService } from '@/services/ipr.service';
+import IPRStatusUpdates from './IPRStatusUpdates';
 import {
   ArrowLeft,
   Clock,
@@ -62,11 +63,10 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
   const router = useRouter();
   const [application, setApplication] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showAcceptChangesModal, setShowAcceptChangesModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [reviewComments, setReviewComments] = useState('');
+  const [statusUpdates, setStatusUpdates] = useState<any[]>([]);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
 
   useEffect(() => {
     fetchApplicationDetails();
@@ -92,6 +92,17 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
         }
       }
       setApplication(data);
+      // Fetch DRD status updates for this application (for timeline merging)
+      try {
+        setUpdatesLoading(true);
+        const updates = await iprService.getStatusUpdates(data.id);
+        setStatusUpdates(updates || []);
+      } catch (err) {
+        console.error('Failed to fetch status updates for timeline:', err);
+        setStatusUpdates([]);
+      } finally {
+        setUpdatesLoading(false);
+      }
     } catch (error: any) {
       console.error('Error fetching application:', error);
       setError(error.response?.data?.message || 'Failed to fetch application details');
@@ -114,7 +125,9 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
       dean_approved: { color: 'bg-green-100 text-green-800', icon: CheckCircle },
       completed: { color: 'bg-green-100 text-green-800', icon: CheckCircle },
       drd_rejected: { color: 'bg-red-100 text-red-800', icon: XCircle },
+      drd_head_rejected: { color: 'bg-red-100 text-red-800', icon: XCircle },
       dean_rejected: { color: 'bg-red-100 text-red-800', icon: XCircle },
+      govt_rejected: { color: 'bg-red-100 text-red-800', icon: XCircle },
       // Kept for backward compatibility with old records
       under_finance_review: { color: 'bg-indigo-100 text-indigo-800', icon: CheckCircle },
       finance_approved: { color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -132,22 +145,46 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
     );
   };
 
-  const handleAcceptChanges = async () => {
-    if (!application) return;
+  // Helper mapping for DRD update icons/colors when merged into timeline
+  const UPDATE_ICON_MAP: Record<string, any> = {
+    hearing: { Icon: Calendar, bg: 'bg-purple-100', iconColor: 'text-purple-600', label: 'Hearing' },
+    document_request: { Icon: FileText, bg: 'bg-amber-100', iconColor: 'text-amber-600', label: 'Document Request' },
+    milestone: { Icon: CheckCircle, bg: 'bg-green-100', iconColor: 'text-green-600', label: 'Milestone' },
+    general: { Icon: MessageSquare, bg: 'bg-blue-100', iconColor: 'text-blue-600', label: 'Update' },
+  };
 
-    try {
-      setSubmitting(true);
-      await drdReviewService.requestChanges(application.id, reviewComments);
-      
-      alert('Changes accepted and application resubmitted successfully!');
-      setShowAcceptChangesModal(false);
-      fetchApplicationDetails(); // Refresh data
-    } catch (error: any) {
-      console.error('Error accepting changes:', error);
-      alert(error.response?.data?.message || 'Failed to accept changes');
-    } finally {
-      setSubmitting(false);
-    }
+  const buildTimeline = () => {
+    const statuses = (application?.statusHistory || []).map((h: any, idx: number) => ({
+      id: `status-${h.id}`,
+      kind: 'status',
+      title: h.toStatus.replace(/_/g, ' ').toUpperCase(),
+      time: h.changedAt,
+      message: h.comments || null,
+      changedBy: h.changedBy || h.changedById || null,
+      seq: idx,
+    }));
+
+    const updates = (statusUpdates || []).map((u: any, idx: number) => ({
+      id: `update-${u.id}`,
+      kind: 'update',
+      updateType: u.updateType,
+      title: (UPDATE_ICON_MAP[u.updateType]?.label || u.updateType || 'Update'),
+      time: u.createdAt,
+      message: u.updateMessage,
+      priority: u.priority,
+      createdBy: u.createdBy,
+      seq: (application?.statusHistory?.length || 0) + idx,
+    }));
+
+    // Combine and sort by time (newest first - reverse chronological)
+    const combined = [...statuses, ...updates].sort((a, b) => {
+      const ta = new Date(a.time).getTime();
+      const tb = new Date(b.time).getTime();
+      if (ta !== tb) return tb - ta; // Reversed: newest first
+      // If timestamps equal, use seq as tie-breaker
+      return (b.seq || 0) - (a.seq || 0); // Reversed
+    });
+    return combined;
   };
 
   const handleResubmit = async () => {
@@ -267,8 +304,8 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
             <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded font-medium">
               {application.iprType.toUpperCase()}
             </span>
-            <span className="text-sm text-gray-500">
-              Application ID: {application.id.slice(0, 8)}...
+            <span className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm rounded-lg font-bold tracking-wide shadow-sm">
+              {application.applicationNumber || `ID: ${application.id.slice(0, 8).toUpperCase()}`}
             </span>
           </div>
         </div>
@@ -330,7 +367,7 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
           </div>
 
           {/* Documents Section */}
-          {(application.annexureFilePath || (application.supportingDocsFilePaths && application.supportingDocsFilePaths.length > 0)) && (
+          {(application.annexureFilePath || (application.supportingDocsFilePaths && application.supportingDocsFilePaths.length > 0) || application.prototypeFilePath) && (
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Download className="w-5 h-5 text-blue-600" />
@@ -349,6 +386,21 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
                   >
                     <Download className="w-4 h-4" />
                     Download Annexure
+                  </a>
+                </div>
+              )}
+              {/* Prototype ZIP for Complete Filing */}
+              {application.prototypeFilePath && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Prototype Package (ZIP)</label>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/uploads/${application.prototypeFilePath}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Prototype ZIP
                   </a>
                 </div>
               )}
@@ -380,27 +432,57 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Applicant Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {application.applicantDetails?.uid ? (
-                // Internal Applicant
+              {application.applicantUser ? (
+                // Internal Applicant - from UserLogin with employeeDetails or studentLogin
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">UID</label>
-                    <p className="mt-1 text-gray-900">{application.applicantDetails.uid}</p>
+                    <label className="block text-sm font-medium text-gray-700">Name</label>
+                    <p className="mt-1 text-gray-900">
+                      {application.applicantUser.employeeDetails?.displayName ||
+                       `${application.applicantUser.employeeDetails?.firstName || ''} ${application.applicantUser.employeeDetails?.lastName || ''}`.trim() ||
+                       application.applicantUser.studentLogin?.displayName ||
+                       `${application.applicantUser.studentLogin?.firstName || ''} ${application.applicantUser.studentLogin?.lastName || ''}`.trim() ||
+                       application.applicantUser.uid || 'N/A'}
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Email</label>
-                    <p className="mt-1 text-gray-900">{application.applicantDetails.email}</p>
+                    <p className="mt-1 text-gray-900">
+                      {application.applicantUser.email || 
+                       application.applicantUser.employeeDetails?.email ||
+                       application.applicantUser.studentLogin?.email || 'N/A'}
+                    </p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Phone</label>
-                    <p className="mt-1 text-gray-900">{application.applicantDetails.phone || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700">UID</label>
+                    <p className="mt-1 text-gray-900">{application.applicantUser.uid || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Department</label>
-                    <p className="mt-1 text-gray-900">{application.applicantDetails.universityDeptName || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700">Type</label>
+                    <p className="mt-1 text-gray-900 capitalize">
+                      {application.applicantUser.role || application.applicantType?.replace('internal_', '') || 'N/A'}
+                    </p>
                   </div>
+                  {application.applicantUser.employeeDetails?.empId && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Employee ID</label>
+                      <p className="mt-1 text-gray-900">{application.applicantUser.employeeDetails.empId}</p>
+                    </div>
+                  )}
+                  {application.applicantUser.studentLogin?.studentId && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Student ID</label>
+                      <p className="mt-1 text-gray-900">{application.applicantUser.studentLogin.studentId}</p>
+                    </div>
+                  )}
+                  {application.applicantDetails?.phone && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Phone</label>
+                      <p className="mt-1 text-gray-900">{application.applicantDetails.phone}</p>
+                    </div>
+                  )}
                 </>
-              ) : (
+              ) : application.applicantDetails?.externalName ? (
                 // External Applicant
                 <>
                   <div>
@@ -416,8 +498,28 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
                     <p className="mt-1 text-gray-900">{application.applicantDetails?.companyUniversityName || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Option</label>
-                    <p className="mt-1 text-gray-900">{application.applicantDetails?.externalOption || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700">Applicant Type</label>
+                    <p className="mt-1 text-gray-900 capitalize">{application.applicantDetails?.externalOption?.replace(/_/g, ' ') || application.applicantType?.replace(/_/g, ' ') || 'N/A'}</p>
+                  </div>
+                </>
+              ) : (
+                // Fallback - show whatever data we have from applicantDetails
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">UID</label>
+                    <p className="mt-1 text-gray-900">{application.applicantDetails?.uid || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Email</label>
+                    <p className="mt-1 text-gray-900">{application.applicantDetails?.email || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Phone</label>
+                    <p className="mt-1 text-gray-900">{application.applicantDetails?.phone || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Department</label>
+                    <p className="mt-1 text-gray-900">{application.applicantDetails?.universityDeptName || 'N/A'}</p>
                   </div>
                 </>
               )}
@@ -488,17 +590,11 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
                 <div className="mt-6 p-4 bg-orange-50 border border-orange-200 rounded-md">
                   <h3 className="text-lg font-semibold text-orange-900 mb-2">Action Required</h3>
                   <p className="text-orange-800 mb-4">
-                    The DRD reviewer has requested changes to your application. Please review the comments and edits above, then choose an action below.
+                    The DRD reviewer has requested changes to your application. Please review the comments and suggestions above, then click Edit Application to make changes.
                   </p>
                   <div className="flex gap-3">
                     <button
-                      onClick={() => setShowAcceptChangesModal(true)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-                    >
-                      Accept Changes & Resubmit
-                    </button>
-                    <button
-                      onClick={() => setShowEditModal(true)}
+                      onClick={() => router.push(`/ipr/applications/${application.id}/edit`)}
                       className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
                     >
                       Edit Application
@@ -640,31 +736,75 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
           {/* Status Timeline */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Status History</h2>
-            <div className="space-y-3">
-              {application.statusHistory && application.statusHistory.length > 0 ? (
-                application.statusHistory.map((history: any, index: number) => (
-                  <div key={history.id} className="flex gap-3">
-                    <div className="flex-shrink-0">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                        <Calendar className="w-4 h-4 text-blue-600" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">
-                        {history.toStatus.replace(/_/g, ' ').toUpperCase()}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(history.changedAt).toLocaleString()}
-                      </p>
-                      {history.comments && (
-                        <p className="text-xs text-gray-700 mt-1">{history.comments}</p>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
+            
+            {/* Merged Timeline: Status Changes + DRD Updates - Scrollable */}
+            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {(!application?.statusHistory || application.statusHistory.length === 0) && (statusUpdates.length === 0) && (
                 <p className="text-gray-500 text-sm">No status history available</p>
               )}
+
+              {buildTimeline().map((item: any, idx: number, arr: any[]) => {
+                const isLast = idx === arr.length - 1;
+                if (item.kind === 'status') {
+                  return (
+                    <div key={item.id} className="relative">
+                      {!isLast && <div className="absolute left-4 top-10 bottom-0 w-0.5 bg-blue-200"></div>}
+                      <div className="flex gap-3">
+                        <div className="flex-shrink-0 z-10">
+                          <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shadow-md">
+                            <Calendar className="w-4 h-4 text-white" />
+                          </div>
+                        </div>
+                                <div className="flex-1 min-w-0 pb-4">
+                          <p className="text-sm font-bold text-gray-900">{item.title}</p>
+                          <p className="text-xs text-gray-500 mt-1">{new Date(item.time).toLocaleString()}</p>
+                          {item.message && (
+                            <p className="text-xs text-gray-700 mt-2 bg-gray-50 p-2 rounded">{item.message}</p>
+                          )}
+                                  {item.changedBy && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      By {item.changedBy.employeeDetails?.displayName || item.changedBy.uid || item.changedBy}
+                                      {item.changedBy.employeeDetails?.displayName && item.changedBy.uid && (
+                                        <span>{` (${item.changedBy.uid})`}</span>
+                                      )}
+                                    </p>
+                                  )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Update item
+                const cfg = UPDATE_ICON_MAP[item.updateType] || UPDATE_ICON_MAP.general;
+                const Creator = item.createdBy?.employeeDetails ? `${item.createdBy.employeeDetails.firstName} ${item.createdBy.employeeDetails.lastName}` : item.createdBy?.uid || 'DRD';
+                const UpdateIcon = cfg.Icon;
+                return (
+                  <div key={item.id} className="relative">
+                    {!isLast && <div className="absolute left-4 top-10 bottom-0 w-0.5 bg-blue-200"></div>}
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 z-10">
+                        <div className={`${cfg.bg} w-8 h-8 rounded-full flex items-center justify-center shadow-md`}>
+                          <UpdateIcon className={`${cfg.iconColor} w-4 h-4`} />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0 pb-4">
+                        <p className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                          {cfg.label}
+                          {item.priority === 'urgent' && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 border border-red-300 rounded-full">Urgent</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(item.time).toLocaleString()}</p>
+                        {item.message && (
+                          <p className="text-xs text-gray-700 mt-2 bg-gray-50 p-2 rounded">{item.message}</p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">By {Creator}{item.createdBy?.uid ? ` (${item.createdBy.uid})` : ''}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -701,7 +841,7 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
             <div className="space-y-3">
               {application.status === 'draft' && (
                 <button
-                  onClick={() => setShowEditModal(true)}
+                  onClick={() => router.push(`/ipr/applications/${application.id}/edit`)}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
                 >
                   Edit Application
@@ -709,20 +849,12 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
               )}
               
               {application.status === 'changes_required' && (
-                <>
-                  <button
-                    onClick={() => setShowAcceptChangesModal(true)}
-                    className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-                  >
-                    Accept Changes & Resubmit
-                  </button>
-                  <button
-                    onClick={() => setShowEditModal(true)}
-                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-                  >
-                    Edit & Resubmit
-                  </button>
-                </>
+                <button
+                  onClick={() => router.push(`/ipr/applications/${application.id}/edit`)}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+                >
+                  Edit Application
+                </button>
               )}
 
               {(application.status === 'completed' || application.status === 'finance_approved') && application.incentiveAmount && (
@@ -738,70 +870,6 @@ export default function IprApplicationDetails({ applicationId }: IprApplicationD
           </div>
         </div>
       </div>
-
-      {/* Accept Changes Modal */}
-      {showAcceptChangesModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Accept Changes & Resubmit
-              </h3>
-              <p className="text-gray-600 mb-4">
-                Are you sure you want to accept the DRD reviewer's suggested changes and resubmit your application? 
-                This will move your application to the next review stage.
-              </p>
-              
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Additional Comments (Optional)
-                </label>
-                <textarea
-                  value={reviewComments}
-                  onChange={(e) => setReviewComments(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Any additional comments about accepting these changes..."
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowAcceptChangesModal(false)}
-                  className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAcceptChanges}
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed"
-                >
-                  {submitting ? 'Processing...' : 'Accept & Resubmit'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal Placeholder */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Application</h3>
-            <p className="text-gray-600 mb-4">
-              Editing functionality would redirect to the edit form for this application.
-            </p>
-            <button
-              onClick={() => setShowEditModal(false)}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

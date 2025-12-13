@@ -1054,3 +1054,443 @@ exports.getSchoolsWithAssignedMembers = async (req, res) => {
   }
 };
 
+// ==========================================
+// RESEARCH SCHOOL ASSIGNMENT FUNCTIONS
+// ==========================================
+
+/**
+ * Assign schools to a DRD member for RESEARCH review
+ * @body { userId, schoolIds: string[] }
+ * Accessible by: admin OR DRD Head (users with research_approve permission)
+ */
+exports.assignResearchMemberSchools = async (req, res) => {
+  try {
+    const { userId, schoolIds } = req.body;
+
+    // Check if user is authorized (admin, DRD Head, or has research_assign_school permission)
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.research_approve === true || 
+             p.permissions?.research_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to assign research schools to DRD members',
+      });
+    }
+
+    if (!userId || !Array.isArray(schoolIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and schoolIds array are required',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.status(404).json({
+        success: false,
+        message: 'DRD department not found. Please create a Central Department with code or name containing "DRD".',
+      });
+    }
+
+    // Find or create the user's DRD permission record
+    let drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId,
+        centralDeptId: drdDept.id,
+      },
+    });
+
+    if (drdPermission) {
+      // Update existing permission with research school assignments
+      drdPermission = await prisma.centralDepartmentPermission.update({
+        where: { id: drdPermission.id },
+        data: {
+          assignedResearchSchoolIds: schoolIds,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      // Create new permission record with research school assignments
+      drdPermission = await prisma.centralDepartmentPermission.create({
+        data: {
+          userId,
+          centralDeptId: drdDept.id,
+          permissions: { research_review: true },
+          assignedResearchSchoolIds: schoolIds,
+          isPrimary: false,
+          isActive: true,
+          assignedBy: req.user.id,
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: 'ASSIGN_RESEARCH_MEMBER_SCHOOLS',
+        targetTable: 'central_department_permission',
+        targetId: drdPermission.id,
+        details: { userId, schoolIds },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Research schools assigned to DRD member successfully',
+      data: drdPermission,
+    });
+  } catch (error) {
+    console.error('Assign research member schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign research schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all DRD members with their assigned RESEARCH schools
+ * Accessible by: admin OR DRD Head (users with research_approve permission)
+ */
+exports.getDrdMembersWithResearchSchools = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.research_approve === true || 
+             p.permissions?.research_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view research school assignments',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          members: [],
+          allSchools: [],
+        },
+        message: 'DRD department not found.',
+      });
+    }
+
+    // Get all users with DRD permissions
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            email: true,
+            role: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                designation: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get all schools
+    const allSchools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Format the response
+    const membersWithSchools = drdMembers.map((member) => ({
+      userId: member.userId,
+      uid: member.user.uid,
+      email: member.user.email,
+      role: member.user.role,
+      displayName: member.user.employeeDetails?.displayName || member.user.uid,
+      designation: member.user.employeeDetails?.designation,
+      permissions: member.permissions,
+      assignedResearchSchoolIds: member.assignedResearchSchoolIds || [],
+      assignedResearchSchools: allSchools.filter((school) =>
+        (member.assignedResearchSchoolIds || []).includes(school.id)
+      ),
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        members: membersWithSchools,
+        allSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get DRD members with research schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch members with research schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get my assigned RESEARCH schools (for DRD members)
+ */
+exports.getMyAssignedResearchSchools = async (req, res) => {
+  try {
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'DRD department not found',
+      });
+    }
+
+    // Get the user's DRD permission
+    const drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId: req.user.id,
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+    });
+
+    if (!drdPermission) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'User is not a DRD member',
+      });
+    }
+
+    const assignedResearchSchoolIds = drdPermission.assignedResearchSchoolIds || [];
+
+    // Get the school details for assigned research schools
+    const assignedSchools = await prisma.facultySchoolList.findMany({
+      where: {
+        id: { in: assignedResearchSchoolIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: assignedSchools,
+      permissions: drdPermission.permissions,
+    });
+  } catch (error) {
+    console.error('Get my assigned research schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assigned research schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get schools with their assigned RESEARCH DRD members
+ */
+exports.getSchoolsWithResearchMembers = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.research_approve === true || 
+             p.permissions?.research_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view research school assignments',
+      });
+    }
+
+    // Get all schools
+    const schools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: schools.map((school) => ({
+          ...school,
+          assignedMembers: [],
+          hasAssignedMember: false,
+        })),
+      });
+    }
+
+    // Get all DRD members with research schools
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Map schools with their assigned research members
+    const schoolsWithMembers = schools.map((school) => {
+      const assignedMembers = drdMembers
+        .filter((member) => {
+          const assignedResearchSchoolIds = member.assignedResearchSchoolIds || [];
+          return assignedResearchSchoolIds.includes(school.id);
+        })
+        .map((member) => ({
+          userId: member.userId,
+          uid: member.user.uid,
+          displayName: member.user.employeeDetails?.displayName || member.user.uid,
+          permissions: member.permissions,
+        }));
+
+      return {
+        ...school,
+        assignedMembers,
+        hasAssignedMember: assignedMembers.length > 0,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: schoolsWithMembers,
+    });
+  } catch (error) {
+    console.error('Get schools with research members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch schools with research members',
+      error: error.message,
+    });
+  }
+};
+

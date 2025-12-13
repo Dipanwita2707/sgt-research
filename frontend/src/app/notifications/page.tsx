@@ -64,6 +64,10 @@ const getNotificationBgColor = (type: string, isRead: boolean) => {
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const formatUpdateTypeLabel = (type?: string) => {
+    if (!type) return '';
+    return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  };
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -251,6 +255,35 @@ export default function NotificationsPage() {
                   <p className={`mt-1 text-sm ${notification.isRead ? 'text-gray-500' : 'text-gray-700'}`}>
                     {notification.message}
                   </p>
+
+                  {/* Metadata: show update type, priority and author if present */}
+                  {(notification.metadata?.updateType || notification.metadata?.priority || notification.metadata?.createdBy || notification.metadata?.reviewerName || notification.metadata?.createdByUid) && (
+                    <div className="mt-3 flex items-center gap-3">
+                      {notification.metadata?.updateType && (
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium uppercase">
+                          {formatUpdateTypeLabel(notification.metadata.updateType)}
+                        </span>
+                      )}
+
+                      {notification.metadata?.priority && (
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          notification.metadata.priority === 'urgent' ? 'bg-red-100 text-red-700 border border-red-300' :
+                          notification.metadata.priority === 'high' ? 'bg-orange-100 text-orange-700 border border-orange-300' :
+                          notification.metadata.priority === 'medium' ? 'bg-blue-100 text-blue-700 border border-blue-300' :
+                          'bg-gray-100 text-gray-700 border border-gray-300'
+                        }`}>
+                          {notification.metadata.priority[0].toUpperCase() + notification.metadata.priority.slice(1)}
+                        </span>
+                      )}
+
+                      {(notification.metadata?.reviewerName || notification.metadata?.createdBy || notification.metadata?.createdByUid || (notification.metadata?.createdBy && notification.metadata.createdBy.uid)) && (
+                        <div className="text-xs text-gray-500">
+                          By {notification.metadata.reviewerName || (notification.metadata.createdBy && (typeof notification.metadata.createdBy === 'string' ? notification.metadata.createdBy : notification.metadata.createdBy.employeeDetails?.displayName || `${notification.metadata.createdBy.firstName || ''} ${notification.metadata.createdBy.lastName || ''}`.trim()))}
+                          {notification.metadata.createdByUid ? ` (${notification.metadata.createdByUid})` : (notification.metadata.createdBy && (notification.metadata.createdBy.uid || notification.metadata.createdBy.userId) ? ` (${notification.metadata.createdBy.uid || notification.metadata.createdBy.userId})` : '')}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="mt-3 flex items-center gap-2">

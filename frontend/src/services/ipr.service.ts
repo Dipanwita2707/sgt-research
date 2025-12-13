@@ -48,11 +48,13 @@ export type IprStatus =
   | 'drd_head_approved'
   | 'drd_approved'
   | 'drd_rejected'
+  | 'drd_head_rejected'
   | 'under_dean_review'
   | 'dean_approved'
   | 'dean_rejected'
   | 'submitted_to_govt'
   | 'govt_application_filed'
+  | 'govt_rejected'
   | 'published'
   | 'under_finance_review'
   | 'finance_approved'
@@ -132,6 +134,25 @@ export interface IprFinance {
   financeReviewer?: any;
 }
 
+export interface IprStatusUpdate {
+  id: string;
+  iprApplicationId: string;
+  createdById: string;
+  updateMessage: string;
+  updateType: 'hearing' | 'document_request' | 'milestone' | 'general';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  notifyApplicant: boolean;
+  notifyInventors: boolean;
+  createdAt: string;
+  createdBy?: {
+    uid: string;
+    employeeDetails?: {
+      firstName: string;
+      lastName: string;
+    };
+  };
+}
+
 export interface CreateIprApplicationDto {
   applicantType: string;
   iprType: string;
@@ -146,6 +167,9 @@ export interface CreateIprApplicationDto {
   applicantDetails: any;
   annexureFilePath?: string;
   supportingDocsFilePaths?: string[];
+  // Complete filing specific fields
+  sourceProvisionalId?: string; // ID of provisional application to convert from
+  prototypeFilePath?: string; // ZIP file path for complete filing prototype
 }
 
 export interface UpdateIprApplicationDto {
@@ -217,6 +241,26 @@ class IprService {
     return response.data;
   }
 
+  // Get published provisional applications that can be converted to complete filing
+  async getMyPublishedProvisionals(): Promise<{
+    available: IprApplication[];
+    alreadyConverted: IprApplication[];
+    total: number;
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/my-published-provisionals`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
+  // Get status updates for an IPR application (hearings, document requests, milestones)
+  async getStatusUpdates(applicationId: string): Promise<IprStatusUpdate[]> {
+    const response = await axios.get(`${API_BASE_URL}/drd-review/status-updates/${applicationId}`, {
+      withCredentials: true,
+    });
+    return response.data.data;
+  }
+
   // Update IPR application
   async updateApplication(
     id: string,
@@ -249,6 +293,14 @@ class IprService {
       withCredentials: true,
     });
     return response.data.data;
+  }
+
+  // Get collaborative editing suggestions for an IPR application
+  async getSuggestions(applicationId: string): Promise<any> {
+    const response = await axios.get(`${API_BASE_URL}/collaborative-editing/${applicationId}/suggestions`, {
+      withCredentials: true,
+    });
+    return response.data;
   }
 
   // Get IPR applications where the user is a contributor (for students)
@@ -292,6 +344,29 @@ class IprService {
       withCredentials: true,
     });
     return response.data.data;
+  }
+
+  // Get mentor review history (all applications mentor has reviewed)
+  async getMentorReviewHistory(): Promise<{
+    data: {
+      all: IprApplication[];
+      pending: IprApplication[];
+      changesRequired: IprApplication[];
+      approved: IprApplication[];
+      rejected: IprApplication[];
+    };
+    stats: {
+      total: number;
+      pending: number;
+      changesRequired: number;
+      approved: number;
+      rejected: number;
+    };
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/ipr/mentor/history`, {
+      withCredentials: true,
+    });
+    return response.data;
   }
 }
 
@@ -649,6 +724,44 @@ class FileUploadService {
         throw new Error(error.response.data.message || 'Failed to upload file');
       }
       throw new Error('Failed to upload file. Please try again.');
+    }
+  }
+
+  // Upload prototype ZIP file (up to 50MB) for complete filing
+  async uploadPrototypeFile(file: File): Promise<string> {
+    try {
+      // Validate file is ZIP
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        throw new Error('Only ZIP files are allowed for prototype uploads');
+      }
+
+      // Validate file size (50MB max)
+      const maxSize = 50 * 1024 * 1024; // 50MB in bytes
+      if (file.size > maxSize) {
+        throw new Error('Prototype file must be less than 50MB');
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await axios.post(`${API_BASE_URL}/file-upload/upload-prototype`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        withCredentials: true,
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Prototype upload failed');
+      }
+
+      return response.data.data.filePath;
+    } catch (error) {
+      console.error('Prototype upload error:', error);
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || 'Failed to upload prototype');
+      }
+      throw error;
     }
   }
 

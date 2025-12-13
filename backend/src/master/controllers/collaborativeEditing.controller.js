@@ -392,10 +392,36 @@ exports.respondToSuggestion = async (req, res) => {
     });
 
     if (pendingSuggestions === 0) {
-      // All suggestions resolved - update status to resubmitted
+      // Check if this was a mentor suggestion (prefixed with [MENTOR])
+      const isMentorSuggestion = suggestion.suggestionNote?.startsWith('[MENTOR]');
+      
+      console.log('[respondToSuggestion] Checking mentor suggestions:', {
+        iprApplicationId: suggestion.iprApplicationId,
+        currentSuggestionNote: suggestion.suggestionNote,
+        isMentorSuggestion
+      });
+      
+      // Also check if there are any other mentor suggestions that were addressed
+      const mentorSuggestionsCount = await prisma.iprEditSuggestion.count({
+        where: {
+          iprApplicationId: suggestion.iprApplicationId,
+          suggestionNote: { startsWith: '[MENTOR]' },
+          status: { in: ['accepted', 'rejected'] }
+        }
+      });
+      
+      console.log('[respondToSuggestion] Mentor suggestions count:', mentorSuggestionsCount);
+      
+      // If mentor suggestions exist, go back to pending_mentor_approval
+      const newStatus = (isMentorSuggestion || mentorSuggestionsCount > 0) 
+        ? 'pending_mentor_approval' 
+        : 'resubmitted';
+      
+      console.log('[respondToSuggestion] Setting new status:', newStatus);
+      
       await prisma.iprApplication.update({
         where: { id: suggestion.iprApplicationId },
-        data: { status: 'resubmitted' }
+        data: { status: newStatus }
       });
 
       // Create status history
@@ -403,15 +429,47 @@ exports.respondToSuggestion = async (req, res) => {
         data: {
           iprApplicationId: suggestion.iprApplicationId,
           fromStatus: 'changes_required',
-          toStatus: 'resubmitted',
+          toStatus: newStatus,
           changedById: userId,
-          comments: 'All requested changes have been addressed',
+          comments: newStatus === 'pending_mentor_approval'
+            ? 'All mentor suggestions addressed - awaiting mentor review'
+            : 'All requested changes have been addressed',
           metadata: { action: 'resubmit' }
         }
       });
 
-      // Notify the current reviewer that all changes are resolved
-      if (suggestion.iprApplication.currentReviewerId) {
+      // Notify mentor or DRD reviewer based on flow
+      if (newStatus === 'pending_mentor_approval') {
+        // Notify mentor
+        const iprApp = await prisma.iprApplication.findUnique({
+          where: { id: suggestion.iprApplicationId },
+          select: { applicantDetails: { select: { mentorUid: true } } }
+        });
+        
+        if (iprApp?.applicantDetails?.mentorUid) {
+          const mentor = await prisma.userLogin.findFirst({
+            where: { uid: iprApp.applicantDetails.mentorUid }
+          });
+          
+          if (mentor) {
+            await prisma.notification.create({
+              data: {
+                userId: mentor.id,
+                type: 'ipr_mentor_review_ready',
+                title: 'Student Responded to Your Suggestions',
+                message: `${applicantName} has addressed your suggested changes in IPR "${suggestion.iprApplication.title}". Please review and decide to approve or request more changes.`,
+                referenceType: 'ipr_application',
+                referenceId: suggestion.iprApplicationId,
+                metadata: {
+                  actionUrl: `/mentor/ipr/${suggestion.iprApplicationId}`,
+                  actionLabel: 'Review Application'
+                }
+              }
+            });
+          }
+        }
+      } else if (suggestion.iprApplication.currentReviewerId) {
+        // Notify DRD reviewer
         await prisma.notification.create({
           data: {
             userId: suggestion.iprApplication.currentReviewerId,
@@ -535,8 +593,8 @@ exports.endCollaborativeSession = async (req, res) => {
 /**
  * Helper function to check review permission
  */
-async function checkReviewPermission(userId, iprApplicationId) {
-  // Check if user has DRD review permissions
+async function checkReviewPermission(userId, iprApplicationId, checkMentor = false) {
+  // Get user info
   const user = await prisma.userLogin.findUnique({
     where: { id: userId },
     include: {
@@ -552,7 +610,7 @@ async function checkReviewPermission(userId, iprApplicationId) {
   if (!user) return false;
 
   // Check if user has any DRD review permission (supports both naming conventions)
-  return user.centralDeptPermissions.some(perm => 
+  const hasDrdPermission = user.centralDeptPermissions.some(perm => 
     perm.permissions && (
       perm.permissions.ipr_review === true ||
       perm.permissions.ipr_approve === true ||
@@ -560,6 +618,26 @@ async function checkReviewPermission(userId, iprApplicationId) {
       perm.permissions.drd_ipr_approve === true
     )
   );
+  
+  if (hasDrdPermission) return true;
+  
+  // Check if user is the mentor for this IPR application
+  if (checkMentor) {
+    const iprApplication = await prisma.iprApplication.findUnique({
+      where: { id: iprApplicationId },
+      include: {
+        applicantDetails: {
+          select: { mentorUid: true }
+        }
+      }
+    });
+    
+    if (iprApplication?.applicantDetails?.mentorUid === user.uid) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
@@ -856,8 +934,14 @@ exports.respondToBatchSuggestions = async (req, res) => {
       select: {
         id: true,
         title: true,
+        status: true,
         applicantUserId: true,
-        currentReviewerId: true
+        currentReviewerId: true,
+        applicantDetails: {
+          select: {
+            mentorUid: true
+          }
+        }
       }
     });
 
@@ -951,25 +1035,45 @@ exports.respondToBatchSuggestions = async (req, res) => {
         }
       });
 
-      // If all suggestions are responded to, update status to resubmitted
+      // If all suggestions are responded to, determine next status
+      let newStatus = null;
       if (remainingPending === 0) {
+        // Check if these were mentor suggestions (prefixed with [MENTOR])
+        const mentorSuggestionsCount = await tx.iprEditSuggestion.count({
+          where: {
+            iprApplicationId,
+            suggestionNote: { startsWith: '[MENTOR]' },
+            status: { in: ['accepted', 'rejected'] }
+          }
+        });
+
+        // If there were mentor suggestions, go back to pending_mentor_approval
+        // so mentor can review the responses and decide to approve or request more changes
+        if (mentorSuggestionsCount > 0) {
+          newStatus = 'pending_mentor_approval';
+        } else {
+          newStatus = 'resubmitted';
+        }
+
         await tx.iprApplication.update({
           where: { id: iprApplicationId },
-          data: { status: 'resubmitted' }
+          data: { status: newStatus }
         });
 
         await tx.iprStatusHistory.create({
           data: {
             iprApplicationId,
             fromStatus: 'changes_required',
-            toStatus: 'resubmitted',
+            toStatus: newStatus,
             changedById: userId,
-            comments: 'All requested changes have been addressed'
+            comments: newStatus === 'pending_mentor_approval' 
+              ? 'All mentor suggestions addressed - awaiting mentor review'
+              : 'All requested changes have been addressed'
           }
         });
       }
 
-      return { updatedSuggestions, remainingPending };
+      return { updatedSuggestions, remainingPending, newStatus };
     });
 
     // Get applicant name for notification
@@ -988,8 +1092,35 @@ exports.respondToBatchSuggestions = async (req, res) => {
     const acceptedCount = responses.filter(r => r.action === 'accept').length;
     const rejectedCount = responses.filter(r => r.action === 'reject').length;
 
-    // Notify reviewer
-    if (iprApplication.currentReviewerId) {
+    // Notify reviewer (DRD or mentor)
+    const isMentorFlow = result.newStatus === 'pending_mentor_approval';
+    
+    // If mentor flow, notify mentor
+    if (isMentorFlow && iprApplication.applicantDetails?.mentorUid) {
+      const mentor = await prisma.userLogin.findFirst({
+        where: { uid: iprApplication.applicantDetails.mentorUid }
+      });
+      
+      if (mentor) {
+        await prisma.notification.create({
+          data: {
+            userId: mentor.id,
+            type: 'ipr_mentor_review_ready',
+            title: 'Student Responded to Your Suggestions',
+            message: `${applicantName} has addressed your suggested changes in IPR "${iprApplication.title}". Accepted: ${acceptedCount}, Rejected: ${rejectedCount}. Please review and decide to approve or request more changes.`,
+            referenceType: 'ipr_application',
+            referenceId: iprApplicationId,
+            metadata: {
+              acceptedCount,
+              rejectedCount,
+              actionUrl: `/mentor/ipr/${iprApplicationId}`,
+              actionLabel: 'Review Application'
+            }
+          }
+        });
+      }
+    } else if (iprApplication.currentReviewerId) {
+      // Notify DRD reviewer
       await prisma.notification.create({
         data: {
           userId: iprApplication.currentReviewerId,
@@ -1023,10 +1154,12 @@ exports.respondToBatchSuggestions = async (req, res) => {
         accepted: acceptedCount,
         rejected: rejectedCount,
         remainingPending: result.remainingPending,
-        status: result.remainingPending === 0 ? 'resubmitted' : 'changes_required'
+        status: result.newStatus || 'changes_required'
       },
       message: result.remainingPending === 0 
-        ? 'All suggestions responded. Application resubmitted for review.'
+        ? (result.newStatus === 'pending_mentor_approval'
+          ? 'All suggestions responded. Application sent back to mentor for review.'
+          : 'All suggestions responded. Application resubmitted for review.')
         : `Responded to ${responses.length} suggestions. ${result.remainingPending} pending.`
     });
   } catch (error) {
@@ -1117,6 +1250,342 @@ exports.getReviewHistory = async (req, res) => {
   }
 };
 
+/**
+ * Check if user is the mentor for an IPR application
+ */
+async function checkMentorPermission(userId, iprApplicationId) {
+  const user = await prisma.userLogin.findUnique({
+    where: { id: userId },
+    select: { uid: true }
+  });
+
+  if (!user) return false;
+
+  const iprApplication = await prisma.iprApplication.findUnique({
+    where: { id: iprApplicationId },
+    include: {
+      applicantDetails: {
+        select: { mentorUid: true }
+      }
+    }
+  });
+
+  return iprApplication?.applicantDetails?.mentorUid === user.uid;
+}
+
+/**
+ * Mentor creates an edit suggestion (similar to DRD but for mentor review)
+ */
+exports.mentorCreateEditSuggestion = async (req, res) => {
+  try {
+    const { iprApplicationId } = req.params;
+    const userId = req.user.id;
+    const userUid = req.user.uid;
+    const {
+      fieldName,
+      fieldPath,
+      originalValue,
+      suggestedValue,
+      suggestionNote
+    } = req.body;
+
+    // Validate required fields
+    if (!fieldName || !suggestedValue) {
+      return res.status(400).json({
+        success: false,
+        message: 'Field name and suggested value are required'
+      });
+    }
+
+    // Check if user is the mentor for this application
+    const isMentor = await checkMentorPermission(userId, iprApplicationId);
+    if (!isMentor) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the mentor for this IPR application'
+      });
+    }
+
+    // Get the IPR application
+    const iprApplication = await prisma.iprApplication.findUnique({
+      where: { id: iprApplicationId },
+      select: {
+        id: true,
+        title: true,
+        applicantUserId: true,
+        status: true,
+      }
+    });
+
+    if (!iprApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found'
+      });
+    }
+
+    // Verify application is in pending_mentor_approval status
+    if (iprApplication.status !== 'pending_mentor_approval') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only suggest edits for applications pending mentor approval'
+      });
+    }
+
+    // Create the edit suggestion with mentor role (prefix note with [MENTOR])
+    const suggestion = await prisma.iprEditSuggestion.create({
+      data: {
+        iprApplicationId,
+        reviewerId: userId,
+        fieldName,
+        fieldPath,
+        originalValue,
+        suggestedValue,
+        suggestionNote: `[MENTOR] ${suggestionNote || ''}`,
+        status: 'pending'
+      },
+      include: {
+        reviewer: {
+          select: {
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Note: Status is NOT changed here - mentor must explicitly request changes or approve
+    // This allows mentor to add multiple suggestions before making a final decision
+
+    res.status(201).json({
+      success: true,
+      data: suggestion,
+      message: 'Edit suggestion created successfully'
+    });
+  } catch (error) {
+    console.error('Mentor create edit suggestion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create edit suggestion',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get mentor's edit suggestions for an IPR application
+ */
+exports.getMentorEditSuggestions = async (req, res) => {
+  try {
+    const { iprApplicationId } = req.params;
+    const userId = req.user.id;
+
+    // Check if user is the mentor
+    const isMentor = await checkMentorPermission(userId, iprApplicationId);
+    if (!isMentor) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the mentor for this IPR application'
+      });
+    }
+
+    const suggestions = await prisma.iprEditSuggestion.findMany({
+      where: {
+        iprApplicationId,
+        suggestionNote: { startsWith: '[MENTOR]' }
+      },
+      include: {
+        reviewer: {
+          select: {
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Summary
+    const summary = {
+      total: suggestions.length,
+      pending: suggestions.filter(s => s.status === 'pending').length,
+      accepted: suggestions.filter(s => s.status === 'accepted').length,
+      rejected: suggestions.filter(s => s.status === 'rejected').length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        suggestions,
+        summary
+      }
+    });
+  } catch (error) {
+    console.error('Get mentor edit suggestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get edit suggestions'
+    });
+  }
+};
+
+/**
+ * Submit batch suggestions from mentor and request changes
+ */
+exports.mentorSubmitBatchSuggestions = async (req, res) => {
+  try {
+    const { iprApplicationId } = req.params;
+    const userId = req.user.id;
+    const userUid = req.user.uid;
+    const { suggestions, overallComments } = req.body;
+
+    if (!suggestions || !Array.isArray(suggestions) || suggestions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one suggestion is required'
+      });
+    }
+
+    // Check if user is the mentor
+    const isMentor = await checkMentorPermission(userId, iprApplicationId);
+    if (!isMentor) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the mentor for this IPR application'
+      });
+    }
+
+    // Get the IPR application
+    const iprApplication = await prisma.iprApplication.findUnique({
+      where: { id: iprApplicationId },
+      select: {
+        id: true,
+        title: true,
+        applicantUserId: true,
+        status: true,
+      }
+    });
+
+    if (!iprApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'IPR application not found'
+      });
+    }
+
+    if (iprApplication.status !== 'pending_mentor_approval') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only request changes for applications pending mentor approval'
+      });
+    }
+
+    // Get mentor info
+    const mentor = await prisma.userLogin.findUnique({
+      where: { id: userId },
+      select: {
+        uid: true,
+        employeeDetails: {
+          select: { displayName: true, firstName: true }
+        }
+      }
+    });
+    const mentorName = mentor?.employeeDetails?.displayName ||
+      mentor?.employeeDetails?.firstName ||
+      mentor?.uid || 'Your Mentor';
+
+    // Create all suggestions in a transaction
+    const createdSuggestions = await prisma.$transaction(async (tx) => {
+      const results = [];
+      
+      for (const suggestion of suggestions) {
+        const created = await tx.iprEditSuggestion.create({
+          data: {
+            iprApplicationId,
+            reviewerId: userId,
+            fieldName: suggestion.fieldName,
+            fieldPath: suggestion.fieldPath,
+            originalValue: suggestion.originalValue,
+            suggestedValue: suggestion.suggestedValue,
+            suggestionNote: `[MENTOR] ${suggestion.suggestionNote || ''}`,
+            status: 'pending'
+          }
+        });
+        results.push(created);
+      }
+
+      // Update IPR status to changes_required
+      await tx.iprApplication.update({
+        where: { id: iprApplicationId },
+        data: { status: 'changes_required' }
+      });
+
+      // Create status history
+      await tx.iprStatusHistory.create({
+        data: {
+          iprApplicationId,
+          fromStatus: 'pending_mentor_approval',
+          toStatus: 'changes_required',
+          changedById: userId,
+          comments: overallComments || `Mentor requested ${suggestions.length} change(s)`,
+          metadata: {
+            action: 'mentor_batch_request_changes',
+            mentorUid: userUid,
+            suggestionCount: suggestions.length
+          }
+        }
+      });
+
+      return results;
+    });
+
+    // Send notification to student
+    await prisma.notification.create({
+      data: {
+        userId: iprApplication.applicantUserId,
+        type: 'ipr_mentor_changes_requested',
+        title: 'Mentor Requested Changes to Your IPR Application',
+        message: `${mentorName} has suggested ${createdSuggestions.length} change(s) to your IPR "${iprApplication.title}". Please review and respond to each suggestion.`,
+        referenceType: 'ipr_application',
+        referenceId: iprApplicationId,
+        metadata: {
+          mentorName,
+          mentorUid: userUid,
+          suggestionCount: createdSuggestions.length,
+          overallComments,
+          actionUrl: `/ipr/applications/${iprApplicationId}`,
+          actionLabel: 'Review Changes'
+        }
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      data: createdSuggestions,
+      message: `${createdSuggestions.length} suggestion(s) created and sent to student`
+    });
+  } catch (error) {
+    console.error('Mentor submit batch suggestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit suggestions',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   startCollaborativeSession: exports.startCollaborativeSession,
   createEditSuggestion: exports.createEditSuggestion,
@@ -1126,5 +1595,9 @@ module.exports = {
   endCollaborativeSession: exports.endCollaborativeSession,
   submitBatchSuggestions: exports.submitBatchSuggestions,
   respondToBatchSuggestions: exports.respondToBatchSuggestions,
-  getReviewHistory: exports.getReviewHistory
+  getReviewHistory: exports.getReviewHistory,
+  // Mentor specific
+  mentorCreateEditSuggestion: exports.mentorCreateEditSuggestion,
+  getMentorEditSuggestions: exports.getMentorEditSuggestions,
+  mentorSubmitBatchSuggestions: exports.mentorSubmitBatchSuggestions
 };

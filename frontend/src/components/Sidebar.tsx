@@ -20,7 +20,8 @@ import {
   MapPin,
   Upload,
   BarChart3,
-  BookOpen
+  BookOpen,
+  FileText
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
@@ -98,10 +99,11 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
   
   // Check permissions
   const canFileIpr = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'ipr_file_new');
+  const canFileResearch = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'research_file_new');
   const hasDrdAccess = hasDrdPermissions(permissions) || isAdmin;
   const hasFinanceAccess = hasFinancePermissions(permissions);
   
-  console.log('getNavItems - canFileIpr:', canFileIpr, 'hasDrdAccess:', hasDrdAccess);
+  console.log('getNavItems - canFileIpr:', canFileIpr, 'canFileResearch:', canFileResearch, 'hasDrdAccess:', hasDrdAccess);
   
   // DRD Dashboard - Show for users with DRD permissions OR admins
   if (hasDrdAccess) {
@@ -111,6 +113,11 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
   // Finance Dashboard - Show if user has finance permissions
   if (hasFinanceAccess) {
     items.push({ name: 'Finance', href: '/finance/dashboard', icon: DollarSign });
+  }
+  
+  // Research & Academic Contributions - Show for faculty, students, and those with research_file_new
+  if (canFileResearch) {
+    items.push({ name: 'Research & Academic', href: '/research', icon: BookOpen });
   }
   
   // IPR Management is now accessed through DRD Dashboard
@@ -136,8 +143,10 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
         { name: 'Employees', href: '/admin/employees', icon: Users },
         { name: 'Students', href: '/admin/students', icon: GraduationCap },
         { name: 'Permissions', href: '/admin/permissions', icon: Settings },
-        { name: 'DRD School Assignment', href: '/admin/drd-school-assignment', icon: MapPin },
-        { name: 'Incentive Policies', href: '/admin/incentive-policies', icon: Settings },
+        { name: 'IPR School Assignment', href: '/admin/drd-school-assignment', icon: MapPin },
+        { name: 'Research School Assignment', href: '/admin/research-school-assignment', icon: BookOpen },
+        { name: 'IPR Policies', href: '/admin/incentive-policies', icon: Settings },
+        { name: 'Research Policies', href: '/admin/research-policies', icon: FileText },
       ]
     });
   }

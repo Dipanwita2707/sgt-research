@@ -3,26 +3,25 @@ const router = express.Router();
 const schoolController = require('../controllers/school.controller');
 const { protect, restrictTo } = require('../../middleware/auth');
 
-// All routes require authentication and admin role
+// All routes require authentication
 router.use(protect);
-router.use(restrictTo('admin'));
 
-// GET all schools
+// GET all schools (available to all authenticated users)
 router.get('/', schoolController.getAllSchools);
 
-// GET school by ID
+// GET school by ID (available to all authenticated users)
 router.get('/:id', schoolController.getSchoolById);
 
-// POST create new school
-router.post('/', schoolController.createSchool);
+// POST create new school (admin only)
+router.post('/', restrictTo('admin'), schoolController.createSchool);
 
-// PUT update school
-router.put('/:id', schoolController.updateSchool);
+// PUT update school (admin only)
+router.put('/:id', restrictTo('admin'), schoolController.updateSchool);
 
-// DELETE school
-router.delete('/:id', schoolController.deleteSchool);
+// DELETE school (admin only)
+router.delete('/:id', restrictTo('admin'), schoolController.deleteSchool);
 
-// PATCH toggle school status
-router.patch('/:id/toggle-status', schoolController.toggleSchoolStatus);
+// PATCH toggle school status (admin only)
+router.patch('/:id/toggle-status', restrictTo('admin'), schoolController.toggleSchoolStatus);
 
 module.exports = router;

@@ -6,14 +6,14 @@ const { protect, restrictTo } = require('../../middleware/auth');
 // All routes require authentication
 router.use(protect);
 
-// Get all departments (admin only)
-router.get('/', restrictTo('admin'), departmentController.getAllDepartments);
+// Get all departments (available to all authenticated users)
+router.get('/', departmentController.getAllDepartments);
 
-// Get departments by school (admin only)
-router.get('/by-school/:schoolId', restrictTo('admin'), departmentController.getDepartmentsBySchool);
+// Get departments by school (available to all authenticated users)
+router.get('/by-school/:schoolId', departmentController.getDepartmentsBySchool);
 
-// Get department by ID (admin only)
-router.get('/:id', restrictTo('admin'), departmentController.getDepartmentById);
+// Get department by ID (available to all authenticated users)
+router.get('/:id', departmentController.getDepartmentById);
 
 // Create department (admin only)
 router.post('/', restrictTo('admin'), departmentController.createDepartment);

@@ -36,11 +36,17 @@ export default function PermissionManagement() {
   const departmentPermissions: Record<string, Record<string, Permission[]>> = {
     central: {
       DRD: [
-        // Simplified IPR Permissions - Only 4 checkboxes
+        // IPR Permissions - 4 checkboxes
         { key: 'ipr_file_new', label: 'IPR Filing', category: 'IPR Permissions', description: 'Can file new IPR applications (Faculty/Student have this by default)' },
         { key: 'ipr_review', label: 'IPR Review', category: 'IPR Permissions', description: 'DRD Member - Can review IPR applications from assigned schools' },
         { key: 'ipr_approve', label: 'IPR Approve', category: 'IPR Permissions', description: 'DRD Head - Can give final approval/rejection on IPR applications' },
-        { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members', category: 'IPR Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers' },
+        { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members (IPR)', category: 'IPR Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for IPR' },
+        
+        // Research Permissions - 4 checkboxes
+        { key: 'research_file_new', label: 'Research Filing', category: 'Research Permissions', description: 'Can file new research contributions (Faculty/Student have this by default)' },
+        { key: 'research_review', label: 'Research Review', category: 'Research Permissions', description: 'DRD Member - Can review research contributions from assigned schools' },
+        { key: 'research_approve', label: 'Research Approve', category: 'Research Permissions', description: 'DRD Head - Can give final approval/rejection on research contributions' },
+        { key: 'research_assign_school', label: 'Assign Schools to DRD Members (Research)', category: 'Research Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Research' },
       ],
       HR: [
         { key: 'hr_view_employees', label: 'View Employees', category: 'HR' },

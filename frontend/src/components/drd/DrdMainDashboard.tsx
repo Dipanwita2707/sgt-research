@@ -55,7 +55,7 @@ export default function DrdMainDashboard() {
   const [pendingMentorApprovals, setPendingMentorApprovals] = useState<any[]>([]);
   const [mentorLoading, setMentorLoading] = useState(false);
 
-  // Simplified permission categories - focused on IPR workflow
+  // Simplified permission categories - focused on IPR and Research workflow
   const permissionCategories: PermissionCategory[] = [
     {
       category: 'IPR Review & Management',
@@ -65,10 +65,24 @@ export default function DrdMainDashboard() {
       permissions: []
     },
     {
-      category: 'School Assignment',
+      category: 'Research Review & Management',
+      icon: <BookOpen className="w-6 h-6" />,
+      color: 'purple',
+      route: '/drd/research',
+      permissions: []
+    },
+    {
+      category: 'IPR School Assignment',
       icon: <Users className="w-6 h-6" />,
       color: 'amber',
       route: '/admin/drd-school-assignment',
+      permissions: []
+    },
+    {
+      category: 'Research School Assignment',
+      icon: <Users className="w-6 h-6" />,
+      color: 'pink',
+      route: '/admin/research-school-assignment',
       permissions: []
     },
     {
@@ -141,15 +155,16 @@ export default function DrdMainDashboard() {
     }
   };
 
-  // Simplified 4-permission system
+  // Simplified 4-permission system for IPR and Research
   const hasViewPermission = (category: string) => {
-    // Based on new 4 permissions: ipr_file_new, ipr_review, ipr_approve, ipr_assign_school
-    // NOTE: ipr_file_new is NOT a DRD permission - it's a general filing permission
-    // DRD dashboard cards should only show for DRD-specific permissions (ipr_review, ipr_approve, ipr_assign_school)
+    // Based on permissions: ipr_file_new, ipr_review, ipr_approve, ipr_assign_school
+    // and research_file_new, research_review, research_approve, research_assign_school
     const viewPermissionKeys: Record<string, string[]> = {
-      'IPR Review & Management': ['ipr_review', 'ipr_approve'],  // Only DRD members/head can see this
-      'School Assignment': ['ipr_assign_school'],
-      'Analytics & Reports': ['ipr_approve'],  // Only DRD Head can view analytics
+      'IPR Review & Management': ['ipr_review', 'ipr_approve'],
+      'Research Review & Management': ['research_review', 'research_approve'],
+      'IPR School Assignment': ['ipr_assign_school'],
+      'Research School Assignment': ['research_assign_school'],
+      'Analytics & Reports': ['ipr_approve', 'research_approve'],
     };
     
     const requiredPerms = viewPermissionKeys[category] || [];
@@ -157,12 +172,13 @@ export default function DrdMainDashboard() {
   };
 
   const getActionPermissions = (category: string) => {
-    // Simplified 4-permission action map
-    // NOTE: ipr_file_new is shown separately in Quick Actions, not in category cards
+    // Permission action map for both IPR and Research
     const actionPermissionMap: Record<string, string[]> = {
-      'IPR Review & Management': ['ipr_review', 'ipr_approve'],  // Only DRD permissions
-      'School Assignment': ['ipr_assign_school'],
-      'Analytics & Reports': ['ipr_approve'],
+      'IPR Review & Management': ['ipr_review', 'ipr_approve'],
+      'Research Review & Management': ['research_review', 'research_approve'],
+      'IPR School Assignment': ['ipr_assign_school'],
+      'Research School Assignment': ['research_assign_school'],
+      'Analytics & Reports': ['ipr_approve', 'research_approve'],
     };
 
     return (actionPermissionMap[category] || []).filter(
@@ -257,15 +273,15 @@ export default function DrdMainDashboard() {
         </div>
       </div>
 
-      {/* Quick Actions - Based on Permissions */}
-      {(userPermissions.ipr_file_new || userPermissions.ipr_review || userPermissions.ipr_assign_school) && (
+      {/* Quick Actions - Based on Permissions or user type */}
+      {(userPermissions.ipr_file_new || userPermissions.research_file_new || userPermissions.ipr_review || userPermissions.research_review || userPermissions.ipr_assign_school || userPermissions.research_assign_school || user?.userType === 'faculty' || user?.userType === 'student') && (
         <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5 text-[#005b96]" />
             Quick Actions
           </h2>
           <div className="flex flex-wrap gap-3">
-            {userPermissions.ipr_file_new && (
+            {(userPermissions.ipr_file_new || user?.userType === 'faculty' || user?.userType === 'student') && (
               <Link
                 href="/ipr/apply"
                 className="flex items-center gap-2 px-5 py-3 bg-[#005b96] text-white rounded-xl hover:bg-[#03396c] hover:shadow-lg transition-all font-medium"
@@ -274,7 +290,7 @@ export default function DrdMainDashboard() {
                 File New IPR Application
               </Link>
             )}
-            {userPermissions.ipr_file_new && (
+            {(userPermissions.ipr_file_new || user?.userType === 'faculty' || user?.userType === 'student') && (
               <Link
                 href="/ipr/my-applications"
                 className="flex items-center gap-2 px-5 py-3 bg-[#e6f2fa] text-[#005b96] border border-[#b3d4fc] rounded-xl hover:bg-[#d4e9f7] transition-all font-medium"
@@ -301,60 +317,108 @@ export default function DrdMainDashboard() {
                 Assign Schools
               </Link>
             )}
+            {(userPermissions.research_file_new || user?.userType === 'faculty' || user?.userType === 'student') && (
+              <Link
+                href="/research/apply"
+                className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 hover:shadow-lg transition-all font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                File New Research Contribution
+              </Link>
+            )}
+            {(userPermissions.research_file_new || user?.userType === 'faculty' || user?.userType === 'student') && (
+              <Link
+                href="/research/my-contributions"
+                className="flex items-center gap-2 px-5 py-3 bg-purple-50 text-purple-600 border border-purple-200 rounded-xl hover:bg-purple-100 transition-all font-medium"
+              >
+                <FolderOpen className="w-4 h-4" />
+                My Research Contributions
+              </Link>
+            )}
+            {userPermissions.research_review && (
+              <Link
+                href="/drd/research"
+                className="flex items-center gap-2 px-5 py-3 bg-purple-50 text-purple-600 border border-purple-200 rounded-xl hover:bg-purple-100 transition-all font-medium"
+              >
+                <BookOpen className="w-4 h-4" />
+                Review Research Contributions
+              </Link>
+            )}
+            {userPermissions.research_assign_school && (
+              <Link
+                href="/admin/research-school-assignment"
+                className="flex items-center gap-2 px-5 py-3 bg-purple-50 text-purple-600 border border-purple-200 rounded-xl hover:bg-purple-100 transition-all font-medium"
+              >
+                <Users className="w-4 h-4" />
+                Assign Research Schools
+              </Link>
+            )}
           </div>
         </div>
       )}
 
-      {/* Mentor Approvals Section - Only for faculty with pending approvals */}
-      {user?.userType === 'faculty' && pendingMentorApprovals.length > 0 && (
-        <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm border border-orange-200">
+      {/* Mentor Approvals Section - For all faculty users */}
+      {user?.userType === 'faculty' && (
+        <div className={`mb-8 bg-white rounded-2xl p-6 shadow-sm border ${pendingMentorApprovals.length > 0 ? 'border-orange-200' : 'border-gray-100'}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-orange-500" />
-              Pending Mentor Approvals
-              <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full ml-2">
-                {pendingMentorApprovals.length}
-              </span>
+              <UserCheck className={`w-5 h-5 ${pendingMentorApprovals.length > 0 ? 'text-orange-500' : 'text-blue-500'}`} />
+              Mentor Approvals
+              {pendingMentorApprovals.length > 0 && (
+                <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full ml-2">
+                  {pendingMentorApprovals.length}
+                </span>
+              )}
             </h2>
             <Link
               href="/ipr/mentor-approvals"
-              className="text-orange-600 hover:text-orange-700 text-sm font-medium flex items-center gap-1"
+              className={`${pendingMentorApprovals.length > 0 ? 'text-orange-600 hover:text-orange-700' : 'text-blue-600 hover:text-blue-700'} text-sm font-medium flex items-center gap-1`}
             >
               View All <ChevronRight className="w-4 h-4" />
             </Link>
           </div>
           <p className="text-sm text-gray-600 mb-4">
-            Students have selected you as their mentor for the following IPR applications. Please review and approve or request changes.
+            {pendingMentorApprovals.length > 0 
+              ? 'Students have selected you as their mentor for the following IPR applications. Please review and approve or request changes.'
+              : 'Review and track IPR applications where you are assigned as the mentor.'}
           </p>
-          <div className="space-y-3">
-            {pendingMentorApprovals.slice(0, 5).map((app: any) => (
-              <div key={app.id} className="flex items-center justify-between p-4 bg-orange-50 rounded-xl border border-orange-100">
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-800">{app.title}</h3>
-                  <p className="text-sm text-gray-500">
-                    {app.iprType?.toUpperCase()} • {app.applicationNumber || 'Pending Number'}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Submitted by: {app.applicantUser?.studentLogin?.displayName || app.applicantUser?.studentLogin?.firstName || 'Student'}
-                  </p>
+          {pendingMentorApprovals.length > 0 ? (
+            <div className="space-y-3">
+              {pendingMentorApprovals.slice(0, 5).map((app: any) => (
+                <div key={app.id} className="flex items-center justify-between p-4 bg-orange-50 rounded-xl border border-orange-100">
+                  <div className="flex-1">
+                    <h3 className="font-medium text-gray-800">{app.title}</h3>
+                    <p className="text-sm text-gray-500">
+                      {app.iprType?.toUpperCase()} • {app.applicationNumber || 'Pending Number'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Submitted by: {app.applicantUser?.studentLogin?.displayName || app.applicantUser?.studentLogin?.firstName || 'Student'}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/ipr/mentor-approvals?id=${app.id}`}
+                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
+                  >
+                    Review
+                  </Link>
                 </div>
-                <Link
-                  href={`/ipr/mentor-approvals?id=${app.id}`}
-                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
-                >
-                  Review
-                </Link>
-              </div>
-            ))}
-          </div>
-          {pendingMentorApprovals.length > 5 && (
-            <div className="mt-4 text-center">
-              <Link
-                href="/ipr/mentor-approvals"
-                className="text-orange-600 hover:text-orange-700 text-sm font-medium"
-              >
-                View all {pendingMentorApprovals.length} pending approvals →
-              </Link>
+              ))}
+              {pendingMentorApprovals.length > 5 && (
+                <div className="mt-4 text-center">
+                  <Link
+                    href="/ipr/mentor-approvals"
+                    className="text-orange-600 hover:text-orange-700 text-sm font-medium"
+                  >
+                    View all {pendingMentorApprovals.length} pending approvals →
+                  </Link>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-6 bg-gray-50 rounded-xl">
+              <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-2" />
+              <p className="text-gray-600 font-medium">No pending approvals</p>
+              <p className="text-sm text-gray-500 mt-1">Click "View All" to see your mentee application history</p>
             </div>
           )}
         </div>
@@ -372,7 +436,9 @@ export default function DrdMainDashboard() {
 
           const colorMap: Record<string, { bg: string; border: string; iconBg: string; text: string }> = {
             'blue': { bg: '#e6f2fa', border: '#005b96', iconBg: '#005b96', text: '#005b96' },
+            'purple': { bg: '#f3e8ff', border: '#9333ea', iconBg: '#9333ea', text: '#9333ea' },
             'amber': { bg: '#fef5e7', border: '#f39c12', iconBg: '#f39c12', text: '#f39c12' },
+            'pink': { bg: '#fce7f3', border: '#ec4899', iconBg: '#ec4899', text: '#ec4899' },
             'green': { bg: '#e8f8ef', border: '#27ae60', iconBg: '#27ae60', text: '#27ae60' },
           };
           const colors = colorMap[categoryInfo.color] || colorMap['blue'];
@@ -450,27 +516,38 @@ export default function DrdMainDashboard() {
       </div>
 
       {/* No DRD Permissions Message - Show when user only has filing permission or no permissions */}
-      {!userPermissions.ipr_review && !userPermissions.ipr_approve && !userPermissions.ipr_assign_school && (
+      {!userPermissions.ipr_review && !userPermissions.research_review && !userPermissions.ipr_approve && !userPermissions.research_approve && !userPermissions.ipr_assign_school && !userPermissions.research_assign_school && (
         <div className="text-center py-12 bg-white rounded-2xl shadow-sm border border-gray-100">
           <div className="w-16 h-16 rounded-full bg-[#e6f2fa] mx-auto flex items-center justify-center">
             <Shield className="h-8 w-8 text-[#005b96]" />
           </div>
           <h3 className="mt-4 text-base font-semibold text-gray-800">No DRD Review Permissions</h3>
           <p className="mt-2 text-sm text-gray-500 max-w-sm mx-auto">
-            {userPermissions.ipr_file_new 
-              ? 'You can file IPR applications but do not have DRD review permissions. Use the IPR Dashboard for filing and tracking your applications.'
+            {(userPermissions.ipr_file_new || userPermissions.research_file_new)
+              ? 'You can file applications but do not have DRD review permissions. Use the dashboards for filing and tracking your applications.'
               : "You don't have any DRD permissions assigned. Contact your administrator to request access."
             }
           </p>
-          {userPermissions.ipr_file_new && (
-            <Link
-              href="/ipr"
-              className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-[#005b96] text-white rounded-xl hover:bg-[#03396c] transition-all font-medium"
-            >
-              <FileText className="w-4 h-4" />
-              Go to IPR Dashboard
-            </Link>
-          )}
+          <div className="flex gap-3 justify-center mt-4">
+            {userPermissions.ipr_file_new && (
+              <Link
+                href="/ipr"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#005b96] text-white rounded-xl hover:bg-[#03396c] transition-all font-medium"
+              >
+                <FileText className="w-4 h-4" />
+                Go to IPR Dashboard
+              </Link>
+            )}
+            {userPermissions.research_file_new && (
+              <Link
+                href="/research/my-contributions"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all font-medium"
+              >
+                <BookOpen className="w-4 h-4" />
+                Go to Research Dashboard
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -483,7 +560,11 @@ function getPermissionLabel(permissionKey: string): string {
     'ipr_file_new': 'File New IPR Applications',
     'ipr_review': 'Review IPR Applications',
     'ipr_approve': 'Final Approve/Reject IPR',
-    'ipr_assign_school': 'Assign Schools to DRD Members'
+    'ipr_assign_school': 'Assign Schools to DRD Members',
+    'research_file_new': 'File New Research Contributions',
+    'research_review': 'Review Research Contributions',
+    'research_approve': 'Final Approve/Reject Research',
+    'research_assign_school': 'Assign Schools to Research Reviewers'
   };
   
   return labels[permissionKey] || permissionKey;

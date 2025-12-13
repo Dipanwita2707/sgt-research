@@ -38,6 +38,13 @@ const createEmployee = async (req, res) => {
       isActive = true,
     } = req.body;
 
+    // Debug logging
+    console.log('=== CREATE EMPLOYEE DEBUG ===');
+    console.log('schoolId:', schoolId);
+    console.log('departmentId:', departmentId);
+    console.log('primaryCentralDeptId:', req.body.primaryCentralDeptId);
+    console.log('Full request body:', JSON.stringify(req.body, null, 2));
+
     // Validate required fields
     if (!uid || !email || !password || !firstName || !lastName || !empId) {
       return res.status(400).json({
@@ -87,7 +94,10 @@ const createEmployee = async (req, res) => {
             ? `${firstName} ${middleName} ${lastName}` 
             : `${firstName} ${lastName}`,
           designation,
+          email: email,
+          phoneNumber: mobileNumber || null,
           joinDate: dateOfJoining ? new Date(dateOfJoining) : new Date(),
+          primarySchoolId: schoolId || null, // Save school ID
           primaryDepartmentId: departmentId || null, // Ensure empty string becomes null
           // Set central department ID if provided, otherwise null
           primaryCentralDeptId: req.body.primaryCentralDeptId || null,
@@ -207,11 +217,19 @@ const getAllEmployees = async (req, res) => {
         include: {
           employeeDetails: {
             include: {
+              primarySchool: {
+                select: {
+                  id: true,
+                  facultyName: true,
+                },
+              },
               primaryDepartment: {
                 select: {
+                  id: true,
                   departmentName: true,
                   faculty: {
                     select: {
+                      id: true,
                       facultyName: true,
                     },
                   },
@@ -219,6 +237,7 @@ const getAllEmployees = async (req, res) => {
               },
               primaryCentralDept: {
                 select: {
+                  id: true,
                   departmentName: true,
                 },
               },
@@ -326,9 +345,12 @@ const updateEmployee = async (req, res) => {
     if (updates.firstName) employeeUpdates.firstName = updates.firstName;
     if (updates.lastName) employeeUpdates.lastName = updates.lastName;
     if (updates.designation) employeeUpdates.designation = updates.designation;
+    if (updates.email) employeeUpdates.email = updates.email;
+    if (updates.mobileNumber) employeeUpdates.phoneNumber = updates.mobileNumber;
     if (updates.dateOfJoining) employeeUpdates.joinDate = new Date(updates.dateOfJoining);
-    if (updates.departmentId) employeeUpdates.primaryDepartmentId = updates.departmentId || null;
-    if (updates.primaryCentralDeptId) employeeUpdates.primaryCentralDeptId = updates.primaryCentralDeptId || null;
+    if (updates.schoolId !== undefined) employeeUpdates.primarySchoolId = updates.schoolId || null;
+    if (updates.departmentId !== undefined) employeeUpdates.primaryDepartmentId = updates.departmentId || null;
+    if (updates.primaryCentralDeptId !== undefined) employeeUpdates.primaryCentralDeptId = updates.primaryCentralDeptId || null;
     if (updates.isActive !== undefined) employeeUpdates.isActive = updates.isActive;
     
     // Store extra fields in metadata

@@ -237,6 +237,28 @@ exports.createProgram = async (req, res) => {
       });
     }
 
+    // Map programType to enum values
+    const programTypeMapping = {
+      'UG': 'undergraduate',
+      'PG': 'postgraduate',
+      'PhD': 'doctoral',
+      'Diploma': 'diploma',
+      'Certificate': 'certificate',
+      'undergraduate': 'undergraduate',
+      'postgraduate': 'postgraduate',
+      'doctoral': 'doctoral',
+      'diploma': 'diploma',
+      'certificate': 'certificate'
+    };
+
+    const mappedProgramType = programTypeMapping[programType];
+    if (!mappedProgramType) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid program type. Expected one of: UG, PG, PhD, Diploma, Certificate`,
+      });
+    }
+
     // Check if department exists
     const department = await prisma.department.findUnique({
       where: { id: departmentId },
@@ -280,7 +302,7 @@ exports.createProgram = async (req, res) => {
         departmentId,
         programCode,
         programName,
-        programType,
+        programType: mappedProgramType,
         shortName,
         description,
         durationYears: durationYears || null,
@@ -406,13 +428,38 @@ exports.updateProgram = async (req, res) => {
       }
     }
 
+    // Map programType to enum values if provided
+    let mappedProgramType = programType;
+    if (programType) {
+      const programTypeMapping = {
+        'UG': 'undergraduate',
+        'PG': 'postgraduate',
+        'PhD': 'doctoral',
+        'Diploma': 'diploma',
+        'Certificate': 'certificate',
+        'undergraduate': 'undergraduate',
+        'postgraduate': 'postgraduate',
+        'doctoral': 'doctoral',
+        'diploma': 'diploma',
+        'certificate': 'certificate'
+      };
+
+      mappedProgramType = programTypeMapping[programType];
+      if (!mappedProgramType) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid program type. Expected one of: UG, PG, PhD, Diploma, Certificate`,
+        });
+      }
+    }
+
     const program = await prisma.program.update({
       where: { id },
       data: {
         ...(departmentId && { departmentId }),
         ...(programCode && { programCode }),
         ...(programName && { programName }),
-        ...(programType && { programType }),
+        ...(mappedProgramType && { programType: mappedProgramType }),
         ...(shortName !== undefined && { shortName }),
         ...(description !== undefined && { description }),
         ...(durationYears !== undefined && { durationYears }),

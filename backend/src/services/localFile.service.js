@@ -55,6 +55,27 @@ const fileFilter = (req, file, cb) => {
 };
 
 /**
+ * File filter for prototype ZIP uploads - only allow ZIP files
+ */
+const prototypeFileFilter = (req, file, cb) => {
+  const allowedMimeTypes = [
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-zip',
+    'application/octet-stream', // Some systems detect ZIP as this
+  ];
+
+  const ext = path.extname(file.originalname).toLowerCase();
+  
+  // Check both mime type and extension for better compatibility
+  if (allowedMimeTypes.includes(file.mimetype) || ext === '.zip') {
+    cb(null, true);
+  } else {
+    cb(new Error('Only ZIP files are allowed for prototype uploads'), false);
+  }
+};
+
+/**
  * Configure multer for file uploads
  * Note: Using memory storage first, then saving to disk to ensure folder is read from body
  */
@@ -65,6 +86,17 @@ const uploadMemory = multer({
   fileFilter: fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+/**
+ * Configure multer for prototype ZIP uploads with 50MB limit
+ */
+const uploadPrototypeMemory = multer({
+  storage: memoryStorage,
+  fileFilter: prototypeFileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for prototypes
   },
 });
 
@@ -273,9 +305,67 @@ const getFileInfo = async (req, res) => {
   }
 };
 
+/**
+ * Controller: Upload prototype ZIP file for IPR Complete Filing
+ * Allows ZIP files up to 50MB
+ */
+const uploadPrototypeFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded. Please upload a ZIP file containing your prototype.',
+      });
+    }
+
+    const userId = req.user.id;
+    const folder = 'ipr/prototypes';
+    
+    // Create the directory
+    const userDir = path.join(UPLOADS_DIR, folder, userId);
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
+    }
+    
+    // Generate unique filename
+    const timestamp = Date.now();
+    const randomString = crypto.randomBytes(6).toString('hex');
+    const ext = path.extname(req.file.originalname);
+    const baseName = path.basename(req.file.originalname, ext).replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${timestamp}-${randomString}-${baseName}${ext}`;
+    
+    // Write file to disk
+    const filePath = path.join(userDir, filename);
+    fs.writeFileSync(filePath, req.file.buffer);
+    
+    const relativePath = `${folder}/${userId}/${filename}`;
+
+    res.json({
+      success: true,
+      message: 'Prototype file uploaded successfully',
+      data: {
+        fileName: filename,
+        originalName: req.file.originalname,
+        filePath: relativePath,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+      },
+    });
+  } catch (error) {
+    console.error('Prototype file upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload prototype file',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   upload: uploadMemory,
+  uploadPrototype: uploadPrototypeMemory,
   uploadFile,
+  uploadPrototypeFile,
   downloadFile,
   deleteFile,
   getFileInfo,

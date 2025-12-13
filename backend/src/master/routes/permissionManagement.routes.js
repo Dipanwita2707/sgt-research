@@ -17,11 +17,17 @@ router.get('/check', permissionMgmt.checkUserPermission);
 
 // Get my assigned schools (for DRD members - available to any authenticated user)
 router.get('/my-assigned-schools', permissionMgmt.getMyAssignedSchools);
+router.get('/my-assigned-research-schools', permissionMgmt.getMyAssignedResearchSchools);
 
 // DRD Head can also manage school assignments (requires ipr_approve permission)
 router.get('/drd-members/with-schools', permissionMgmt.getDrdMembersWithSchools);
 router.get('/schools/with-members', permissionMgmt.getSchoolsWithAssignedMembers);
 router.post('/drd-member/assign-schools', permissionMgmt.assignDrdMemberSchools);
+
+// Research school assignments (requires research_approve/research_assign_school permission)
+router.get('/drd-members/with-research-schools', permissionMgmt.getDrdMembersWithResearchSchools);
+router.get('/schools/with-research-members', permissionMgmt.getSchoolsWithResearchMembers);
+router.post('/research-member/assign-schools', permissionMgmt.assignResearchMemberSchools);
 
 // Admin only routes
 router.use(restrictTo('admin'));
