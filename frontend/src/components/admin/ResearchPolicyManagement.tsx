@@ -18,6 +18,7 @@ import {
   BookOpen,
   Mic,
   Gift,
+  Percent,
 } from 'lucide-react';
 import { researchPolicyService, ResearchIncentivePolicy, IndexingBonuses, QuartileBonuses } from '@/services/researchPolicy.service';
 
@@ -87,6 +88,8 @@ export default function ResearchPolicyManagement() {
     basePoints: number;
     splitPolicy: 'equal' | 'author_role_based' | 'weighted';
     primaryAuthorShare: number;
+    firstAuthorPercentage: number;
+    correspondingAuthorPercentage: number;
     authorTypeMultipliers: Record<string, number>;
     indexingBonuses: IndexingBonuses;
     quartileBonuses: QuartileBonuses;
@@ -99,6 +102,8 @@ export default function ResearchPolicyManagement() {
     basePoints: 30,
     splitPolicy: 'author_role_based',
     primaryAuthorShare: 50,
+    firstAuthorPercentage: 40,
+    correspondingAuthorPercentage: 30,
     authorTypeMultipliers: { ...DEFAULT_AUTHOR_MULTIPLIERS },
     indexingBonuses: { ...DEFAULT_INDEXING_BONUSES },
     quartileBonuses: { ...DEFAULT_QUARTILE_BONUSES },
@@ -138,6 +143,8 @@ export default function ResearchPolicyManagement() {
         basePoints: policy.basePoints,
         splitPolicy: policy.splitPolicy,
         primaryAuthorShare: policy.primaryAuthorShare ? Number(policy.primaryAuthorShare) : 50,
+        firstAuthorPercentage: policy.firstAuthorPercentage ? Number(policy.firstAuthorPercentage) : 40,
+        correspondingAuthorPercentage: policy.correspondingAuthorPercentage ? Number(policy.correspondingAuthorPercentage) : 30,
         authorTypeMultipliers: policy.authorTypeMultipliers || { ...DEFAULT_AUTHOR_MULTIPLIERS },
         indexingBonuses: policy.indexingBonuses || { ...DEFAULT_INDEXING_BONUSES },
         quartileBonuses: (policy.indexingBonuses as any)?.quartileBonuses || { ...DEFAULT_QUARTILE_BONUSES },
@@ -159,6 +166,8 @@ export default function ResearchPolicyManagement() {
         basePoints: 30,
         splitPolicy: 'author_role_based',
         primaryAuthorShare: 50,
+        firstAuthorPercentage: 40,
+        correspondingAuthorPercentage: 30,
         authorTypeMultipliers: { ...DEFAULT_AUTHOR_MULTIPLIERS },
         indexingBonuses: { ...DEFAULT_INDEXING_BONUSES },
         quartileBonuses: { ...DEFAULT_QUARTILE_BONUSES },
@@ -198,6 +207,8 @@ export default function ResearchPolicyManagement() {
         basePoints: formData.basePoints,
         splitPolicy: formData.splitPolicy,
         primaryAuthorShare: formData.splitPolicy === 'weighted' ? formData.primaryAuthorShare : undefined,
+        firstAuthorPercentage: formData.firstAuthorPercentage,
+        correspondingAuthorPercentage: formData.correspondingAuthorPercentage,
         authorTypeMultipliers: formData.authorTypeMultipliers,
         indexingBonuses: indexingBonusesWithQuartiles,
         impactFactorTiers: formData.impactFactorTiers,
@@ -526,11 +537,67 @@ export default function ResearchPolicyManagement() {
                 </div>
               </div>
 
-              {/* Author Role Multipliers */}
+              {/* Percentage-Based Distribution (NEW) */}
               <div className="border-t pt-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  Author Role Multipliers
+                  <Percent className="w-5 h-5 text-blue-600" />
+                  Percentage-Based Incentive Distribution
+                </h3>
+                <p className="text-sm text-gray-600 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <strong>How it works:</strong> The base amount is the TOTAL incentive pool. First author gets their %, corresponding author gets their %. 
+                  If one person is both first and corresponding, they get both percentages added. The remaining percentage is divided equally among all co-authors.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      First Author Percentage (%)
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.firstAuthorPercentage}
+                      onChange={(e) => setFormData({ ...formData, firstAuthorPercentage: Number(e.target.value) })}
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Default: 40%</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Corresponding Author Percentage (%)
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.correspondingAuthorPercentage}
+                      onChange={(e) => setFormData({ ...formData, correspondingAuthorPercentage: Number(e.target.value) })}
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Default: 30%</p>
+                  </div>
+
+                  <div className="flex flex-col justify-center">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Co-Authors Share
+                    </label>
+                    <div className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700">
+                      {100 - formData.firstAuthorPercentage - formData.correspondingAuthorPercentage}% 
+                      <span className="text-xs text-gray-500 ml-1">(divided equally)</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Calculated automatically</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Author Role Multipliers (DEPRECATED) */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-gray-400" />
+                  Author Role Multipliers <span className="text-sm text-gray-500 font-normal">(Deprecated - Use percentages above)</span>
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
                   Define percentage of base incentive each author role receives

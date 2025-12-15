@@ -27,6 +27,10 @@ export interface ResearchIncentivePolicy {
   basePoints: number;
   splitPolicy: 'equal' | 'author_role_based' | 'weighted';
   primaryAuthorShare?: number;
+  // New percentage-based fields
+  firstAuthorPercentage?: number;
+  correspondingAuthorPercentage?: number;
+  // Deprecated fields
   authorTypeMultipliers?: Record<string, number>;
   indexingBonuses?: IndexingBonuses;
   quartileBonuses?: QuartileBonuses;
@@ -58,6 +62,10 @@ export interface CreateResearchPolicyData {
   basePoints: number;
   splitPolicy?: 'equal' | 'author_role_based' | 'weighted';
   primaryAuthorShare?: number;
+  // New percentage-based fields
+  firstAuthorPercentage?: number;
+  correspondingAuthorPercentage?: number;
+  // Deprecated fields
   authorTypeMultipliers?: Record<string, number>;
   indexingBonuses?: IndexingBonuses;
   quartileBonuses?: QuartileBonuses;

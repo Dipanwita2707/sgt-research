@@ -451,6 +451,26 @@ exports.createResearchContribution = async (req, res) => {
             canEdit: false
           }
         });
+        
+        // Notify co-authors/corresponding authors when they're added (not the applicant)
+        if (authorUserId && authorUserId !== userId) {
+          await prisma.notification.create({
+            data: {
+              userId: authorUserId,
+              type: 'research_author_added',
+              title: 'Added to Research Contribution',
+              message: `You have been added as ${mappedAuthorType.replace(/_/g, ' ')} to the research contribution "${title}".`,
+              referenceType: 'research_contribution',
+              referenceId: contribution.id,
+              metadata: {
+                authorRole: mappedAuthorType,
+                contributionTitle: title,
+                estimatedIncentive: authorIncentive.incentiveAmount,
+                estimatedPoints: authorIncentive.points
+              }
+            }
+          });
+        }
       }
     }
 
@@ -514,7 +534,8 @@ exports.getMyResearchContributions = async (req, res) => {
       where.publicationType = publicationType;
     }
 
-    const contributions = await prisma.researchContribution.findMany({
+    // Get contributions where user is the primary applicant
+    const myContributions = await prisma.researchContribution.findMany({
       where,
       include: {
         applicantDetails: true,
@@ -532,26 +553,71 @@ exports.getMyResearchContributions = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
+    // Also get contributions where user is a co-author
+    const coAuthorContributions = await prisma.researchContribution.findMany({
+      where: {
+        authors: {
+          some: {
+            userId: userId
+          }
+        },
+        applicantUserId: { not: userId } // Exclude contributions where user is already the applicant
+      },
+      include: {
+        applicantDetails: true,
+        authors: true,
+        school: true,
+        department: true,
+        statusHistory: {
+          orderBy: { changedAt: 'desc' },
+          take: 5
+        },
+        editSuggestions: {
+          where: { status: 'pending' }
+        },
+        applicantUser: {
+          select: {
+            id: true,
+            email: true,
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Combine both lists
+    const allContributions = [...myContributions, ...coAuthorContributions];
+
     // Calculate totals
-    const totalIncentives = contributions
+    const totalIncentives = allContributions
       .filter(c => c.status === 'completed' && c.incentiveAmount)
       .reduce((sum, c) => sum + Number(c.incentiveAmount), 0);
 
-    const totalPoints = contributions
+    const totalPoints = allContributions
       .filter(c => c.status === 'completed' && c.pointsAwarded)
       .reduce((sum, c) => sum + c.pointsAwarded, 0);
 
     res.status(200).json({
       success: true,
       data: {
-        contributions,
+        contributions: allContributions,
+        myContributions: myContributions,
+        coAuthorContributions: coAuthorContributions,
         summary: {
-          total: contributions.length,
-          draft: contributions.filter(c => c.status === 'draft').length,
-          pending: contributions.filter(c => ['submitted', 'under_review', 'resubmitted'].includes(c.status)).length,
-          approved: contributions.filter(c => c.status === 'approved').length,
-          completed: contributions.filter(c => c.status === 'completed').length,
-          rejected: contributions.filter(c => c.status === 'rejected').length,
+          total: allContributions.length,
+          asApplicant: myContributions.length,
+          asCoAuthor: coAuthorContributions.length,
+          draft: allContributions.filter(c => c.status === 'draft').length,
+          pending: allContributions.filter(c => ['submitted', 'under_review', 'resubmitted'].includes(c.status)).length,
+          approved: allContributions.filter(c => c.status === 'approved').length,
+          completed: allContributions.filter(c => c.status === 'completed').length,
+          rejected: allContributions.filter(c => c.status === 'rejected').length,
           totalIncentives,
           totalPoints
         }
@@ -874,7 +940,14 @@ exports.updateResearchContribution = async (req, res) => {
     }
 
     // Extract authors from update data and handle separately
-    const { authors, applicantDetails, ...contributionData } = updateData;
+    // Also extract mentorUid and add it to applicantDetails if present
+    const { authors, applicantDetails, mentorUid, ...contributionData } = updateData;
+    
+    // If mentorUid is provided, add it to applicantDetails
+    const updatedApplicantDetails = applicantDetails || {};
+    if (mentorUid !== undefined) {
+      updatedApplicantDetails.mentorUid = mentorUid;
+    }
 
     // Recalculate incentives if relevant fields changed
     let incentiveUpdate = {};
@@ -962,11 +1035,11 @@ exports.updateResearchContribution = async (req, res) => {
       }
     });
 
-    // Update applicant details if provided
-    if (applicantDetails && contribution.applicantDetails) {
+    // Update applicant details if provided or if mentorUid was sent
+    if ((updatedApplicantDetails && Object.keys(updatedApplicantDetails).length > 0) && contribution.applicantDetails) {
       await prisma.researchContributionApplicantDetails.update({
         where: { id: contribution.applicantDetails.id },
-        data: applicantDetails
+        data: updatedApplicantDetails
       });
     }
 
@@ -1067,6 +1140,26 @@ exports.updateResearchContribution = async (req, res) => {
             canEdit: false
           }
         });
+        
+        // Notify co-authors/corresponding authors when they're added (not the applicant)
+        if (authorUserId && authorUserId !== userId) {
+          await prisma.notification.create({
+            data: {
+              userId: authorUserId,
+              type: 'research_author_added',
+              title: 'Added to Research Contribution',
+              message: `You have been added as ${mappedAuthorType.replace(/_/g, ' ')} to the research contribution "${contribution.title}".`,
+              referenceType: 'research_contribution',
+              referenceId: id,
+              metadata: {
+                authorRole: mappedAuthorType,
+                contributionTitle: contribution.title,
+                estimatedIncentive: authorIncentive.incentiveAmount,
+                estimatedPoints: authorIncentive.points
+              }
+            }
+          });
+        }
       }
     }
 

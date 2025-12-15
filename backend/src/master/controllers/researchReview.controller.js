@@ -64,8 +64,8 @@ exports.getPendingReviews = async (req, res) => {
     let whereClause = {};
 
     if (hasApprovePermission && !hasReviewPermission) {
-      // ONLY approve permission: Show only recommended contributions (awaiting final approval)
-      // Get IDs of contributions with recommended reviews
+      // ONLY approve permission: Show recommended contributions + contributions they've approved
+      // Get IDs of contributions with recommended reviews (pending approval)
       const recommendedContributions = await prisma.researchContributionReview.findMany({
         where: {
           decision: 'recommended'
@@ -78,13 +78,32 @@ exports.getPendingReviews = async (req, res) => {
 
       const recommendedIds = recommendedContributions.map(r => r.researchContributionId);
 
+      // Get contributions this user has approved
+      const approvedByUser = await prisma.researchContributionReview.findMany({
+        where: {
+          reviewerId: userId,
+          decision: 'approved'
+        },
+        select: {
+          researchContributionId: true
+        },
+        distinct: ['researchContributionId']
+      });
+
+      const approvedIds = approvedByUser.map(r => r.researchContributionId);
+
+      // Combine both lists
+      const allRelevantIds = [...new Set([...recommendedIds, ...approvedIds])];
+
       whereClause = {
         AND: [
           {
-            id: { in: recommendedIds.length > 0 ? recommendedIds : ['none'] }
+            id: { in: allRelevantIds.length > 0 ? allRelevantIds : ['none'] }
           },
           {
-            status: 'under_review'
+            status: {
+              in: status ? [status] : ['under_review', 'approved', 'completed']
+            }
           }
         ]
       };
@@ -632,26 +651,47 @@ exports.approveContribution = async (req, res) => {
       }
     });
 
-    // Default policy if none found
-    const defaultAuthorMultipliers = {
-      first_and_corresponding: 1.0,
-      first_author: 0.7,
-      corresponding_author: 0.7,
-      co_author: 0.3,
-      senior_author: 0.4
-    };
-
-    const defaultIndexingBonuses = {
-      scopus: 10000,
-      wos: 15000,
-      sci: 20000,
-      ugc: 5000
-    };
+    // Default percentages if none found
+    const firstAuthorPercent = policy?.firstAuthorPercentage ? Number(policy.firstAuthorPercentage) : 40;
+    const correspondingAuthorPercent = policy?.correspondingAuthorPercentage ? Number(policy.correspondingAuthorPercentage) : 30;
 
     const baseAmount = policy ? Number(policy.baseIncentiveAmount) : 30000;
     const basePoints = policy ? policy.basePoints : 30;
-    const authorMultipliers = policy?.authorTypeMultipliers || defaultAuthorMultipliers;
-    const indexingBonuses = policy?.indexingBonuses || defaultIndexingBonuses;
+
+    // Calculate percentages based on author roles
+    // Step 1: Find first author and corresponding author
+    let hasFirstAuthor = false;
+    let hasCorrespondingAuthor = false;
+    let firstAndCorrespondingAuthorId = null;
+    
+    for (const author of contribution.authors) {
+      const authorRole = author.authorRole || 'co_author';
+      if (authorRole === 'first_author') {
+        hasFirstAuthor = true;
+      }
+      if (authorRole === 'corresponding_author') {
+        hasCorrespondingAuthor = true;
+      }
+      if (authorRole === 'first_and_corresponding') {
+        hasFirstAuthor = true;
+        hasCorrespondingAuthor = true;
+        firstAndCorrespondingAuthorId = author.id;
+      }
+    }
+
+    // Step 2: Calculate total percentage used by first and corresponding
+    let usedPercentage = 0;
+    if (hasFirstAuthor) usedPercentage += firstAuthorPercent;
+    if (hasCorrespondingAuthor) usedPercentage += correspondingAuthorPercent;
+    
+    // Step 3: Calculate remaining percentage for co-authors
+    const remainingPercentage = 100 - usedPercentage;
+    const coAuthorCount = contribution.authors.filter(a => {
+      const role = a.authorRole || 'co_author';
+      return role === 'co_author' || role === 'senior_author';
+    }).length;
+    
+    const perCoAuthorPercentage = coAuthorCount > 0 ? remainingPercentage / coAuthorCount : 0;
 
     // Credit incentives to all authors based on their roles
     const now = new Date();
@@ -659,24 +699,24 @@ exports.approveContribution = async (req, res) => {
     let totalPointsAwarded = 0;
 
     for (const author of contribution.authors) {
-      // Calculate incentive based on author role
-      const authorRole = author.authorType || 'co_author';
-      const roleMultiplier = authorMultipliers[authorRole] || authorMultipliers.co_author || 0.3;
+      // Calculate incentive based on author role using PERCENTAGE distribution
+      const authorRole = author.authorRole || 'co_author';
+      let authorPercentage = 0;
       
-      let authorIncentive = baseAmount * roleMultiplier;
-      let authorPoints = Math.round(basePoints * roleMultiplier);
-
-      // Add indexing bonus if applicable
-      if (contribution.targetedResearchType && indexingBonuses[contribution.targetedResearchType]) {
-        const indexingBonus = indexingBonuses[contribution.targetedResearchType] * roleMultiplier;
-        authorIncentive += indexingBonus;
+      if (authorRole === 'first_and_corresponding') {
+        // Gets both percentages
+        authorPercentage = firstAuthorPercent + correspondingAuthorPercent;
+      } else if (authorRole === 'first_author') {
+        authorPercentage = firstAuthorPercent;
+      } else if (authorRole === 'corresponding_author') {
+        authorPercentage = correspondingAuthorPercent;
+      } else if (authorRole === 'co_author' || authorRole === 'senior_author') {
+        authorPercentage = perCoAuthorPercentage;
       }
-
-      // Add quartile bonus if applicable
-      if (contribution.quartile && indexingBonuses.quartileBonuses) {
-        const quartileBonus = (indexingBonuses.quartileBonuses[contribution.quartile] || 0) * roleMultiplier;
-        authorIncentive += quartileBonus;
-      }
+      
+      // Calculate actual amounts based on percentage of base amount
+      let authorIncentive = (baseAmount * authorPercentage) / 100;
+      let authorPoints = Math.round((basePoints * authorPercentage) / 100);
 
       // Update author with calculated incentive
       await prisma.researchContributionAuthor.update({
@@ -691,20 +731,22 @@ exports.approveContribution = async (req, res) => {
       totalPointsAwarded += authorPoints;
 
       if (author.userId) {
-        // Create notification for each internal author
+        // Create notification for each internal author showing THEIR individual incentive
         await prisma.notification.create({
           data: {
             userId: author.userId,
             type: 'research_incentive_credited',
             title: 'Research Incentive Credited',
-            message: `You have been credited ₹${Math.round(authorIncentive).toLocaleString()} and ${authorPoints} points for "${contribution.title}" as ${authorRole.replace(/_/g, ' ')}.`,
+            message: `You have been credited ₹${Math.round(authorIncentive).toLocaleString()} and ${authorPoints} points for "${contribution.title}" as ${authorRole.replace(/_/g, ' ')}. Your share: ${authorPercentage.toFixed(1)}% of total incentive.`,
             referenceType: 'research_contribution',
             referenceId: id,
             metadata: {
               incentiveAmount: Math.round(authorIncentive),
               points: authorPoints,
-              authorType: authorRole,
-              roleMultiplier: roleMultiplier
+              authorRole: authorRole,
+              percentage: authorPercentage,
+              yourShare: Math.round(authorIncentive),
+              yourPoints: authorPoints
             }
           }
         });
@@ -724,6 +766,34 @@ exports.approveContribution = async (req, res) => {
           metadata: {
             incentiveAmount: totalIncentiveAwarded,
             points: totalPointsAwarded
+          }
+        }
+      });
+    }
+
+    // Notify reviewers who recommended this contribution
+    const recommendingReviews = await prisma.researchContributionReview.findMany({
+      where: {
+        researchContributionId: id,
+        decision: 'recommended'
+      },
+      include: {
+        reviewer: true
+      }
+    });
+
+    for (const review of recommendingReviews) {
+      await prisma.notification.create({
+        data: {
+          userId: review.reviewerId,
+          type: 'research_recommendation_approved',
+          title: 'Your Recommendation Approved',
+          message: `Your recommended research contribution "${contribution.title}" has been approved by the approver.`,
+          referenceType: 'research_contribution',
+          referenceId: id,
+          metadata: {
+            reviewId: review.id,
+            approvedAt: now.toISOString()
           }
         }
       });
@@ -773,7 +843,11 @@ exports.approveContribution = async (req, res) => {
           totalIncentiveAwarded,
           totalPointsAwarded,
           authorCount: contribution.authors.length,
-          policyUsed: policy ? policy.policyName : 'Default Policy'
+          policyUsed: policy ? policy.policyName : 'Default Policy',
+          distributionMethod: 'percentage-based',
+          firstAuthorPercent,
+          correspondingAuthorPercent,
+          coAuthorPercent: perCoAuthorPercentage
         }
       }
     });

@@ -67,6 +67,7 @@ export default function DrdResearchDashboard() {
   const [schoolFilter, setSchoolFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyMyReviews, setShowOnlyMyReviews] = useState(false);
+  const [myReviewFilter, setMyReviewFilter] = useState<'all' | 'approved' | 'rejected' | 'recommended'>('all');
 
   useEffect(() => {
     fetchData();
@@ -152,7 +153,17 @@ export default function DrdResearchDashboard() {
     // Filter by "My Reviews" if enabled
     if (showOnlyMyReviews && user?.id) {
       const userHasReviewed = (c as any).reviews?.some((review: any) => review.reviewerId === user.id);
-      return userHasReviewed;
+      if (!userHasReviewed) return false;
+      
+      // Apply my review decision filter
+      if (myReviewFilter !== 'all') {
+        const userReview = (c as any).reviews?.find((review: any) => review.reviewerId === user.id);
+        if (myReviewFilter === 'approved' && userReview?.decision !== 'approved') return false;
+        if (myReviewFilter === 'rejected' && userReview?.decision !== 'rejected') return false;
+        if (myReviewFilter === 'recommended' && userReview?.decision !== 'recommended') return false;
+      }
+      
+      return true;
     }
     return true;
   });
@@ -299,15 +310,31 @@ export default function DrdResearchDashboard() {
             Filters & Search
           </h2>
           {/* My Reviews Toggle */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showOnlyMyReviews}
-              onChange={(e) => setShowOnlyMyReviews(e.target.checked)}
-              className="w-4 h-4 text-sgt-600 border-gray-300 rounded focus:ring-sgt-500"
-            />
-            <span className="text-sm font-medium text-gray-700">Show only my reviews</span>
-          </label>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnlyMyReviews}
+                onChange={(e) => setShowOnlyMyReviews(e.target.checked)}
+                className="w-4 h-4 text-sgt-600 border-gray-300 rounded focus:ring-sgt-500"
+              />
+              <span className="text-sm font-medium text-gray-700">Show only my reviews</span>
+            </label>
+            
+            {/* My Review Decision Filter - Only show when "my reviews" is enabled */}
+            {showOnlyMyReviews && (
+              <select
+                value={myReviewFilter}
+                onChange={(e) => setMyReviewFilter(e.target.value as 'all' | 'approved' | 'rejected' | 'recommended')}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-sgt-500 focus:border-sgt-500"
+              >
+                <option value="all">All My Reviews</option>
+                <option value="approved">I Approved</option>
+                <option value="recommended">I Recommended</option>
+                <option value="rejected">I Rejected</option>
+              </select>
+            )}
+          </div>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -516,7 +543,7 @@ export default function DrdResearchDashboard() {
                           <div className="flex items-center gap-1">
                             <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg font-medium">
                               <CheckCircle className="w-3 h-3 inline mr-1" />
-                              You reviewed
+                              {userReview?.decision === 'approved' ? 'You approved' : 'You reviewed'}
                             </span>
                             {userReview?.decision === 'recommended' && (
                               <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-lg font-medium">

@@ -424,6 +424,31 @@ export default function ContributionDetailPage() {
           {/* Details Tab */}
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {/* Applicant Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <User className="w-5 h-5 mr-2 text-indigo-500" />
+                  Applicant Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <DetailItem 
+                    label="Name" 
+                    value={contribution.applicantUser?.employeeDetails?.displayName || 
+                           contribution.applicantUser?.employee?.displayName || 
+                           `${contribution.applicantUser?.firstName || ''} ${contribution.applicantUser?.lastName || ''}`.trim() || 
+                           'N/A'} 
+                  />
+                  <DetailItem 
+                    label="UID" 
+                    value={contribution.applicantUser?.uid || 'N/A'} 
+                  />
+                  <DetailItem 
+                    label="Email" 
+                    value={contribution.applicantUser?.email || 'N/A'} 
+                  />
+                </div>
+              </div>
+              
               {/* Research Details Grid */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -761,6 +786,42 @@ export default function ContributionDetailPage() {
                     {contribution.statusHistory.map((history: any, index: number) => {
                       const historyStatusConfig = STATUS_CONFIG[history.toStatus] || STATUS_CONFIG.draft;
                       const HistoryIcon = historyStatusConfig.icon;
+                      
+                      // Generate status description with user info
+                      const getUserInfo = () => {
+                        if (!history.changedBy) return '';
+                        const name = history.changedBy.employeeDetails?.displayName || 
+                                   `${history.changedBy.employeeDetails?.firstName || ''} ${history.changedBy.employeeDetails?.lastName || ''}`.trim();
+                        const uid = history.changedBy.uid;
+                        return name && uid ? ` by ${name} (${uid})` : '';
+                      };
+                      
+                      const getStatusDescription = () => {
+                        const userInfo = getUserInfo();
+                        
+                        switch(history.toStatus) {
+                          case 'approved':
+                            return `Approved${userInfo}`;
+                          case 'under_review':
+                            if (history.fromStatus === 'submitted') {
+                              return `Review started${userInfo}`;
+                            }
+                            return `Recommended for final approval${userInfo}`;
+                          case 'submitted':
+                            return 'Submitted for DRD review';
+                          case 'draft':
+                            return `Research contribution created${userInfo}`;
+                          case 'completed':
+                            return `Completed${userInfo}`;
+                          case 'changes_required':
+                            return `Changes requested${userInfo}`;
+                          case 'rejected':
+                            return `Rejected${userInfo}`;
+                          default:
+                            return historyStatusConfig.label;
+                        }
+                      };
+                      
                       return (
                         <div key={history.id || index} className="relative flex items-start space-x-4 pl-2">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center z-10 ${historyStatusConfig.bgColor} ${historyStatusConfig.borderColor} border-2`}>
@@ -781,9 +842,7 @@ export default function ContributionDetailPage() {
                                 })}
                               </span>
                             </div>
-                            {history.comments && (
-                              <p className="text-sm text-gray-600 mt-1">{history.comments}</p>
-                            )}
+                            <p className="text-sm text-gray-600 mt-1">{getStatusDescription()}</p>
                           </div>
                         </div>
                       );

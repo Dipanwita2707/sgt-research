@@ -1883,11 +1883,16 @@ model ResearchIncentivePolicy {
   baseIncentiveAmount Decimal @map("base_incentive_amount") @db.Decimal(15, 2)
   basePoints          Int     @map("base_points")
 
+  // Percentage-based distribution (new approach)
+  firstAuthorPercentage        Decimal? @default(40) @map("first_author_percentage") @db.Decimal(5, 2)
+  correspondingAuthorPercentage Decimal? @default(30) @map("corresponding_author_percentage") @db.Decimal(5, 2)
+  // Remaining percentage will be divided equally among co-authors
+
   // Split policy
   splitPolicy        String   @map("split_policy") @db.VarChar(50)
   primaryAuthorShare Decimal? @map("primary_author_share") @db.Decimal(5, 2)
 
-  // Author type multipliers (JSON)
+  // Author type multipliers (JSON) - DEPRECATED, use percentage fields above
   authorTypeMultipliers Json? @map("author_type_multipliers") @db.JsonB
 
   // Indexing bonuses

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Save, 
   Send, 
@@ -14,7 +14,8 @@ import {
   AlertCircle,
   CheckCircle,
   Loader2,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { researchService, ResearchPublicationType, ResearchContributionAuthor } from '@/services/research.service';
 import { useAuthStore } from '@/store/authStore';
@@ -93,10 +94,18 @@ export default function ResearchContributionForm({ publicationType, contribution
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'entry' | 'process'>('entry');
+  const [myContributions, setMyContributions] = useState<any[]>([]);
+  const [loadingContributions, setLoadingContributions] = useState(false);
   
   // Schools and departments for selection
   const [schools, setSchools] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+  
+  // Mentor selection (for students)
+  const [mentorSuggestions, setMentorSuggestions] = useState<any[]>([]);
+  const [showMentorSuggestions, setShowMentorSuggestions] = useState(false);
+  const mentorSuggestionsRef = useRef<HTMLDivElement>(null);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -126,6 +135,10 @@ export default function ResearchContributionForm({ publicationType, contribution
     // School/Department (auto-filled)
     schoolId: '',
     departmentId: '',
+    
+    // Mentor (optional for students)
+    mentorUid: '',
+    mentorName: '',
   });
   
   // Author counts and configuration
@@ -189,9 +202,69 @@ export default function ResearchContributionForm({ publicationType, contribution
     }
   }, [totalInternalAuthors, totalInternalCoAuthors]);
   
+  // Fetch my contributions for the "Already in Process" tab
+  useEffect(() => {
+    if (activeTab === 'process' && user) {
+      fetchMyContributions();
+    }
+  }, [activeTab, user]);
+  
+  const fetchMyContributions = async () => {
+    try {
+      setLoadingContributions(true);
+      const response = await researchService.getMyContributions();
+      setMyContributions(response.data?.contributions || []);
+    } catch (error) {
+      console.error('Error fetching contributions:', error);
+    } finally {
+      setLoadingContributions(false);
+    }
+  };
+  
+  // Handle mentor UID change and fetch suggestions
+  const handleMentorUidChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const mentorUid = e.target.value;
+    setFormData(prev => ({ ...prev, mentorUid, mentorName: '' }));
+    
+    // Fetch mentor suggestions if UID is at least 3 characters
+    if (mentorUid.length >= 3) {
+      try {
+        const response = await fetch(`/api/v1/users/suggestions/${mentorUid}?role=faculty`, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            setMentorSuggestions(result.data);
+            setShowMentorSuggestions(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching mentor suggestions:', error);
+      }
+    } else {
+      setMentorSuggestions([]);
+      setShowMentorSuggestions(false);
+    }
+  };
+  
+  // Select a mentor from suggestions
+  const selectMentorSuggestion = async (suggestion: any) => {
+    setShowMentorSuggestions(false);
+    setFormData(prev => ({
+      ...prev,
+      mentorUid: suggestion.uid,
+      mentorName: suggestion.name,
+    }));
+  };
+  
   // Helper function to get allowed user roles based on counts
   // UNIVERSAL PATTERN for Research Paper:
   // - Solo author (Total=1, SGT=1, Co-Authors=0): Must be first_and_corresponding
+  // - Two internal authors (Total=2, SGT=2, Co-Authors=0): Can be first OR corresponding (not both)
   // - SGT=1 with 1 internal co-author: User must be co_author, colleague is first/corresponding
   // - All other cases: All roles available
   const getAllowedUserRoles = () => {
@@ -200,7 +273,12 @@ export default function ResearchContributionForm({ publicationType, contribution
       return ['first_and_corresponding'];
     }
     
-    // Case 2: SGT=1 and 1 internal co-author (UNIVERSAL - any total author count)
+    // Case 2: Two internal authors with no co-authors - can be first OR corresponding (not both)
+    if (totalAuthors === 2 && totalInternalAuthors === 2 && totalInternalCoAuthors === 0) {
+      return ['first', 'corresponding'];
+    }
+    
+    // Case 3: SGT=1 and 1 internal co-author (UNIVERSAL - any total author count)
     // User must be co_author, the internal colleague will be first/corresponding
     if (totalInternalAuthors === 1 && totalInternalCoAuthors === 1) {
       return ['co_author'];
@@ -906,6 +984,7 @@ export default function ResearchContributionForm({ publicationType, contribution
       title: formData.title,
       schoolId: formData.schoolId || null,
       departmentId: formData.departmentId || null,
+      mentorUid: formData.mentorUid || null,
       authors,
       // Add author counts for backend (map to schema field names)
       totalAuthors: totalAuthorsCount,
@@ -1053,6 +1132,32 @@ export default function ResearchContributionForm({ publicationType, contribution
         <p className="text-gray-600">Fill in the details of your publication</p>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex">
+            <button
+              className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${activeTab === 'entry'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              onClick={() => setActiveTab('entry')}
+            >
+              Contribution Entry
+            </button>
+            <button
+              className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${activeTab === 'process'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              onClick={() => setActiveTab('process')}
+            >
+              Already in Process
+            </button>
+          </nav>
+        </div>
+      </div>
+
       {/* Error/Success Messages */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
@@ -1071,13 +1176,15 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
       )}
 
-      {/* Research Paper Form */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="space-y-4">
-          {/* Title of Paper */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Title of Paper: <span className="text-red-500">*</span>
+      {activeTab === 'entry' && (
+        <>
+          {/* Research Paper Form */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="space-y-4">
+              {/* Title of Paper */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Title of Paper: <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -1174,20 +1281,22 @@ export default function ResearchContributionForm({ publicationType, contribution
             </div>
           </div>
 
-          {/* Number of foreign Universities */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Number of foreign Universities/Research organizations collaborated:
-            </label>
-            <input
-              type="number"
-              name="numForeignUniversities"
-              value={formData.numForeignUniversities}
-              onChange={handleInputChange}
-              min="0"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+          {/* Number of foreign Universities - Only show when International Author is Yes */}
+          {formData.hasInternationalAuthor === 'yes' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Number of foreign Universities/Research organizations collaborated:
+              </label>
+              <input
+                type="number"
+                name="numForeignUniversities"
+                value={formData.numForeignUniversities}
+                onChange={handleInputChange}
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          )}
 
           {/* Conditional Fields Based on Targeted Research Type */}
           {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both') && (
@@ -1515,7 +1624,65 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
       </div>
 
-
+      {/* Mentor Selection (Only for Students) */}
+      {user?.userType === 'student' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Mentor Details (Optional for Students)</h2>
+          <p className="text-sm text-gray-600 mb-6">
+            You may optionally select a faculty mentor who will review your research contribution before it goes to DRD.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Mentor UID with Autocomplete */}
+            <div className="relative" ref={mentorSuggestionsRef}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Mentor UID (Faculty Only)
+              </label>
+              <input
+                type="text"
+                name="mentorUid"
+                value={formData.mentorUid}
+                onChange={handleMentorUidChange}
+                onFocus={() => formData.mentorUid.length >= 3 && setShowMentorSuggestions(true)}
+                placeholder="Enter Mentor's UID (Faculty)"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              
+              {/* Autocomplete Suggestions Dropdown */}
+              {showMentorSuggestions && mentorSuggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {mentorSuggestions.map((suggestion, index) => (
+                    <div
+                      key={index}
+                      onClick={() => selectMentorSuggestion(suggestion)}
+                      className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                    >
+                      <div className="font-medium text-gray-900">{suggestion.uid}</div>
+                      <div className="text-sm text-gray-600">{suggestion.name}</div>
+                      <div className="text-xs text-gray-500">{suggestion.email}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Mentor Name (Auto-filled) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Mentor Name
+              </label>
+              <input
+                type="text"
+                name="mentorName"
+                value={formData.mentorName}
+                readOnly
+                placeholder="Auto-filled from UID"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Authors Section */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -2104,11 +2271,11 @@ export default function ResearchContributionForm({ publicationType, contribution
         )}
       </div>
 
-      {/* Submit Actions */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            {autoSaving ? (
+          {/* Submit Actions */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-500">
+                {autoSaving ? (
               <span className="flex items-center text-blue-600">
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Auto-saving...
@@ -2154,6 +2321,111 @@ export default function ResearchContributionForm({ publicationType, contribution
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Already in Process Tab */}
+      {activeTab === 'process' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold mb-4">My Research Contributions</h2>
+          {loadingContributions ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </div>
+          ) : myContributions.length === 0 ? (
+            <div className="text-center py-12">
+              <FileText className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+              <p className="text-gray-500">No contributions found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">#</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">App Number</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Title</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Type</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Role</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Submitted</th>
+                    <th className="px-4 py-2 border text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myContributions.map((contrib: any, index: number) => {
+                    const isApplicant = contrib.applicantUserId === user?.id;
+                    return (
+                      <tr key={contrib.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 border text-sm text-center">{index + 1}</td>
+                        <td className="px-4 py-2 border text-sm font-mono">
+                          {contrib.applicationNumber || contrib.id.slice(-8)}
+                        </td>
+                        <td className="px-4 py-2 border text-sm">
+                          <div className="font-medium text-gray-900">{contrib.title}</div>
+                          {contrib.journalName && (
+                            <div className="text-xs text-gray-500 mt-1">{contrib.journalName}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 border text-sm">
+                          <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded uppercase font-medium">
+                            {contrib.publicationType.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 border text-sm">
+                          <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full font-medium ${
+                            contrib.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                            contrib.status === 'submitted' ? 'bg-blue-100 text-blue-800' :
+                            contrib.status === 'under_review' ? 'bg-yellow-100 text-yellow-800' :
+                            contrib.status === 'approved' ? 'bg-green-100 text-green-800' :
+                            contrib.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {contrib.status.replace('_', ' ').toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 border text-sm text-center">
+                          {isApplicant ? (
+                            <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
+                              Applicant
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full font-medium">
+                              {(() => {
+                                const userAuthor = contrib.authors?.find((a: any) => a.userId === user?.id);
+                                if (userAuthor?.authorType === 'first_and_corresponding_author') return 'First & Corresponding';
+                                if (userAuthor?.authorType === 'first_author') return 'First Author';
+                                if (userAuthor?.authorType === 'corresponding_author') return 'Corresponding Author';
+                                if (userAuthor?.authorType === 'co_author') return 'Co-Author';
+                                if (userAuthor?.authorType === 'senior_author') return 'Senior Author';
+                                return 'Co-Author';
+                              })()}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 border text-sm">
+                          {contrib.submittedAt 
+                            ? new Date(contrib.submittedAt).toLocaleDateString('en-IN')
+                            : '-'
+                          }
+                        </td>
+                        <td className="px-4 py-2 border text-sm">
+                          <a
+                            href={`/research/contribution/${contrib.id}`}
+                            className="text-blue-600 hover:text-blue-800 underline"
+                          >
+                            View Details
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
