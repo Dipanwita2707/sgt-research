@@ -143,14 +143,30 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Quick Action */}
+            {/* Quick Actions */}
             <div className="flex gap-3">
+              <Link 
+                href="/my-work" 
+                className="flex items-center gap-2 px-5 py-3 bg-white/20 backdrop-blur text-white hover:bg-white/30 rounded-xl transition-all duration-200 font-semibold border border-white/20"
+              >
+                <FileText className="w-5 h-5" />
+                <span>My Work</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </Link>
               <Link 
                 href="/ipr/apply" 
                 className="flex items-center gap-2 px-5 py-3 bg-white text-sgt-700 hover:bg-sgt-50 rounded-xl transition-all duration-200 font-semibold shadow-lg"
               >
                 <FileText className="w-5 h-5" />
                 <span>File IPR</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </Link>
+              <Link 
+                href="/research/apply" 
+                className="flex items-center gap-2 px-5 py-3 bg-white text-sgt-700 hover:bg-sgt-50 rounded-xl transition-all duration-200 font-semibold shadow-lg"
+              >
+                <BookOpen className="w-5 h-5" />
+                <span>New Research</span>
                 <ArrowUpRight className="w-4 h-4" />
               </Link>
             </div>

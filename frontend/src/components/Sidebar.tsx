@@ -115,13 +115,33 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
     items.push({ name: 'Finance', href: '/finance/dashboard', icon: DollarSign });
   }
   
-  // Research & Academic Contributions - Show for faculty, students, and those with research_file_new
-  if (canFileResearch) {
-    items.push({ name: 'Research & Academic', href: '/research', icon: BookOpen });
+  // Research & IPR - Show unified menu for faculty and students
+  if (canFileResearch || canFileIpr) {
+    const researchIprSubItems: NavItem[] = [
+      { name: 'My Work', href: '/my-work', icon: LayoutDashboard },
+    ];
+    
+    if (canFileIpr) {
+      researchIprSubItems.push({ name: 'New IPR Application', href: '/ipr/apply', icon: Lightbulb });
+      researchIprSubItems.push({ name: 'My IPR Applications', href: '/ipr/my-applications', icon: FileText });
+    }
+    
+    if (canFileResearch) {
+      researchIprSubItems.push({ name: 'New Research Contribution', href: '/research/apply', icon: BookOpen });
+      researchIprSubItems.push({ name: 'My Research', href: '/research/my-contributions', icon: FileText });
+    }
+    
+    if (isFaculty) {
+      researchIprSubItems.push({ name: 'Mentor Approvals', href: '/mentor-approvals', icon: UserCheck });
+    }
+    
+    items.push({
+      name: 'Research & IPR',
+      href: '/my-work',
+      icon: BookOpen,
+      subItems: researchIprSubItems
+    });
   }
-  
-  // IPR Management is now accessed through DRD Dashboard
-  // Removed from sidebar to avoid duplication
   
   // Common items
   items.push(
