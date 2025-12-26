@@ -201,7 +201,7 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuthStore();
-  const [expandedItems, setExpandedItems] = useState<string[]>(['Admin']); // Admin expanded by default
+  const [expandedItems, setExpandedItems] = useState<string[]>(['Admin', 'Research & IPR']); // Admin and Research & IPR expanded by default
   const [userPermissions, setUserPermissions] = useState<DepartmentPermission[]>([]);
 
   useEffect(() => {

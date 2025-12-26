@@ -95,14 +95,14 @@ export default function ResearchApplyPage() {
 
   // Valid type - show form
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gray-100">
+      <div className="max-w-6xl mx-auto px-6 py-6">
         {/* Back Button */}
         <Link
           href="/research/apply"
-          className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-6"
+          className="inline-flex items-center text-gray-600 hover:text-blue-600 mb-4 text-sm font-medium transition-colors"
         >
-          <ArrowLeft className="w-4 h-4 mr-2" />
+          <ArrowLeft className="w-4 h-4 mr-1" />
           Back to Type Selection
         </Link>
 

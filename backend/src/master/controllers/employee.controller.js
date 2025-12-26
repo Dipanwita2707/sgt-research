@@ -86,7 +86,9 @@ const createEmployee = async (req, res) => {
       // Create employee details
       const employee = await tx.employeeDetails.create({
         data: {
-          userLoginId: user.id,
+          userLogin: {
+            connect: { id: user.id }
+          },
           empId,
           firstName,
           lastName: middleName ? `${middleName} ${lastName}` : lastName,
@@ -97,10 +99,16 @@ const createEmployee = async (req, res) => {
           email: email,
           phoneNumber: mobileNumber || null,
           joinDate: dateOfJoining ? new Date(dateOfJoining) : new Date(),
-          primarySchoolId: schoolId || null, // Save school ID
-          primaryDepartmentId: departmentId || null, // Ensure empty string becomes null
-          // Set central department ID if provided, otherwise null
-          primaryCentralDeptId: req.body.primaryCentralDeptId || null,
+          ...(departmentId && {
+            primaryDepartment: {
+              connect: { id: departmentId }
+            }
+          }),
+          ...(req.body.primaryCentralDeptId && {
+            primaryCentralDept: {
+              connect: { id: req.body.primaryCentralDeptId }
+            }
+          }),
           isActive,
           metadata: {
             gender,
@@ -217,12 +225,6 @@ const getAllEmployees = async (req, res) => {
         include: {
           employeeDetails: {
             include: {
-              primarySchool: {
-                select: {
-                  id: true,
-                  facultyName: true,
-                },
-              },
               primaryDepartment: {
                 select: {
                   id: true,
@@ -420,7 +422,12 @@ const toggleEmployeeStatus = async (req, res) => {
 
     const user = await prisma.userLogin.findUnique({
       where: { id },
-      select: { status: true },
+      select: { 
+        status: true,
+        employeeDetails: {
+          select: { isActive: true }
+        }
+      },
     });
 
     if (!user) {
@@ -431,10 +438,23 @@ const toggleEmployeeStatus = async (req, res) => {
     }
 
     const newStatus = user.status === 'active' ? 'inactive' : 'active';
+    const newIsActive = newStatus === 'active';
     
-    const updated = await prisma.userLogin.update({
-      where: { id },
-      data: { status: newStatus },
+    // Update both userLogin status and employeeDetails isActive in a transaction
+    const updated = await prisma.$transaction(async (tx) => {
+      // Update user login status
+      const updatedUser = await tx.userLogin.update({
+        where: { id },
+        data: { status: newStatus },
+      });
+
+      // Update employee details isActive
+      await tx.employeeDetails.updateMany({
+        where: { userLoginId: id },
+        data: { isActive: newIsActive },
+      });
+
+      return updatedUser;
     });
 
     res.json({

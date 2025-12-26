@@ -5,10 +5,52 @@
 
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const researchContributionController = require('../controllers/researchContribution.controller');
 const researchReviewController = require('../controllers/researchReview.controller');
 const { protect, requirePermission, checkResearchFilePermission } = require('../../middleware/auth');
 const prisma = require('../../config/database');
+
+// Configure multer for document uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../../uploads/research');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  const allowedMimeTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ];
+
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type ${file.mimetype} is not allowed`), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
 
 // Helper middleware: Allow either research_review OR research_approve permission
 const requireResearchAccess = async (req, res, next) => {
@@ -171,6 +213,21 @@ router.delete(
   '/:id',
   protect,
   researchContributionController.deleteResearchContribution
+);
+
+// ============================================
+// Document Upload Routes
+// ============================================
+
+// Upload documents for research contribution
+router.post(
+  '/:id/documents',
+  protect,
+  upload.fields([
+    { name: 'researchDocument', maxCount: 1 },
+    { name: 'supportingDocuments', maxCount: 10 }
+  ]),
+  researchContributionController.uploadDocuments
 );
 
 // ============================================

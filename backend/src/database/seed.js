@@ -176,6 +176,144 @@ const seedDatabase = async () => {
     });
     console.log('✅ Student created (uid: STU123456789, password: student123)');
 
+    // Create Central Departments
+    const drdDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'DRD' },
+      update: {},
+      create: {
+        departmentCode: 'DRD',
+        departmentName: 'Director of Research and Development',
+        shortName: 'DRD',
+        departmentType: 'research',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ DRD Department created');
+
+    const iprDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'IPR' },
+      update: {},
+      create: {
+        departmentCode: 'IPR',
+        departmentName: 'Intellectual Property Rights Cell',
+        shortName: 'IPR Cell',
+        departmentType: 'research',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ IPR Department created');
+
+    const registrarDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'REGISTRAR' },
+      update: {},
+      create: {
+        departmentCode: 'REGISTRAR',
+        departmentName: 'Registrar Office',
+        shortName: 'Registrar',
+        departmentType: 'administrative',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ Registrar Department created');
+
+    const admissionsDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'ADMISSIONS' },
+      update: {},
+      create: {
+        departmentCode: 'ADMISSIONS',
+        departmentName: 'Admissions Office',
+        shortName: 'Admissions',
+        departmentType: 'administrative',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ Admissions Department created');
+
+    const hrDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'HR' },
+      update: {},
+      create: {
+        departmentCode: 'HR',
+        departmentName: 'Human Resources',
+        shortName: 'HR',
+        departmentType: 'administrative',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ HR Department created');
+
+    const financeDepartment = await prisma.centralDepartment.upsert({
+      where: { departmentCode: 'FINANCE' },
+      update: {},
+      create: {
+        departmentCode: 'FINANCE',
+        departmentName: 'Finance Department',
+        shortName: 'Finance',
+        departmentType: 'administrative',
+        isActive: true,
+        headOfDepartmentId: admin.id
+      }
+    });
+    console.log('✅ Finance Department created');
+
+    // Grant central department permissions to admin for DRD
+    await prisma.centralDepartmentPermission.upsert({
+      where: {
+        userId_centralDeptId: {
+          userId: admin.id,
+          centralDeptId: drdDepartment.id
+        }
+      },
+      update: {},
+      create: {
+        userId: admin.id,
+        centralDeptId: drdDepartment.id,
+        isPrimary: true,
+        isActive: true,
+        assignedBy: admin.id,
+        permissions: {
+          research_view: true,
+          research_review: true,
+          research_approve: true,
+          research_manage_policies: true
+        },
+        assignedSchoolIds: [],
+        assignedResearchSchoolIds: []
+      }
+    });
+
+    // Grant central department permissions to admin for IPR
+    await prisma.centralDepartmentPermission.upsert({
+      where: {
+        userId_centralDeptId: {
+          userId: admin.id,
+          centralDeptId: iprDepartment.id
+        }
+      },
+      update: {},
+      create: {
+        userId: admin.id,
+        centralDeptId: iprDepartment.id,
+        isPrimary: false,
+        isActive: true,
+        assignedBy: admin.id,
+        permissions: {
+          ipr_view: true,
+          ipr_review: true,
+          ipr_approve: true,
+          ipr_manage_policies: true
+        },
+        assignedSchoolIds: [],
+        assignedResearchSchoolIds: []
+      }
+    });
+    console.log('✅ Central department permissions granted to admin');
+
     // Grant department permissions
     await prisma.userDepartmentPermission.upsert({
       where: {

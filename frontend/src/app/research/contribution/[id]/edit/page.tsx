@@ -456,7 +456,7 @@ export default function EditContributionPage() {
                   {hasSuggestion('targetedResearchType') && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700"><Sparkles className="w-3 h-3 mr-1" />Suggestion</span>}
                 </label>
                 <div className="flex flex-wrap gap-4">
-                  {[{v:'scopus',l:'Scopus'},{v:'wos',l:'SCI/SCIF'},{v:'both',l:'Both'},{v:'ugc',l:'UGC'}].map(({v,l}) => (
+                  {[{v:'scopus',l:'Scopus'},{v:'wos',l:'SCI/SCIE'},{v:'both',l:'Both'},{v:'ugc',l:'UGC'}].map(({v,l}) => (
                     <label key={v} className="inline-flex items-center">
                       <input 
                         type="radio" 
@@ -746,21 +746,7 @@ export default function EditContributionPage() {
                   {renderSuggestionCard('publisherName')}
                 </div>
 
-                <div className={`${hasSuggestion('publisherLocation') ? 'ring-2 ring-orange-300 rounded-lg p-3 bg-orange-50' : ''}`}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Publisher Location
-                    {hasSuggestion('publisherLocation') && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700"><Sparkles className="w-3 h-3 mr-1" />Suggestion</span>}
-                  </label>
-                  <input 
-                    type="text" 
-                    name="publisherLocation" 
-                    value={formData.publisherLocation} 
-                    onChange={handleInputChange} 
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                    placeholder="e.g., New York, USA" 
-                  />
-                  {renderSuggestionCard('publisherLocation')}
-                </div>
+                
               </div>
 
               {/* Publication Date and Status */}

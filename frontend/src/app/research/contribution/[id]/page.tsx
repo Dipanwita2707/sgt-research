@@ -65,7 +65,7 @@ const PUBLICATION_TYPE_CONFIG: Record<ResearchPublicationType, { label: string; 
 
 const TARGETED_RESEARCH_LABELS: Record<string, string> = {
   scopus: 'Scopus Indexed',
-  wos: 'Web of Science (SCI/SCIF)',
+  wos: 'Web of Science (SCI/SCIE)',
   both: 'Scopus & WoS',
   ugc: 'UGC Care List',
 };
@@ -573,6 +573,83 @@ export default function ContributionDetailPage() {
                     <DetailItem label="Credited" value={new Date(contribution.creditedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} />
                   )}
                 </div>
+              </div>
+
+              {/* Documents */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <FileText className="w-5 h-5 mr-2 text-blue-500" />
+                  Submitted Documents
+                </h3>
+                {(contribution.manuscriptFilePath || (contribution.supportingDocsFilePaths as any)?.files?.length > 0) ? (
+                  <div className="space-y-3">
+                    {contribution.manuscriptFilePath && (
+                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <FileText className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">
+                                Research Document
+                              </p>
+                              <p className="text-sm text-gray-500">Main research document</p>
+                            </div>
+                          </div>
+                          <a
+                            href={`http://localhost:5000${contribution.manuscriptFilePath}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            <span>Download</span>
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {(contribution.supportingDocsFilePaths as any)?.files?.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 mb-2">Supporting Documents</p>
+                        <div className="space-y-2">
+                          {((contribution.supportingDocsFilePaths as any).files as Array<{name: string, path: string, size: number}>).map((doc: any, index: number) => (
+                            <div key={index} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 bg-gray-100 rounded flex items-center justify-center">
+                                    <FileText className="w-4 h-4 text-gray-600" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900 text-sm">{doc.name}</p>
+                                    <p className="text-xs text-gray-500">
+                                      {doc.size ? `${(doc.size / 1024).toFixed(2)} KB` : 'Unknown size'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <a
+                                  href={`http://localhost:5000${doc.path}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 bg-gray-600 text-white rounded text-xs font-medium hover:bg-gray-700 transition-colors flex items-center space-x-1"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>Download</span>
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 bg-gray-50 rounded-lg border border-gray-200 text-center">
+                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-gray-500">No documents uploaded yet</p>
+                  </div>
+                )}
               </div>
             </div>
           )}

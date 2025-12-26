@@ -63,8 +63,5 @@ ALTER TYPE "ipr_status_enum_new" RENAME TO "ipr_status_enum";
 ALTER TABLE "central_department_permission" ADD COLUMN IF NOT EXISTS "assigned_school_ids" JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE "ipr_application" ADD COLUMN IF NOT EXISTS "revision_count" INTEGER NOT NULL DEFAULT 0;
 
--- AlterTable
-ALTER TABLE "central_department_permission" ADD COLUMN     "assigned_school_ids" JSONB NOT NULL DEFAULT '[]';
+-- NOTE: Duplicate ALTER TABLE statements removed to avoid failure when column already exists
 
--- AlterTable
-ALTER TABLE "ipr_application" ADD COLUMN     "revision_count" INTEGER NOT NULL DEFAULT 0;

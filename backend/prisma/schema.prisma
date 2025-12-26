@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -9,10 +6,1244 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [citext, uuidOssp(map: "uuid-ossp")]
+  extensions = [citext, uuid_ossp(map: "uuid-ossp")]
 }
 
-// Enums based on actual database structure
+model UserLogin {
+  id                                  String                               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  uid                                 String                               @unique @db.VarChar(32)
+  email                               String?                              @unique @db.Citext
+  phone                               String?                              @db.VarChar(20)
+  profileImageFilePath                String?                              @map("profile_image_file_path")
+  profileImage                        String?                              @map("profile_image") @db.VarChar(64)
+  passwordHash                        String                               @map("password_hash")
+  role                                UserRoleEnum
+  status                              String                               @default("active") @db.VarChar(32)
+  lastLoginAt                         DateTime?                            @map("last_login_at") @db.Timestamptz(6)
+  createdAt                           DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                           DateTime                             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  auditLogs                           AuditLog[]
+  cardsIssued                         Card[]                               @relation("IssuedBy")
+  headOfCentralDepts                  CentralDepartment[]                  @relation("HeadOfCentralDepartment")
+  assignedCentralDeptPerms            CentralDepartmentPermission[]        @relation("AssignedCentralDeptPermissions")
+  centralDeptPermissions              CentralDepartmentPermission[]        @relation("UserCentralDeptPermissions")
+  changesHistory                      ChangeHistory[]
+  headOfDepartments                   Department[]                         @relation("HeadOfDepartment")
+  assignedSchoolDeptPerms             DepartmentPermission[]               @relation("AssignedDepartmentPermissions")
+  schoolDeptPermissions               DepartmentPermission[]               @relation("UserDepartmentPermissions")
+  documentChangeReviews               DocumentChange[]                     @relation("DocumentChangeReviewer")
+  employeeDetails                     EmployeeDetails?
+  headOfFaculties                     FacultySchoolList[]                  @relation("HeadOfFaculty")
+  approvedIPRs                        IPR[]                                @relation("IPRApprover")
+  createdIPRs                         IPR[]                                @relation("IPRCreator")
+  iprApplications                     IprApplication[]                     @relation("IprApplications")
+  iprCollaborativeSessions            IprCollaborativeSession[]            @relation("IprCollaborativeSessions")
+  iprContributions                    IprContributor[]                     @relation("IprContributors")
+  uploadedIPRDocuments                IPRDocument[]                        @relation("IPRDocumentUploader")
+  iprEditSuggestions                  IprEditSuggestion[]                  @relation("IprEditSuggestions")
+  iprFinanceReviews                   IprFinance[]                         @relation("IprFinanceReviews")
+  iprReviews                          IprReview[]                          @relation("IprReviews")
+  iprStatusChanges                    IprStatusHistory[]                   @relation("IprStatusChanges")
+  notifications                       Notification[]                       @relation("UserNotifications")
+  parentLogin                         ParentDetails?                       @relation("ParentLogin")
+  programCoordinators                 Program[]                            @relation("ProgramCoordinator")
+  reissueRequestsApproved             ReissueRequest[]                     @relation("ApprovedBy")
+  reissueRequestsMade                 ReissueRequest[]                     @relation("RequestedBy")
+  researchContributions               ResearchContribution[]               @relation("ResearchContributions")
+  researchContributionAuthorship      ResearchContributionAuthor[]         @relation("ResearchContributionAuthors")
+  researchContributionEditSuggestions ResearchContributionEditSuggestion[] @relation("ResearchContributionEditSuggestions")
+  researchContributionReviews         ResearchContributionReview[]         @relation("ResearchContributionReviews")
+  researchContributionStatusChanges   ResearchContributionStatusHistory[]  @relation("ResearchContributionStatusChanges")
+  createdResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyCreatedBy")
+  updatedResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyUpdatedBy")
+  researchPapers                      ResearchPaper[]                      @relation("ResearchPapers")
+  researchPaperReviews                ResearchPaperReview[]                @relation("ResearchPaperReviews")
+  researchPaperStatusChanges          ResearchPaperStatusHistory[]         @relation("ResearchPaperStatusChanges")
+  classTeachers                       Section[]                            @relation("ClassTeacher")
+  approvedStudents                    StudentDetails[]                     @relation("DataApprovedBy")
+  studentLogin                        StudentDetails?                      @relation("StudentLogin")
+  assignedDepartmentPermissions       UserDepartmentPermission[]           @relation("AssignedBy")
+  departmentPermissions               UserDepartmentPermission[]
+
+  @@map("user_login")
+}
+
+model EmployeeDetails {
+  id                        String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userLoginId               String?                     @unique @map("user_login_id") @db.Uuid
+  firstName                 String                      @map("first_name") @db.VarChar(128)
+  lastName                  String?                     @map("last_name") @db.VarChar(128)
+  displayName               String?                     @map("display_name") @db.VarChar(256)
+  photoFilePath             String?                     @map("photo_file_path")
+  photo                     String?                     @db.VarChar(64)
+  empId                     String?                     @unique @map("emp_id") @db.VarChar(64)
+  designation               String?                     @db.VarChar(128)
+  joinDate                  DateTime?                   @map("join_date") @db.Date
+  isActive                  Boolean                     @default(true) @map("is_active")
+  metadata                  Json                        @default("{}")
+  createdAt                 DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  primaryCentralDeptId      String?                     @map("primary_central_dept_id") @db.Uuid
+  primaryDepartmentId       String?                     @map("primary_department_id") @db.Uuid
+  email                     String?                     @db.VarChar(256)
+  phoneNumber               String?                     @map("phone_number") @db.VarChar(20)
+  admissionFacultyStaff     AdmissionFacultyStaff[]
+  admissionStaffDetails     AdmissionStaffDetails[]
+  admissionStaffRoles       AdmissionStaffRoles[]
+  cards                     Card[]
+  primaryCentralDept        CentralDepartment?          @relation("PrimaryCentralDepartment", fields: [primaryCentralDeptId], references: [id])
+  primaryDepartment         Department?                 @relation("PrimaryDepartment", fields: [primaryDepartmentId], references: [id])
+  userLogin                 UserLogin?                  @relation(fields: [userLoginId], references: [id])
+  hrNonTeachingStaffDetails HrNonTeachingStaffDetails[]
+  hrNonTeachingStaffRoles   HrNonTeachingStaffRoles[]
+  hrTeachingStaffDetails    HrTeachingStaffDetails[]
+  hrTeachingStaffRoles      HrTeachingStaffRoles[]
+  registrarFacultyStaff     RegistrarFacultyStaff[]
+  registrarStaffDetails     RegistrarStaffDetails[]
+  registrarStaffRoles       RegistrarStaffRoles[]
+  reissueRequests           ReissueRequest[]
+
+  @@map("employee_details")
+}
+
+model Card {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  cardHolderType      String           @map("card_holder_type") @db.VarChar(32)
+  employeeId          String?          @map("employee_id") @db.Uuid
+  studentId           String?          @map("student_id") @db.Uuid
+  parentId            String?          @map("parent_id") @db.Uuid
+  rfidUid             String?          @unique @map("rfid_uid") @db.VarChar(128)
+  rfidApproved        Boolean          @default(false) @map("rfid_approved")
+  rfidReissue         Boolean          @default(false) @map("rfid_reissue")
+  rfidReissueCount    Int              @default(0) @map("rfid_reissue_count")
+  rfidUpdatedetail    Boolean          @default(false) @map("rfid_updatedetail")
+  rfidImage           String?          @map("rfid_image") @db.VarChar(64)
+  rfidIssueImages     String?          @map("rfid_issue_images") @db.VarChar(64)
+  latestImageFilePath String?          @map("latest_image_file_path")
+  photoFilePath       String?          @map("photo_file_path")
+  photo               String?          @db.VarChar(64)
+  templateColorCode   String?          @map("template_color_code") @db.VarChar(32)
+  issuedAt            DateTime?        @map("issued_at") @db.Timestamptz(6)
+  expiresAt           DateTime?        @map("expires_at") @db.Timestamptz(6)
+  status              CardStatusEnum   @default(active)
+  issuedById          String?          @map("issued_by") @db.Uuid
+  notes               String?
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee            EmployeeDetails? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  issuedBy            UserLogin?       @relation("IssuedBy", fields: [issuedById], references: [id])
+  parent              ParentDetails?   @relation("ParentCards", fields: [parentId], references: [id], onDelete: Cascade)
+  student             StudentDetails?  @relation("StudentCards", fields: [studentId], references: [id], onDelete: Cascade)
+  reissueRequests     ReissueRequest[]
+
+  @@map("card")
+}
+
+model ReissueRequest {
+  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  cardHolderType String           @map("card_holder_type") @db.VarChar(32)
+  employeeId     String?          @map("employee_id") @db.Uuid
+  studentId      String?          @map("student_id") @db.Uuid
+  parentId       String?          @map("parent_id") @db.Uuid
+  oldCardId      String?          @map("old_card_id") @db.Uuid
+  reason         String?
+  reasonCode     String?          @map("reason_code") @db.VarChar(64)
+  isPaid         Boolean          @default(false) @map("is_paid")
+  proofFilePath  String?          @map("proof_file_path")
+  status         String           @default("pending") @db.VarChar(32)
+  requestedById  String?          @map("requested_by") @db.Uuid
+  approvedById   String?          @map("approved_by") @db.Uuid
+  approvedAt     DateTime?        @map("approved_at") @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  approvedBy     UserLogin?       @relation("ApprovedBy", fields: [approvedById], references: [id])
+  employee       EmployeeDetails? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  oldCard        Card?            @relation(fields: [oldCardId], references: [id])
+  parent         ParentDetails?   @relation("ParentReissueRequests", fields: [parentId], references: [id], onDelete: Cascade)
+  requestedBy    UserLogin?       @relation("RequestedBy", fields: [requestedById], references: [id])
+  student        StudentDetails?  @relation("StudentReissueRequests", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("reissue_request")
+}
+
+model AuditLog {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  actorId     String?    @map("actor_id") @db.Uuid
+  action      String     @db.VarChar(256)
+  targetTable String?    @map("target_table") @db.VarChar(128)
+  targetId    String?    @map("target_id") @db.Uuid
+  details     Json       @default("{}")
+  ipAddress   String?    @map("ip_address") @db.Inet
+  userAgent   String?    @map("user_agent")
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  actor       UserLogin? @relation(fields: [actorId], references: [id])
+
+  @@map("audit_log")
+}
+
+model ChangeHistory {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tableId     String    @map("table_id") @db.Uuid
+  tableName   String    @map("table_name") @db.VarChar(128)
+  columnName  String    @map("column_name") @db.VarChar(128)
+  oldValue    String?   @map("old_value")
+  newValue    String?   @map("new_value")
+  changedById String    @map("changed_by_id") @db.Uuid
+  changeType  String    @map("change_type") @db.VarChar(32)
+  changedAt   DateTime  @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy   UserLogin @relation(fields: [changedById], references: [id])
+
+  @@map("changes_history")
+}
+
+model AdmissionStaffRoles {
+  id                 String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId         String          @map("employee_id") @db.Uuid
+  title              String          @db.VarChar(256)
+  canViewAll         Boolean         @default(false) @map("can_view_all")
+  canModifyAll       Boolean         @default(false) @map("can_modify_all")
+  specialPermissions Json            @default("{}") @map("special_permissions")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee           EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("admission_staff_roles")
+}
+
+model AdmissionStaffDetails {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId     String          @map("employee_id") @db.Uuid
+  workLocation   String?         @map("work_location") @db.VarChar(256)
+  supervisor     String?         @db.VarChar(256)
+  responsibleFor String?         @map("responsible_for") @db.VarChar(256)
+  admissionCycle String?         @map("admission_cycle") @db.VarChar(64)
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee       EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("admission_staff_details")
+}
+
+model AdmissionFacultyStaff {
+  id               String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId       String          @map("employee_id") @db.Uuid
+  facultyType      String?         @map("faculty_type") @db.VarChar(128)
+  qualification    String?         @db.VarChar(256)
+  experience       String?         @db.VarChar(256)
+  specialization   String?         @db.VarChar(256)
+  responsibilities String?         @db.VarChar(512)
+  metadata         Json            @default("{}")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee         EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("admission_faculty_staff")
+}
+
+model RegistrarStaffRoles {
+  id                 String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId         String          @map("employee_id") @db.Uuid
+  title              String          @db.VarChar(256)
+  canViewAll         Boolean         @default(false) @map("can_view_all")
+  canModifyAll       Boolean         @default(false) @map("can_modify_all")
+  specialPermissions Json            @default("{}") @map("special_permissions")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee           EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("registrar_staff_roles")
+}
+
+model RegistrarStaffDetails {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId     String          @map("employee_id") @db.Uuid
+  workLocation   String?         @map("work_location") @db.VarChar(256)
+  supervisor     String?         @db.VarChar(256)
+  responsibleFor String?         @map("responsible_for") @db.VarChar(256)
+  accessLevel    String?         @map("access_level") @db.VarChar(64)
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee       EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("registrar_staff_details")
+}
+
+model RegistrarFacultyStaff {
+  id               String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId       String          @map("employee_id") @db.Uuid
+  facultyType      String?         @map("faculty_type") @db.VarChar(128)
+  qualification    String?         @db.VarChar(256)
+  experience       String?         @db.VarChar(256)
+  specialization   String?         @db.VarChar(256)
+  responsibilities String?         @db.VarChar(512)
+  metadata         Json            @default("{}")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee         EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("registrar_faculty_staff")
+}
+
+model HrTeachingStaffRoles {
+  id                 String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId         String          @map("employee_id") @db.Uuid
+  title              String          @db.VarChar(256)
+  canViewAll         Boolean         @default(false) @map("can_view_all")
+  canModifyAll       Boolean         @default(false) @map("can_modify_all")
+  specialPermissions Json            @default("{}") @map("special_permissions")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee           EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("hr_teaching_staff_roles")
+}
+
+model HrNonTeachingStaffRoles {
+  id                 String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId         String          @map("employee_id") @db.Uuid
+  title              String          @db.VarChar(256)
+  canViewAll         Boolean         @default(false) @map("can_view_all")
+  canModifyAll       Boolean         @default(false) @map("can_modify_all")
+  specialPermissions Json            @default("{}") @map("special_permissions")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee           EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("hr_non_teaching_staff_roles")
+}
+
+model HrTeachingStaffDetails {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId     String          @map("employee_id") @db.Uuid
+  qualification  String?         @db.VarChar(256)
+  experience     String?         @db.VarChar(256)
+  specialization String?         @db.VarChar(256)
+  currentPosting String?         @map("current_posting") @db.VarChar(256)
+  salaryGrade    String?         @map("salary_grade") @db.VarChar(64)
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee       EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("hr_teaching_staff_details")
+}
+
+model HrNonTeachingStaffDetails {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId     String          @map("employee_id") @db.Uuid
+  qualification  String?         @db.VarChar(256)
+  experience     String?         @db.VarChar(256)
+  skillSet       String?         @map("skill_set") @db.VarChar(256)
+  currentPosting String?         @map("current_posting") @db.VarChar(256)
+  salaryGrade    String?         @map("salary_grade") @db.VarChar(64)
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  employee       EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("hr_non_teaching_staff_details")
+}
+
+model UserDepartmentPermission {
+  id             String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  department     DepartmentEnum
+  permissions    Json           @default("{}")
+  isActive       Boolean        @default(true) @map("is_active")
+  assignedBy     String?        @map("assigned_by") @db.Uuid
+  assignedAt     DateTime       @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignedByUser UserLogin?     @relation("AssignedBy", fields: [assignedBy], references: [id])
+  user           UserLogin      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, department])
+  @@map("user_department_permission")
+}
+
+model DepartmentPermission {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
+  departmentId   String     @map("department_id") @db.Uuid
+  permissions    Json       @default("{}")
+  isPrimary      Boolean    @default(false) @map("is_primary")
+  isActive       Boolean    @default(true) @map("is_active")
+  assignedBy     String?    @map("assigned_by") @db.Uuid
+  assignedAt     DateTime   @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignedByUser UserLogin? @relation("AssignedDepartmentPermissions", fields: [assignedBy], references: [id])
+  department     Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user           UserLogin  @relation("UserDepartmentPermissions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, departmentId])
+  @@index([userId])
+  @@index([departmentId])
+  @@index([isPrimary])
+  @@map("department_permission")
+}
+
+model CentralDepartmentPermission {
+  id                        String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId                    String            @map("user_id") @db.Uuid
+  centralDeptId             String            @map("central_dept_id") @db.Uuid
+  permissions               Json              @default("{}")
+  isPrimary                 Boolean           @default(false) @map("is_primary")
+  isActive                  Boolean           @default(true) @map("is_active")
+  assignedBy                String?           @map("assigned_by") @db.Uuid
+  assignedAt                DateTime          @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignedSchoolIds         Json              @default("[]") @map("assigned_school_ids")
+  assignedResearchSchoolIds Json?             @default("[]") @map("assigned_research_school_ids")
+  assignedByUser            UserLogin?        @relation("AssignedCentralDeptPermissions", fields: [assignedBy], references: [id])
+  centralDept               CentralDepartment @relation(fields: [centralDeptId], references: [id], onDelete: Cascade)
+  user                      UserLogin         @relation("UserCentralDeptPermissions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, centralDeptId])
+  @@index([userId])
+  @@index([centralDeptId])
+  @@index([isPrimary])
+  @@map("central_department_permission")
+}
+
+model FacultySchoolList {
+  id                    String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  facultyCode           String                 @unique @map("faculty_code") @db.VarChar(32)
+  facultyName           String                 @map("faculty_name") @db.VarChar(256)
+  facultyType           FacultyTypeEnum        @map("faculty_type")
+  shortName             String?                @map("short_name") @db.VarChar(64)
+  description           String?
+  establishedYear       Int?                   @map("established_year")
+  headOfFacultyId       String?                @map("head_of_faculty") @db.Uuid
+  contactEmail          String?                @map("contact_email") @db.Citext
+  contactPhone          String?                @map("contact_phone") @db.VarChar(20)
+  officeLocation        String?                @map("office_location")
+  websiteUrl            String?                @map("website_url")
+  isActive              Boolean                @default(true) @map("is_active")
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  departments           Department[]
+  headOfFaculty         UserLogin?             @relation("HeadOfFaculty", fields: [headOfFacultyId], references: [id])
+  iprApplications       IprApplication[]       @relation("SchoolIprApplications")
+  researchContributions ResearchContribution[] @relation("SchoolResearchContributions")
+  researchPapers        ResearchPaper[]        @relation("SchoolResearchPapers")
+
+  @@map("faculty_school_list")
+}
+
+model Department {
+  id                    String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  facultyId             String                 @map("faculty_id") @db.Uuid
+  departmentCode        String                 @unique @map("department_code") @db.VarChar(32)
+  departmentName        String                 @map("department_name") @db.VarChar(256)
+  shortName             String?                @map("short_name") @db.VarChar(64)
+  description           String?
+  establishedYear       Int?                   @map("established_year")
+  headOfDepartmentId    String?                @map("head_of_department") @db.Uuid
+  contactEmail          String?                @map("contact_email") @db.Citext
+  contactPhone          String?                @map("contact_phone") @db.VarChar(20)
+  officeLocation        String?                @map("office_location")
+  budgetAllocation      Decimal?               @map("budget_allocation") @db.Decimal(15, 2)
+  isActive              Boolean                @default(true) @map("is_active")
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  faculty               FacultySchoolList      @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  headOfDepartment      UserLogin?             @relation("HeadOfDepartment", fields: [headOfDepartmentId], references: [id])
+  departmentPermissions DepartmentPermission[]
+  primaryEmployees      EmployeeDetails[]      @relation("PrimaryDepartment")
+  iprApplications       IprApplication[]       @relation("DepartmentIprApplications")
+  programs              Program[]
+  researchContributions ResearchContribution[] @relation("DepartmentResearchContributions")
+  researchPapers        ResearchPaper[]        @relation("DepartmentResearchPapers")
+
+  @@map("department")
+}
+
+model CentralDepartment {
+  id                     String                        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  departmentCode         String                        @unique @map("department_code") @db.VarChar(32)
+  departmentName         String                        @map("department_name") @db.VarChar(256)
+  shortName              String?                       @map("short_name") @db.VarChar(64)
+  description            String?
+  headOfDepartmentId     String?                       @map("head_of_department") @db.Uuid
+  contactEmail           String?                       @map("contact_email") @db.Citext
+  contactPhone           String?                       @map("contact_phone") @db.VarChar(20)
+  officeLocation         String?                       @map("office_location")
+  departmentType         String?                       @map("department_type") @db.VarChar(64)
+  isActive               Boolean                       @default(true) @map("is_active")
+  metadata               Json                          @default("{}")
+  createdAt              DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  headOfDepartment       UserLogin?                    @relation("HeadOfCentralDepartment", fields: [headOfDepartmentId], references: [id])
+  centralDeptPermissions CentralDepartmentPermission[]
+  primaryEmployees       EmployeeDetails[]             @relation("PrimaryCentralDepartment")
+
+  @@map("central_department")
+}
+
+model Program {
+  id                   String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  departmentId         String           @map("department_id") @db.Uuid
+  programCode          String           @unique @map("program_code") @db.VarChar(32)
+  programName          String           @map("program_name") @db.VarChar(256)
+  programType          ProgramTypeEnum  @map("program_type")
+  shortName            String?          @map("short_name") @db.VarChar(64)
+  description          String?
+  durationYears        Int              @default(4) @map("duration_years")
+  durationSemesters    Int              @default(8) @map("duration_semesters")
+  totalCredits         Int?             @map("total_credits")
+  admissionCapacity    Int              @default(0) @map("admission_capacity")
+  currentEnrollment    Int              @default(0) @map("current_enrollment")
+  programCoordinatorId String?          @map("program_coordinator") @db.Uuid
+  accreditationBody    String?          @map("accreditation_body") @db.VarChar(128)
+  accreditationStatus  String?          @map("accreditation_status") @db.VarChar(64)
+  isActive             Boolean          @default(true) @map("is_active")
+  metadata             Json             @default("{}")
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  department           Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  programCoordinator   UserLogin?       @relation("ProgramCoordinator", fields: [programCoordinatorId], references: [id])
+  sections             Section[]
+  students             StudentDetails[]
+
+  @@map("program")
+}
+
+model Section {
+  id              String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  programId       String            @map("program_id") @db.Uuid
+  sectionCode     String            @map("section_code") @db.VarChar(32)
+  sectionName     String            @map("section_name") @db.VarChar(128)
+  academicYear    String            @map("academic_year") @db.VarChar(16)
+  semester        Int
+  batchYear       Int               @map("batch_year")
+  capacity        Int               @default(60)
+  currentStrength Int               @default(0) @map("current_strength")
+  classTeacherId  String?           @map("class_teacher") @db.Uuid
+  roomNumber      String?           @map("room_number") @db.VarChar(64)
+  timetableSlot   String?           @map("timetable_slot") @db.VarChar(32)
+  status          SectionStatusEnum @default(active)
+  metadata        Json              @default("{}")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  classTeacher    UserLogin?        @relation("ClassTeacher", fields: [classTeacherId], references: [id])
+  program         Program           @relation(fields: [programId], references: [id], onDelete: Cascade)
+  students        StudentDetails[]
+
+  @@unique([programId, sectionCode, academicYear, semester])
+  @@map("section")
+}
+
+model StudentDetails {
+  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userLoginId          String?          @unique @map("user_login_id") @db.Uuid
+  studentId            String           @unique @map("student_id") @db.VarChar(64)
+  firstName            String           @map("first_name") @db.VarChar(128)
+  lastName             String?          @map("last_name") @db.VarChar(128)
+  displayName          String?          @map("display_name") @db.VarChar(256)
+  registrationNo       String?          @unique @map("registration_no") @db.VarChar(64)
+  middleName           String?          @map("middle_name") @db.VarChar(128)
+  email                String?          @unique @db.VarChar(256)
+  phone                String?          @db.VarChar(15)
+  photoFilePath        String?          @map("photo_file_path")
+  photo                String?          @db.VarChar(64)
+  sectionId            String           @map("section_id") @db.Uuid
+  programId            String?          @map("program_id") @db.Uuid
+  rollNumber           String?          @map("roll_number") @db.VarChar(32)
+  admissionDate        DateTime?        @map("admission_date") @db.Date
+  graduationDate       DateTime?        @map("graduation_date") @db.Date
+  currentSemester      Int              @default(1) @map("current_semester")
+  cgpa                 Decimal?         @db.Decimal(4, 2)
+  attendancePercentage Decimal?         @map("attendance_percentage") @db.Decimal(5, 2)
+  parentContact        String?          @map("parent_contact") @db.VarChar(20)
+  emergencyContact     String?          @map("emergency_contact") @db.VarChar(20)
+  address              String?
+  dateOfBirth          DateTime?        @map("date_of_birth") @db.Date
+  gender               String?          @db.VarChar(16)
+  bloodGroup           String?          @map("blood_group") @db.VarChar(8)
+  dataEntryStatus      String           @default("pending") @map("data_entry_status") @db.VarChar(32)
+  dataApprovedById     String?          @map("data_approved_by") @db.Uuid
+  dataApprovedAt       DateTime?        @map("data_approved_at") @db.Timestamptz(6)
+  approvalComments     String?          @map("approval_comments")
+  photoCaptureAllowed  Boolean          @default(false) @map("photo_capture_allowed")
+  cardPrintAllowed     Boolean          @default(false) @map("card_print_allowed")
+  photoPath            String?          @map("photo_path") @db.VarChar(512)
+  photoCapturedAt      DateTime?        @map("photo_captured_at") @db.Timestamptz(6)
+  photoCapturedBy      String?          @map("photo_captured_by") @db.Uuid
+  isActive             Boolean          @default(true) @map("is_active")
+  metadata             Json             @default("{}")
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  cards                Card[]           @relation("StudentCards")
+  parents              ParentDetails[]
+  reissueRequests      ReissueRequest[] @relation("StudentReissueRequests")
+  dataApprovedBy       UserLogin?       @relation("DataApprovedBy", fields: [dataApprovedById], references: [id])
+  program              Program?         @relation(fields: [programId], references: [id])
+  section              Section          @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  userLogin            UserLogin?       @relation("StudentLogin", fields: [userLoginId], references: [id])
+
+  @@map("student_details")
+}
+
+model ParentDetails {
+  id               String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userLoginId      String?          @unique @map("user_login_id") @db.Uuid
+  studentId        String           @map("student_id") @db.Uuid
+  relationship     String           @db.VarChar(32)
+  firstName        String           @map("first_name") @db.VarChar(128)
+  lastName         String?          @map("last_name") @db.VarChar(128)
+  occupation       String?          @db.VarChar(128)
+  organization     String?          @db.VarChar(256)
+  phone            String?          @db.VarChar(20)
+  email            String?          @db.Citext
+  address          String?
+  isPrimaryContact Boolean          @default(false) @map("is_primary_contact")
+  isActive         Boolean          @default(true) @map("is_active")
+  metadata         Json             @default("{}")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  cards            Card[]           @relation("ParentCards")
+  student          StudentDetails   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  userLogin        UserLogin?       @relation("ParentLogin", fields: [userLoginId], references: [id])
+  reissueRequests  ReissueRequest[] @relation("ParentReissueRequests")
+
+  @@map("parent_details")
+}
+
+model IprApplication {
+  id                      String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  applicantUserId         String?                   @map("applicant_user_id") @db.Uuid
+  applicantType           ApplicantTypeEnum         @map("applicant_type")
+  iprType                 IprTypeEnum               @map("ipr_type")
+  projectType             ProjectTypeEnum           @map("project_type")
+  filingType              IprFilingTypeEnum         @map("filing_type")
+  title                   String                    @db.VarChar(512)
+  description             String
+  remarks                 String?
+  schoolId                String?                   @map("school_id") @db.Uuid
+  departmentId            String?                   @map("department_id") @db.Uuid
+  currentReviewerId       String?                   @map("current_reviewer_id") @db.Uuid
+  annexureFilePath        String?                   @map("annexure_file_path")
+  supportingDocsFilePaths Json?                     @map("supporting_docs_file_paths")
+  incentiveAmount         Decimal?                  @map("incentive_amount") @db.Decimal(15, 2)
+  pointsAwarded           Int?                      @map("points_awarded")
+  creditedAt              DateTime?                 @map("credited_at") @db.Timestamptz(6)
+  submittedAt             DateTime?                 @map("submitted_at") @db.Timestamptz(6)
+  completedAt             DateTime?                 @map("completed_at") @db.Timestamptz(6)
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  govtApplicationId       String?                   @map("govt_application_id") @db.VarChar(128)
+  govtFilingDate          DateTime?                 @map("govt_filing_date") @db.Timestamptz(6)
+  publicationDate         DateTime?                 @map("publication_date") @db.Timestamptz(6)
+  publicationId           String?                   @map("publication_id") @db.VarChar(128)
+  status                  IprStatusEnum             @default(draft)
+  revisionCount           Int                       @default(0) @map("revision_count")
+  documentChanges         DocumentChange[]          @relation("DocumentChanges")
+  applicantDetails        IprApplicantDetails?
+  applicantUser           UserLogin?                @relation("IprApplications", fields: [applicantUserId], references: [id])
+  department              Department?               @relation("DepartmentIprApplications", fields: [departmentId], references: [id])
+  school                  FacultySchoolList?        @relation("SchoolIprApplications", fields: [schoolId], references: [id])
+  collaborativeSessions   IprCollaborativeSession[]
+  contributors            IprContributor[]
+  editSuggestions         IprEditSuggestion[]
+  financeRecords          IprFinance[]
+  reviews                 IprReview[]
+  sdgs                    IprSdg[]
+  statusHistory           IprStatusHistory[]
+
+  @@index([applicantUserId])
+  @@index([iprType])
+  @@index([schoolId])
+  @@index([departmentId])
+  @@map("ipr_application")
+}
+
+model IprApplicantDetails {
+  id                    String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId      String         @unique @map("ipr_application_id") @db.Uuid
+  employeeCategory      String?        @map("employee_category") @db.VarChar(64)
+  employeeType          String?        @map("employee_type") @db.VarChar(64)
+  uid                   String?        @db.VarChar(64)
+  email                 String?        @db.VarChar(256)
+  phone                 String?        @db.VarChar(20)
+  universityDeptName    String?        @map("university_dept_name") @db.VarChar(256)
+  externalName          String?        @map("external_name") @db.VarChar(256)
+  externalOption        String?        @map("external_option") @db.VarChar(64)
+  instituteType         String?        @map("institute_type") @db.VarChar(64)
+  companyUniversityName String?        @map("company_university_name") @db.VarChar(256)
+  externalEmail         String?        @map("external_email") @db.VarChar(256)
+  externalPhone         String?        @map("external_phone") @db.VarChar(20)
+  externalAddress       String?        @map("external_address")
+  metadata              Json           @default("{}")
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  inventorEmail         String?        @map("inventor_email") @db.VarChar(256)
+  inventorName          String?        @map("inventor_name") @db.VarChar(256)
+  inventorPhone         String?        @map("inventor_phone") @db.VarChar(20)
+  inventorUid           String?        @map("inventor_uid") @db.VarChar(64)
+  isInventor            Boolean        @default(false) @map("is_inventor")
+  mentorName            String?        @map("mentor_name") @db.VarChar(256)
+  mentorUid             String?        @map("mentor_uid") @db.VarChar(64)
+  iprApplication        IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+
+  @@map("ipr_applicant_details")
+}
+
+model IprContributor {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId String         @map("ipr_application_id") @db.Uuid
+  userId           String?        @map("user_id") @db.Uuid
+  uid              String?        @db.VarChar(64)
+  name             String         @db.VarChar(256)
+  email            String?        @db.VarChar(256)
+  phone            String?        @db.VarChar(20)
+  department       String?        @db.VarChar(256)
+  employeeCategory String?        @map("employee_category") @db.VarChar(64)
+  employeeType     String?        @map("employee_type") @db.VarChar(64)
+  role             String         @default("inventor") @db.VarChar(64)
+  canView          Boolean        @default(true) @map("can_view")
+  canEdit          Boolean        @default(false) @map("can_edit")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  iprApplication   IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+  user             UserLogin?     @relation("IprContributors", fields: [userId], references: [id])
+
+  @@unique([iprApplicationId, uid])
+  @@index([iprApplicationId])
+  @@index([userId])
+  @@map("ipr_contributor")
+}
+
+model IprSdg {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId String         @map("ipr_application_id") @db.Uuid
+  sdgCode          String         @map("sdg_code") @db.VarChar(16)
+  sdgTitle         String?        @map("sdg_title") @db.VarChar(256)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  iprApplication   IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+
+  @@unique([iprApplicationId, sdgCode])
+  @@map("ipr_sdg")
+}
+
+model IprReview {
+  id                      String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId        String         @map("ipr_application_id") @db.Uuid
+  reviewerId              String         @map("reviewer_id") @db.Uuid
+  reviewerRole            String         @map("reviewer_role") @db.VarChar(64)
+  comments                String?
+  edits                   Json?
+  decision                String         @db.VarChar(32)
+  reviewedAt              DateTime?      @map("reviewed_at") @db.Timestamptz(6)
+  createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  hasSuggestions          Boolean        @default(false) @map("has_suggestions")
+  suggestionsCount        Int            @default(0) @map("suggestions_count")
+  pendingSuggestionsCount Int            @default(0) @map("pending_suggestions_count")
+  iprApplication          IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+  reviewer                UserLogin      @relation("IprReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@index([reviewerId])
+  @@map("ipr_review")
+}
+
+model IprEditSuggestion {
+  id                String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId  String                   @map("ipr_application_id") @db.Uuid
+  reviewerId        String                   @map("reviewer_id") @db.Uuid
+  fieldName         String                   @map("field_name") @db.VarChar(128)
+  fieldPath         String?                  @map("field_path") @db.VarChar(256)
+  originalValue     String?                  @map("original_value")
+  suggestedValue    String?                  @map("suggested_value")
+  suggestionNote    String?                  @map("suggestion_note")
+  status            EditSuggestionStatusEnum @default(pending)
+  applicantResponse String?                  @map("applicant_response")
+  reviewedAt        DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  respondedAt       DateTime?                @map("responded_at") @db.Timestamptz(6)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  iprApplication    IprApplication           @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+  reviewer          UserLogin                @relation("IprEditSuggestions", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@index([reviewerId])
+  @@index([status])
+  @@map("ipr_edit_suggestion")
+}
+
+model IprCollaborativeSession {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId String         @map("ipr_application_id") @db.Uuid
+  reviewerId       String         @map("reviewer_id") @db.Uuid
+  sessionData      Json           @default("{}") @map("session_data")
+  isActive         Boolean        @default(true) @map("is_active")
+  startedAt        DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt          DateTime?      @map("ended_at") @db.Timestamptz(6)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  iprApplication   IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+  reviewer         UserLogin      @relation("IprCollaborativeSessions", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@index([reviewerId])
+  @@map("ipr_collaborative_session")
+}
+
+model IprStatusHistory {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId String         @map("ipr_application_id") @db.Uuid
+  changedById      String         @map("changed_by_id") @db.Uuid
+  comments         String?
+  metadata         Json?
+  changedAt        DateTime       @default(now()) @map("changed_at") @db.Timestamptz(6)
+  fromStatus       IprStatusEnum? @map("from_status")
+  toStatus         IprStatusEnum  @map("to_status")
+  changedBy        UserLogin      @relation("IprStatusChanges", fields: [changedById], references: [id], onDelete: Cascade)
+  iprApplication   IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@map("ipr_status_history")
+}
+
+model IprFinance {
+  id                String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId  String         @map("ipr_application_id") @db.Uuid
+  financeReviewerId String         @map("finance_reviewer_id") @db.Uuid
+  auditStatus       String         @map("audit_status") @db.VarChar(64)
+  auditComments     String?        @map("audit_comments")
+  incentiveAmount   Decimal        @map("incentive_amount") @db.Decimal(15, 2)
+  pointsAwarded     Int?           @map("points_awarded")
+  paymentReference  String?        @map("payment_reference") @db.VarChar(128)
+  creditedToAccount String?        @map("credited_to_account") @db.VarChar(128)
+  approvedAt        DateTime?      @map("approved_at") @db.Timestamptz(6)
+  creditedAt        DateTime?      @map("credited_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financeReviewer   UserLogin      @relation("IprFinanceReviews", fields: [financeReviewerId], references: [id], onDelete: Cascade)
+  iprApplication    IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@map("ipr_finance")
+}
+
+model ResearchPaper {
+  id                      String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  authorUserId            String                       @map("author_user_id") @db.Uuid
+  title                   String                       @db.VarChar(512)
+  abstract                String
+  keywords                String?                      @db.VarChar(512)
+  journalName             String?                      @map("journal_name") @db.VarChar(256)
+  issn                    String?                      @db.VarChar(32)
+  impactFactor            Decimal?                     @map("impact_factor") @db.Decimal(5, 2)
+  publicationDate         DateTime?                    @map("publication_date") @db.Date
+  doi                     String?                      @db.VarChar(128)
+  schoolId                String?                      @map("school_id") @db.Uuid
+  departmentId            String?                      @map("department_id") @db.Uuid
+  status                  ResearchPaperStatusEnum      @default(draft)
+  currentReviewerId       String?                      @map("current_reviewer_id") @db.Uuid
+  manuscriptFilePath      String?                      @map("manuscript_file_path")
+  supportingDocsFilePaths Json?                        @map("supporting_docs_file_paths")
+  incentiveAmount         Decimal?                     @map("incentive_amount") @db.Decimal(15, 2)
+  pointsAwarded           Int?                         @map("points_awarded")
+  creditedAt              DateTime?                    @map("credited_at") @db.Timestamptz(6)
+  submittedAt             DateTime?                    @map("submitted_at") @db.Timestamptz(6)
+  publishedAt             DateTime?                    @map("published_at") @db.Timestamptz(6)
+  createdAt               DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  author                  UserLogin                    @relation("ResearchPapers", fields: [authorUserId], references: [id], onDelete: Cascade)
+  department              Department?                  @relation("DepartmentResearchPapers", fields: [departmentId], references: [id])
+  school                  FacultySchoolList?           @relation("SchoolResearchPapers", fields: [schoolId], references: [id])
+  reviews                 ResearchPaperReview[]
+  statusHistory           ResearchPaperStatusHistory[]
+
+  @@index([authorUserId])
+  @@index([status])
+  @@index([schoolId])
+  @@index([departmentId])
+  @@map("research_paper")
+}
+
+model ResearchPaperReview {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchPaperId String        @map("research_paper_id") @db.Uuid
+  reviewerId      String        @map("reviewer_id") @db.Uuid
+  comments        String?
+  edits           Json?
+  decision        String        @db.VarChar(32)
+  reviewedAt      DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  researchPaper   ResearchPaper @relation(fields: [researchPaperId], references: [id], onDelete: Cascade)
+  reviewer        UserLogin     @relation("ResearchPaperReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([researchPaperId])
+  @@index([reviewerId])
+  @@map("research_paper_review")
+}
+
+model ResearchPaperStatusHistory {
+  id              String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchPaperId String                   @map("research_paper_id") @db.Uuid
+  fromStatus      ResearchPaperStatusEnum? @map("from_status")
+  toStatus        ResearchPaperStatusEnum  @map("to_status")
+  changedById     String                   @map("changed_by_id") @db.Uuid
+  comments        String?
+  metadata        Json?
+  changedAt       DateTime                 @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy       UserLogin                @relation("ResearchPaperStatusChanges", fields: [changedById], references: [id], onDelete: Cascade)
+  researchPaper   ResearchPaper            @relation(fields: [researchPaperId], references: [id], onDelete: Cascade)
+
+  @@index([researchPaperId])
+  @@map("research_paper_status_history")
+}
+
+model IPR {
+  id                      String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title                   String        @db.VarChar(255)
+  description             String
+  type                    String        @db.VarChar(50)
+  status                  String        @default("draft") @db.VarChar(50)
+  applicationNumber       String?       @unique @map("application_number") @db.VarChar(100)
+  submissionDate          DateTime?     @map("submission_date") @db.Timestamptz(6)
+  applicant               String        @db.VarChar(255)
+  coApplicants            Json?         @map("co_applicants")
+  department              String        @db.VarChar(100)
+  researchArea            String?       @map("research_area") @db.VarChar(255)
+  keywords                Json?
+  technicalSpecifications String?       @map("technical_specifications")
+  estimatedValue          Decimal?      @map("estimated_value") @db.Decimal(15, 2)
+  marketPotential         String?       @map("market_potential")
+  competitiveAdvantage    String?       @map("competitive_advantage")
+  priority                String        @default("medium") @db.VarChar(20)
+  reviewComments          String?       @map("review_comments")
+  reviewerNotes           String?       @map("reviewer_notes")
+  reviewDate              DateTime?     @map("review_date") @db.Timestamptz(6)
+  createdById             String        @map("created_by_id") @db.Uuid
+  approvedById            String?       @map("approved_by_id") @db.Uuid
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  approvedBy              UserLogin?    @relation("IPRApprover", fields: [approvedById], references: [id])
+  createdBy               UserLogin     @relation("IPRCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  documents               IPRDocument[]
+
+  @@index([type])
+  @@index([status])
+  @@index([department])
+  @@index([createdById])
+  @@index([submissionDate])
+  @@map("ipr")
+}
+
+model IPRDocument {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprId        String    @map("ipr_id") @db.Uuid
+  name         String    @db.VarChar(255)
+  type         String    @db.VarChar(100)
+  filePath     String    @map("file_path") @db.VarChar(500)
+  fileSize     BigInt    @map("file_size")
+  mimeType     String    @map("mime_type") @db.VarChar(100)
+  uploadedById String    @map("uploaded_by_id") @db.Uuid
+  uploadedAt   DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+  ipr          IPR       @relation(fields: [iprId], references: [id], onDelete: Cascade)
+  uploadedBy   UserLogin @relation("IPRDocumentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([iprId])
+  @@map("ipr_document")
+}
+
+model DocumentChange {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprApplicationId String         @map("ipr_application_id") @db.Uuid
+  fieldName        String         @map("field_name") @db.VarChar(100)
+  type             String         @db.VarChar(20)
+  originalText     String?        @map("original_text")
+  newText          String         @map("new_text")
+  position         Int            @default(0)
+  reviewerId       String         @map("reviewer_id") @db.Uuid
+  comment          String?
+  status           String         @default("pending") @db.VarChar(20)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  iprApplication   IprApplication @relation("DocumentChanges", fields: [iprApplicationId], references: [id], onDelete: Cascade)
+  reviewer         UserLogin      @relation("DocumentChangeReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([iprApplicationId])
+  @@index([fieldName])
+  @@index([status])
+  @@index([reviewerId])
+  @@map("document_change")
+}
+
+model Notification {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  type          String    @db.VarChar(50)
+  title         String    @db.VarChar(255)
+  message       String
+  referenceType String?   @map("reference_type") @db.VarChar(50)
+  referenceId   String?   @map("reference_id") @db.Uuid
+  isRead        Boolean   @default(false) @map("is_read")
+  readAt        DateTime? @map("read_at") @db.Timestamptz(6)
+  metadata      Json      @default("{}")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          UserLogin @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([type])
+  @@index([referenceId])
+  @@map("notification")
+}
+
+model ResearchContribution {
+  id                         String                                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  applicationNumber          String?                               @unique @map("application_number") @db.VarChar(32)
+  applicantUserId            String?                               @map("applicant_user_id") @db.Uuid
+  applicantType              ApplicantTypeEnum                     @map("applicant_type")
+  publicationType            ResearchPublicationTypeEnum           @map("publication_type")
+  title                      String                                @db.VarChar(512)
+  abstract                   String?
+  keywords                   String?                               @db.VarChar(512)
+  schoolId                   String?                               @map("school_id") @db.Uuid
+  departmentId               String?                               @map("department_id") @db.Uuid
+  status                     ResearchContributionStatusEnum        @default(draft)
+  currentReviewerId          String?                               @map("current_reviewer_id") @db.Uuid
+  revisionCount              Int                                   @default(0) @map("revision_count")
+  targetedResearchType       TargetedResearchTypeEnum?             @map("targeted_research_type")
+  internationalAuthor        Boolean?                              @default(false) @map("international_author")
+  foreignCollaborationsCount Int?                                  @default(0) @map("foreign_collaborations_count")
+  impactFactor               Decimal?                              @map("impact_factor") @db.Decimal(10, 4)
+  sjr                        Decimal?                              @db.Decimal(10, 4)
+  interdisciplinaryFromSgt   Boolean?                              @default(false) @map("interdisciplinary_from_sgt")
+  studentsFromSgt            Boolean?                              @default(false) @map("students_from_sgt")
+  journalName                String?                               @map("journal_name") @db.VarChar(512)
+  totalAuthors               Int?                                  @default(1) @map("total_authors")
+  sgtAffiliatedAuthors       Int?                                  @default(1) @map("sgt_affiliated_authors")
+  internalCoAuthors          Int?                                  @default(0) @map("internal_co_authors")
+  volume                     String?                               @db.VarChar(64)
+  issue                      String?                               @db.VarChar(64)
+  pageNumbers                String?                               @map("page_numbers") @db.VarChar(64)
+  doi                        String?                               @db.VarChar(256)
+  issn                       String?                               @db.VarChar(32)
+  publisherName              String?                               @map("publisher_name") @db.VarChar(256)
+  isbn                       String?                               @db.VarChar(32)
+  edition                    String?                               @db.VarChar(64)
+  chapterNumber              String?                               @map("chapter_number") @db.VarChar(32)
+  bookTitle                  String?                               @map("book_title") @db.VarChar(512)
+  editors                    String?                               @db.VarChar(512)
+  publisherLocation          String?                               @map("publisher_location") @db.VarChar(256)
+  conferenceName             String?                               @map("conference_name") @db.VarChar(512)
+  conferenceLocation         String?                               @map("conference_location") @db.VarChar(256)
+  conferenceDate             DateTime?                             @map("conference_date") @db.Date
+  proceedingsTitle           String?                               @map("proceedings_title") @db.VarChar(512)
+  fundingAgency              String?                               @map("funding_agency") @db.VarChar(256)
+  proposalType               String?                               @map("proposal_type") @db.VarChar(64)
+  requestedAmount            Decimal?                              @map("requested_amount") @db.Decimal(15, 2)
+  sanctionedAmount           Decimal?                              @map("sanctioned_amount") @db.Decimal(15, 2)
+  projectDurationMonths      Int?                                  @map("project_duration_months")
+  projectStartDate           DateTime?                             @map("project_start_date") @db.Date
+  projectEndDate             DateTime?                             @map("project_end_date") @db.Date
+  publicationDate            DateTime?                             @map("publication_date") @db.Date
+  publicationStatus          String?                               @map("publication_status") @db.VarChar(64)
+  manuscriptFilePath         String?                               @map("manuscript_file_path") @db.VarChar(512)
+  supportingDocsFilePaths    Json?                                 @map("supporting_docs_file_paths")
+  indexingDetails            Json?                                 @default("{}") @map("indexing_details")
+  calculatedIncentiveAmount  Decimal?                              @map("calculated_incentive_amount") @db.Decimal(15, 2)
+  calculatedPoints           Int?                                  @map("calculated_points")
+  incentiveAmount            Decimal?                              @map("incentive_amount") @db.Decimal(15, 2)
+  pointsAwarded              Int?                                  @map("points_awarded")
+  creditedAt                 DateTime?                             @map("credited_at") @db.Timestamptz(6)
+  submittedAt                DateTime?                             @map("submitted_at") @db.Timestamptz(6)
+  completedAt                DateTime?                             @map("completed_at") @db.Timestamptz(6)
+  createdAt                  DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  quartile                   QuartileEnum?
+  sdgGoals                   String[]                              @map("sdg_goals")
+  applicantUser              UserLogin?                            @relation("ResearchContributions", fields: [applicantUserId], references: [id])
+  department                 Department?                           @relation("DepartmentResearchContributions", fields: [departmentId], references: [id])
+  school                     FacultySchoolList?                    @relation("SchoolResearchContributions", fields: [schoolId], references: [id])
+  applicantDetails           ResearchContributionApplicantDetails?
+  authors                    ResearchContributionAuthor[]
+  editSuggestions            ResearchContributionEditSuggestion[]
+  reviews                    ResearchContributionReview[]
+  statusHistory              ResearchContributionStatusHistory[]
+
+  @@index([applicantUserId])
+  @@index([status])
+  @@index([publicationType])
+  @@index([schoolId])
+  @@index([departmentId])
+  @@map("research_contribution")
+}
+
+model ResearchContributionApplicantDetails {
+  id                     String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchContributionId String               @unique(map: "research_contribution_applicant_details_contribution_key") @map("research_contribution_id") @db.Uuid
+  employeeCategory       String?              @map("employee_category") @db.VarChar(64)
+  employeeType           String?              @map("employee_type") @db.VarChar(64)
+  uid                    String?              @db.VarChar(64)
+  email                  String?              @db.VarChar(256)
+  phone                  String?              @db.VarChar(20)
+  universityDeptName     String?              @map("university_dept_name") @db.VarChar(256)
+  mentorName             String?              @map("mentor_name") @db.VarChar(256)
+  mentorUid              String?              @map("mentor_uid") @db.VarChar(64)
+  isPhdWork              Boolean?             @default(false) @map("is_phd_work")
+  phdTitle               String?              @map("phd_title") @db.VarChar(512)
+  phdObjectives          String?              @map("phd_objectives")
+  coveredObjectives      String?              @map("covered_objectives") @db.VarChar(256)
+  addressesSocietal      Boolean?             @default(false) @map("addresses_societal")
+  addressesGovernment    Boolean?             @default(false) @map("addresses_government")
+  addressesEnvironmental Boolean?             @default(false) @map("addresses_environmental")
+  addressesIndustrial    Boolean?             @default(false) @map("addresses_industrial")
+  addressesBusiness      Boolean?             @default(false) @map("addresses_business")
+  addressesConceptual    Boolean?             @default(false) @map("addresses_conceptual")
+  enrichesDiscipline     Boolean?             @default(false) @map("enriches_discipline")
+  isNewsworthy           Boolean?             @default(false) @map("is_newsworthy")
+  metadata               Json?                @default("{}")
+  createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  researchContribution   ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade, map: "research_contribution_applicant_details_contribution_fkey")
+
+  @@map("research_contribution_applicant_details")
+}
+
+model ResearchContributionAuthor {
+  id                     String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchContributionId String                 @map("research_contribution_id") @db.Uuid
+  userId                 String?                @map("user_id") @db.Uuid
+  uid                    String?                @db.VarChar(64)
+  registrationNo         String?                @map("registration_no") @db.VarChar(64)
+  name                   String                 @db.VarChar(256)
+  email                  String?                @db.VarChar(256)
+  phone                  String?                @db.VarChar(20)
+  affiliation            String?                @db.VarChar(256)
+  department             String?                @db.VarChar(256)
+  authorOrder            Int                    @default(1) @map("author_order")
+  isCorresponding        Boolean                @default(false) @map("is_corresponding")
+  authorType             ResearchAuthorTypeEnum @default(co_author) @map("author_type")
+  isInternal             Boolean                @default(true) @map("is_internal")
+  authorCategory         String?                @map("author_category") @db.VarChar(64)
+  isPhdWork              Boolean?               @default(false) @map("is_phd_work")
+  phdTitle               String?                @map("phd_title") @db.VarChar(512)
+  phdObjectives          String?                @map("phd_objectives")
+  coveredObjectives      String?                @map("covered_objectives") @db.VarChar(256)
+  addressesSocietal      Boolean?               @default(false) @map("addresses_societal")
+  addressesGovernment    Boolean?               @default(false) @map("addresses_government")
+  addressesEnvironmental Boolean?               @default(false) @map("addresses_environmental")
+  addressesIndustrial    Boolean?               @default(false) @map("addresses_industrial")
+  addressesBusiness      Boolean?               @default(false) @map("addresses_business")
+  addressesConceptual    Boolean?               @default(false) @map("addresses_conceptual")
+  isNewsworthy           Boolean?               @default(false) @map("is_newsworthy")
+  incentiveShare         Decimal?               @map("incentive_share") @db.Decimal(15, 2)
+  pointsShare            Int?                   @map("points_share")
+  canView                Boolean                @default(true) @map("can_view")
+  canEdit                Boolean                @default(false) @map("can_edit")
+  createdAt              DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  researchContribution   ResearchContribution   @relation(fields: [researchContributionId], references: [id], onDelete: Cascade, map: "research_contribution_author_contribution_fkey")
+  user                   UserLogin?             @relation("ResearchContributionAuthors", fields: [userId], references: [id])
+
+  @@unique([researchContributionId, uid], map: "research_contribution_author_contribution_uid_key")
+  @@index([userId])
+  @@index([researchContributionId], map: "research_contribution_author_contribution_id_idx")
+  @@map("research_contribution_author")
+}
+
+model ResearchContributionReview {
+  id                      String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchContributionId  String               @map("research_contribution_id") @db.Uuid
+  reviewerId              String               @map("reviewer_id") @db.Uuid
+  reviewerRole            String               @map("reviewer_role") @db.VarChar(64)
+  comments                String?
+  edits                   Json?
+  decision                String               @db.VarChar(32)
+  hasSuggestions          Boolean              @default(false) @map("has_suggestions")
+  suggestionsCount        Int                  @default(0) @map("suggestions_count")
+  pendingSuggestionsCount Int                  @default(0) @map("pending_suggestions_count")
+  reviewedAt              DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  researchContribution    ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade, map: "research_contribution_review_contribution_fkey")
+  reviewer                UserLogin            @relation("ResearchContributionReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([reviewerId])
+  @@index([researchContributionId], map: "research_contribution_review_contribution_id_idx")
+  @@map("research_contribution_review")
+}
+
+model ResearchContributionStatusHistory {
+  id                     String                          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchContributionId String                          @map("research_contribution_id") @db.Uuid
+  fromStatus             ResearchContributionStatusEnum? @map("from_status")
+  toStatus               ResearchContributionStatusEnum  @map("to_status")
+  changedById            String                          @map("changed_by_id") @db.Uuid
+  comments               String?
+  metadata               Json?
+  changedAt              DateTime                        @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy              UserLogin                       @relation("ResearchContributionStatusChanges", fields: [changedById], references: [id], onDelete: Cascade, map: "research_contribution_status_history_changed_by_fkey")
+  researchContribution   ResearchContribution            @relation(fields: [researchContributionId], references: [id], onDelete: Cascade, map: "research_contribution_status_history_contribution_fkey")
+
+  @@index([researchContributionId], map: "research_contribution_status_history_contribution_id_idx")
+  @@map("research_contribution_status_history")
+}
+
+model ResearchContributionEditSuggestion {
+  id                     String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  researchContributionId String                   @map("research_contribution_id") @db.Uuid
+  reviewerId             String                   @map("reviewer_id") @db.Uuid
+  fieldName              String                   @map("field_name") @db.VarChar(128)
+  fieldPath              String?                  @map("field_path") @db.VarChar(256)
+  originalValue          String?                  @map("original_value")
+  suggestedValue         String?                  @map("suggested_value")
+  suggestionNote         String?                  @map("suggestion_note")
+  status                 EditSuggestionStatusEnum @default(pending)
+  applicantResponse      String?                  @map("applicant_response")
+  reviewedAt             DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  respondedAt            DateTime?                @map("responded_at") @db.Timestamptz(6)
+  createdAt              DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  researchContribution   ResearchContribution     @relation(fields: [researchContributionId], references: [id], onDelete: Cascade, map: "research_contribution_edit_suggestion_contribution_fkey")
+  reviewer               UserLogin                @relation("ResearchContributionEditSuggestions", fields: [reviewerId], references: [id], onDelete: Cascade, map: "research_contribution_edit_suggestion_reviewer_fkey")
+
+  @@index([reviewerId])
+  @@index([researchContributionId], map: "research_contribution_edit_suggestion_contribution_id_idx")
+  @@map("research_contribution_edit_suggestion")
+}
+
+model ResearchIncentivePolicy {
+  id                            String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  publicationType               String     @map("publication_type") @db.VarChar(50)
+  policyName                    String     @map("policy_name") @db.VarChar(255)
+  baseIncentiveAmount           Decimal    @map("base_incentive_amount") @db.Decimal(15, 2)
+  basePoints                    Int        @map("base_points")
+  splitPolicy                   String     @map("split_policy") @db.VarChar(50)
+  primaryAuthorShare            Decimal?   @map("primary_author_share") @db.Decimal(5, 2)
+  authorTypeMultipliers         Json?      @default("{\"co_author\": 0.5, \"first_author\": 1.0, \"corresponding_author\": 0.8, \"first_and_corresponding_author\": 1.2}") @map("author_type_multipliers")
+  indexingBonuses               Json?      @default("{\"ugc\": 2500, \"wos\": 7500, \"both\": 10000, \"scopus\": 5000}") @map("indexing_bonuses")
+  impactFactorTiers             Json?      @default("[{\"max\": 1, \"min\": 0, \"bonus\": 0}, {\"max\": 3, \"min\": 1, \"bonus\": 5000}, {\"max\": 5, \"min\": 3, \"bonus\": 10000}, {\"max\": 100, \"min\": 5, \"bonus\": 20000}]") @map("impact_factor_tiers")
+  isActive                      Boolean    @default(true) @map("is_active")
+  effectiveFrom                 DateTime   @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo                   DateTime?  @map("effective_to") @db.Timestamptz(6)
+  createdById                   String     @map("created_by_id") @db.Uuid
+  updatedById                   String?    @map("updated_by_id") @db.Uuid
+  createdAt                     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  firstAuthorPercentage         Decimal?   @default(40) @map("first_author_percentage") @db.Decimal(5, 2)
+  correspondingAuthorPercentage Decimal?   @default(30) @map("corresponding_author_percentage") @db.Decimal(5, 2)
+  createdBy                     UserLogin  @relation("ResearchPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, map: "research_incentive_policy_created_by_fkey")
+  updatedBy                     UserLogin? @relation("ResearchPolicyUpdatedBy", fields: [updatedById], references: [id], map: "research_incentive_policy_updated_by_fkey")
+
+  @@index([publicationType])
+  @@index([isActive])
+  @@map("research_incentive_policy")
+}
+
 enum UserRoleEnum {
   superadmin
   admin
@@ -80,408 +1311,6 @@ enum SectionStatusEnum {
   @@map("section_status_enum")
 }
 
-// Core Tables based on actual schema structure
-
-model UserLogin {
-  id                   String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  uid                  String       @unique @db.VarChar(32)
-  email                String?      @unique @db.Citext
-  phone                String?      @db.VarChar(20)
-  profileImageFilePath String?      @map("profile_image_file_path")
-  profileImage         String?      @map("profile_image") @db.VarChar(64)
-  passwordHash         String       @map("password_hash")
-  role                 UserRoleEnum
-  status               String       @default("active") @db.VarChar(32)
-  lastLoginAt          DateTime?    @map("last_login_at") @db.Timestamptz(6)
-  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employeeDetails               EmployeeDetails?
-  auditLogs                     AuditLog[]
-  cardsIssued                   Card[]                     @relation("IssuedBy")
-  reissueRequestsMade           ReissueRequest[]           @relation("RequestedBy")
-  reissueRequestsApproved       ReissueRequest[]           @relation("ApprovedBy")
-  changesHistory                ChangeHistory[]
-  departmentPermissions         UserDepartmentPermission[]
-  assignedDepartmentPermissions UserDepartmentPermission[] @relation("AssignedBy")
-
-  // University structure relations
-  headOfFaculties     FacultySchoolList[] @relation("HeadOfFaculty")
-  headOfDepartments   Department[]        @relation("HeadOfDepartment")
-  headOfCentralDepts  CentralDepartment[] @relation("HeadOfCentralDepartment")
-  programCoordinators Program[]           @relation("ProgramCoordinator")
-  classTeachers       Section[]           @relation("ClassTeacher")
-  studentLogin        StudentDetails?     @relation("StudentLogin")
-  parentLogin         ParentDetails?      @relation("ParentLogin")
-  approvedStudents    StudentDetails[]    @relation("DataApprovedBy")
-
-  // New granular permission relations
-  schoolDeptPermissions    DepartmentPermission[]        @relation("UserDepartmentPermissions")
-  assignedSchoolDeptPerms  DepartmentPermission[]        @relation("AssignedDepartmentPermissions")
-  centralDeptPermissions   CentralDepartmentPermission[] @relation("UserCentralDeptPermissions")
-  assignedCentralDeptPerms CentralDepartmentPermission[] @relation("AssignedCentralDeptPermissions")
-
-  // IPR & Research Paper relations
-  iprApplications            IprApplication[]             @relation("IprApplications")
-  iprContributions           IprContributor[]             @relation("IprContributors")
-  iprReviews                 IprReview[]                  @relation("IprReviews")
-  iprStatusChanges           IprStatusHistory[]           @relation("IprStatusChanges")
-  iprFinanceReviews          IprFinance[]                 @relation("IprFinanceReviews")
-  researchPapers             ResearchPaper[]              @relation("ResearchPapers")
-  researchPaperReviews       ResearchPaperReview[]        @relation("ResearchPaperReviews")
-  researchPaperStatusChanges ResearchPaperStatusHistory[] @relation("ResearchPaperStatusChanges")
-
-  // Collaborative Editing relations
-  iprEditSuggestions       IprEditSuggestion[]       @relation("IprEditSuggestions")
-  iprCollaborativeSessions IprCollaborativeSession[] @relation("IprCollaborativeSessions")
-  documentChangeReviews    DocumentChange[]          @relation("DocumentChangeReviewer")
-  iprStatusUpdates         IprStatusUpdate[]         @relation("IprStatusUpdates")
-
-  // New IPR Management relations
-  createdIPRs          IPR[]         @relation("IPRCreator")
-  approvedIPRs         IPR[]         @relation("IPRApprover")
-  uploadedIPRDocuments IPRDocument[] @relation("IPRDocumentUploader")
-
-  // Notifications
-  notifications Notification[] @relation("UserNotifications")
-
-  // User Settings
-  userSettings UserSettings? @relation("UserSettings")
-
-  // Incentive Policy relations
-  createdPolicies IncentivePolicy[] @relation("PolicyCreatedBy")
-  updatedPolicies IncentivePolicy[] @relation("PolicyUpdatedBy")
-
-  // Research Contribution relations
-  researchContributions               ResearchContribution[]               @relation("ResearchContributions")
-  mentorResearchContributions         ResearchContribution[]               @relation("MentorResearchContributions")
-  researchContributionAuthorship      ResearchContributionAuthor[]         @relation("ResearchContributionAuthors")
-  researchContributionReviews         ResearchContributionReview[]         @relation("ResearchContributionReviews")
-  researchContributionStatusChanges   ResearchContributionStatusHistory[]  @relation("ResearchContributionStatusChanges")
-  researchContributionEditSuggestions ResearchContributionEditSuggestion[] @relation("ResearchContributionEditSuggestions")
-  createdResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyCreatedBy")
-  updatedResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyUpdatedBy")
-
-  @@map("user_login")
-}
-
-model EmployeeDetails {
-  id                   String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userLoginId          String?   @unique @map("user_login_id") @db.Uuid
-  firstName            String    @map("first_name") @db.VarChar(128)
-  lastName             String?   @map("last_name") @db.VarChar(128)
-  displayName          String?   @map("display_name") @db.VarChar(256)
-  photoFilePath        String?   @map("photo_file_path")
-  photo                String?   @db.VarChar(64)
-  empId                String?   @unique @map("emp_id") @db.VarChar(64)
-  email                String?   @db.VarChar(256)
-  phoneNumber          String?   @map("phone_number") @db.VarChar(20)
-  primarySchoolId      String?   @map("primary_school_id") @db.Uuid
-  primaryDepartmentId  String?   @map("primary_department_id") @db.Uuid
-  primaryCentralDeptId String?   @map("primary_central_dept_id") @db.Uuid
-  designation          String?   @db.VarChar(128)
-  joinDate             DateTime? @map("join_date") @db.Date
-  isActive             Boolean   @default(true) @map("is_active")
-  metadata             Json      @default("{}")
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  userLogin                 UserLogin?                  @relation(fields: [userLoginId], references: [id], onDelete: SetNull)
-  primarySchool             FacultySchoolList?          @relation("PrimarySchool", fields: [primarySchoolId], references: [id], onDelete: SetNull)
-  primaryDepartment         Department?                 @relation("PrimaryDepartment", fields: [primaryDepartmentId], references: [id], onDelete: SetNull)
-  primaryCentralDept        CentralDepartment?          @relation("PrimaryCentralDepartment", fields: [primaryCentralDeptId], references: [id], onDelete: SetNull)
-  cards                     Card[]
-  reissueRequests           ReissueRequest[]
-  admissionStaffRoles       AdmissionStaffRoles[]
-  admissionStaffDetails     AdmissionStaffDetails[]
-  admissionFacultyStaff     AdmissionFacultyStaff[]
-  registrarStaffRoles       RegistrarStaffRoles[]
-  registrarStaffDetails     RegistrarStaffDetails[]
-  registrarFacultyStaff     RegistrarFacultyStaff[]
-  hrTeachingStaffRoles      HrTeachingStaffRoles[]
-  hrNonTeachingStaffRoles   HrNonTeachingStaffRoles[]
-  hrTeachingStaffDetails    HrTeachingStaffDetails[]
-  hrNonTeachingStaffDetails HrNonTeachingStaffDetails[]
-
-  @@map("employee_details")
-}
-
-model Card {
-  id                  String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  cardHolderType      String         @map("card_holder_type") @db.VarChar(32)
-  employeeId          String?        @map("employee_id") @db.Uuid
-  studentId           String?        @map("student_id") @db.Uuid
-  parentId            String?        @map("parent_id") @db.Uuid
-  rfidUid             String?        @unique @map("rfid_uid") @db.VarChar(128)
-  rfidApproved        Boolean        @default(false) @map("rfid_approved")
-  rfidReissue         Boolean        @default(false) @map("rfid_reissue")
-  rfidReissueCount    Int            @default(0) @map("rfid_reissue_count")
-  rfidUpdatedetail    Boolean        @default(false) @map("rfid_updatedetail")
-  rfidImage           String?        @map("rfid_image") @db.VarChar(64)
-  rfidIssueImages     String?        @map("rfid_issue_images") @db.VarChar(64)
-  latestImageFilePath String?        @map("latest_image_file_path")
-  photoFilePath       String?        @map("photo_file_path")
-  photo               String?        @db.VarChar(64)
-  templateColorCode   String?        @map("template_color_code") @db.VarChar(32)
-  issuedAt            DateTime?      @map("issued_at") @db.Timestamptz(6)
-  expiresAt           DateTime?      @map("expires_at") @db.Timestamptz(6)
-  status              CardStatusEnum @default(active)
-  issuedById          String?        @map("issued_by") @db.Uuid
-  notes               String?
-  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee        EmployeeDetails? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  student         StudentDetails?  @relation("StudentCards", fields: [studentId], references: [id], onDelete: Cascade)
-  parent          ParentDetails?   @relation("ParentCards", fields: [parentId], references: [id], onDelete: Cascade)
-  issuedBy        UserLogin?       @relation("IssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
-  reissueRequests ReissueRequest[]
-
-  @@map("card")
-}
-
-model ReissueRequest {
-  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  cardHolderType String    @map("card_holder_type") @db.VarChar(32)
-  employeeId     String?   @map("employee_id") @db.Uuid
-  studentId      String?   @map("student_id") @db.Uuid
-  parentId       String?   @map("parent_id") @db.Uuid
-  oldCardId      String?   @map("old_card_id") @db.Uuid
-  reason         String?
-  reasonCode     String?   @map("reason_code") @db.VarChar(64)
-  isPaid         Boolean   @default(false) @map("is_paid")
-  proofFilePath  String?   @map("proof_file_path")
-  status         String    @default("pending") @db.VarChar(32)
-  requestedById  String?   @map("requested_by") @db.Uuid
-  approvedById   String?   @map("approved_by") @db.Uuid
-  approvedAt     DateTime? @map("approved_at") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee    EmployeeDetails? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  student     StudentDetails?  @relation("StudentReissueRequests", fields: [studentId], references: [id], onDelete: Cascade)
-  parent      ParentDetails?   @relation("ParentReissueRequests", fields: [parentId], references: [id], onDelete: Cascade)
-  oldCard     Card?            @relation(fields: [oldCardId], references: [id], onDelete: SetNull)
-  requestedBy UserLogin?       @relation("RequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  approvedBy  UserLogin?       @relation("ApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-
-  @@map("reissue_request")
-}
-
-model AuditLog {
-  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  actorId     String?  @map("actor_id") @db.Uuid
-  action      String   @db.VarChar(256)
-  targetTable String?  @map("target_table") @db.VarChar(128)
-  targetId    String?  @map("target_id") @db.Uuid
-  details     Json     @default("{}")
-  ipAddress   String?  @map("ip_address") @db.Inet
-  userAgent   String?  @map("user_agent")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  // Relations
-  actor UserLogin? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-
-  @@map("audit_log")
-}
-
-model ChangeHistory {
-  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tableId     String   @map("table_id") @db.Uuid
-  tableName   String   @map("table_name") @db.VarChar(128)
-  columnName  String   @map("column_name") @db.VarChar(128)
-  oldValue    String?  @map("old_value")
-  newValue    String?  @map("new_value")
-  changedById String   @map("changed_by_id") @db.Uuid
-  changeType  String   @map("change_type") @db.VarChar(32)
-  changedAt   DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
-
-  // Relations
-  changedBy UserLogin @relation(fields: [changedById], references: [id])
-
-  @@map("changes_history")
-}
-
-// Department-specific role tables based on actual database structure
-
-// Admission Staff
-model AdmissionStaffRoles {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId         String   @map("employee_id") @db.Uuid
-  title              String   @db.VarChar(256)
-  canViewAll         Boolean  @default(false) @map("can_view_all")
-  canModifyAll       Boolean  @default(false) @map("can_modify_all")
-  specialPermissions Json     @default("{}") @map("special_permissions")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("admission_staff_roles")
-}
-
-model AdmissionStaffDetails {
-  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId     String   @map("employee_id") @db.Uuid
-  workLocation   String?  @map("work_location") @db.VarChar(256)
-  supervisor     String?  @db.VarChar(256)
-  responsibleFor String?  @map("responsible_for") @db.VarChar(256)
-  admissionCycle String?  @map("admission_cycle") @db.VarChar(64)
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("admission_staff_details")
-}
-
-model AdmissionFacultyStaff {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId       String   @map("employee_id") @db.Uuid
-  facultyType      String?  @map("faculty_type") @db.VarChar(128)
-  qualification    String?  @db.VarChar(256)
-  experience       String?  @db.VarChar(256)
-  specialization   String?  @db.VarChar(256)
-  responsibilities String?  @db.VarChar(512)
-  metadata         Json     @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("admission_faculty_staff")
-}
-
-// Registrar Staff
-model RegistrarStaffRoles {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId         String   @map("employee_id") @db.Uuid
-  title              String   @db.VarChar(256)
-  canViewAll         Boolean  @default(false) @map("can_view_all")
-  canModifyAll       Boolean  @default(false) @map("can_modify_all")
-  specialPermissions Json     @default("{}") @map("special_permissions")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("registrar_staff_roles")
-}
-
-model RegistrarStaffDetails {
-  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId     String   @map("employee_id") @db.Uuid
-  workLocation   String?  @map("work_location") @db.VarChar(256)
-  supervisor     String?  @db.VarChar(256)
-  responsibleFor String?  @map("responsible_for") @db.VarChar(256)
-  accessLevel    String?  @map("access_level") @db.VarChar(64)
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("registrar_staff_details")
-}
-
-model RegistrarFacultyStaff {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId       String   @map("employee_id") @db.Uuid
-  facultyType      String?  @map("faculty_type") @db.VarChar(128)
-  qualification    String?  @db.VarChar(256)
-  experience       String?  @db.VarChar(256)
-  specialization   String?  @db.VarChar(256)
-  responsibilities String?  @db.VarChar(512)
-  metadata         Json     @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("registrar_faculty_staff")
-}
-
-// HR Staff
-model HrTeachingStaffRoles {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId         String   @map("employee_id") @db.Uuid
-  title              String   @db.VarChar(256)
-  canViewAll         Boolean  @default(false) @map("can_view_all")
-  canModifyAll       Boolean  @default(false) @map("can_modify_all")
-  specialPermissions Json     @default("{}") @map("special_permissions")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("hr_teaching_staff_roles")
-}
-
-model HrNonTeachingStaffRoles {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId         String   @map("employee_id") @db.Uuid
-  title              String   @db.VarChar(256)
-  canViewAll         Boolean  @default(false) @map("can_view_all")
-  canModifyAll       Boolean  @default(false) @map("can_modify_all")
-  specialPermissions Json     @default("{}") @map("special_permissions")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("hr_non_teaching_staff_roles")
-}
-
-model HrTeachingStaffDetails {
-  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId     String   @map("employee_id") @db.Uuid
-  qualification  String?  @db.VarChar(256)
-  experience     String?  @db.VarChar(256)
-  specialization String?  @db.VarChar(256)
-  currentPosting String?  @map("current_posting") @db.VarChar(256)
-  salaryGrade    String?  @map("salary_grade") @db.VarChar(64)
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("hr_teaching_staff_details")
-}
-
-model HrNonTeachingStaffDetails {
-  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  employeeId     String   @map("employee_id") @db.Uuid
-  qualification  String?  @db.VarChar(256)
-  experience     String?  @db.VarChar(256)
-  skillSet       String?  @map("skill_set") @db.VarChar(256)
-  currentPosting String?  @map("current_posting") @db.VarChar(256)
-  salaryGrade    String?  @map("salary_grade") @db.VarChar(64)
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  employee EmployeeDetails @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@map("hr_non_teaching_staff_details")
-}
-
-// Department Permission System
 enum DepartmentEnum {
   ADMISSION
   REGISTRAR
@@ -491,306 +1320,6 @@ enum DepartmentEnum {
   @@map("department_enum")
 }
 
-model UserDepartmentPermission {
-  id          String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId      String         @map("user_id") @db.Uuid
-  department  DepartmentEnum
-  permissions Json           @default("{}") // Store permissions as JSON object
-  isActive    Boolean        @default(true) @map("is_active")
-  assignedBy  String?        @map("assigned_by") @db.Uuid
-  assignedAt  DateTime       @default(now()) @map("assigned_at") @db.Timestamptz(6)
-  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  user           UserLogin  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedByUser UserLogin? @relation("AssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
-
-  @@unique([userId, department])
-  @@map("user_department_permission")
-}
-
-// New Granular Permission System for School Departments
-model DepartmentPermission {
-  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  departmentId String   @map("department_id") @db.Uuid
-  permissions  Json     @default("{}") @db.JsonB // Checkbox permissions as JSON
-  isPrimary    Boolean  @default(false) @map("is_primary") // Is this the primary department for reporting
-  isActive     Boolean  @default(true) @map("is_active")
-  assignedBy   String?  @map("assigned_by") @db.Uuid
-  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  user           UserLogin  @relation("UserDepartmentPermissions", fields: [userId], references: [id], onDelete: Cascade)
-  department     Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  assignedByUser UserLogin? @relation("AssignedDepartmentPermissions", fields: [assignedBy], references: [id], onDelete: SetNull)
-
-  @@unique([userId, departmentId])
-  @@index([userId])
-  @@index([departmentId])
-  @@index([isPrimary])
-  @@map("department_permission")
-}
-
-// New Granular Permission System for Central Departments
-model CentralDepartmentPermission {
-  id                        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId                    String   @map("user_id") @db.Uuid
-  centralDeptId             String   @map("central_dept_id") @db.Uuid
-  permissions               Json     @default("{}") @db.JsonB // Checkbox permissions as JSON
-  assignedSchoolIds         Json     @default("[]") @map("assigned_school_ids") @db.JsonB // Array of school IDs for IPR review
-  assignedResearchSchoolIds Json     @default("[]") @map("assigned_research_school_ids") @db.JsonB // Array of school IDs for Research review
-  isPrimary                 Boolean  @default(false) @map("is_primary") // Is this the primary department for reporting
-  isActive                  Boolean  @default(true) @map("is_active")
-  assignedBy                String?  @map("assigned_by") @db.Uuid
-  assignedAt                DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
-  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  user           UserLogin         @relation("UserCentralDeptPermissions", fields: [userId], references: [id], onDelete: Cascade)
-  centralDept    CentralDepartment @relation(fields: [centralDeptId], references: [id], onDelete: Cascade)
-  assignedByUser UserLogin?        @relation("AssignedCentralDeptPermissions", fields: [assignedBy], references: [id], onDelete: SetNull)
-
-  @@unique([userId, centralDeptId])
-  @@index([userId])
-  @@index([centralDeptId])
-  @@index([isPrimary])
-  @@map("central_department_permission")
-}
-
-// University Structure Tables
-model FacultySchoolList {
-  id              String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  facultyCode     String          @unique @map("faculty_code") @db.VarChar(32)
-  facultyName     String          @map("faculty_name") @db.VarChar(256)
-  facultyType     FacultyTypeEnum @map("faculty_type")
-  shortName       String?         @map("short_name") @db.VarChar(64)
-  description     String?
-  establishedYear Int?            @map("established_year")
-  headOfFacultyId String?         @map("head_of_faculty") @db.Uuid
-  contactEmail    String?         @map("contact_email") @db.Citext
-  contactPhone    String?         @map("contact_phone") @db.VarChar(20)
-  officeLocation  String?         @map("office_location")
-  websiteUrl      String?         @map("website_url")
-  isActive        Boolean         @default(true) @map("is_active")
-  metadata        Json            @default("{}") @db.JsonB
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  headOfFaculty         UserLogin?             @relation("HeadOfFaculty", fields: [headOfFacultyId], references: [id], onDelete: SetNull)
-  departments           Department[]
-  primaryEmployees      EmployeeDetails[]      @relation("PrimarySchool")
-  iprApplications       IprApplication[]       @relation("SchoolIprApplications")
-  researchPapers        ResearchPaper[]        @relation("SchoolResearchPapers")
-  researchContributions ResearchContribution[] @relation("SchoolResearchContributions")
-
-  @@map("faculty_school_list")
-}
-
-model Department {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  facultyId          String   @map("faculty_id") @db.Uuid
-  departmentCode     String   @unique @map("department_code") @db.VarChar(32)
-  departmentName     String   @map("department_name") @db.VarChar(256)
-  shortName          String?  @map("short_name") @db.VarChar(64)
-  description        String?
-  establishedYear    Int?     @map("established_year")
-  headOfDepartmentId String?  @map("head_of_department") @db.Uuid
-  contactEmail       String?  @map("contact_email") @db.Citext
-  contactPhone       String?  @map("contact_phone") @db.VarChar(20)
-  officeLocation     String?  @map("office_location")
-  budgetAllocation   Decimal? @map("budget_allocation") @db.Decimal(15, 2)
-  isActive           Boolean  @default(true) @map("is_active")
-  metadata           Json     @default("{}") @db.JsonB
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  faculty               FacultySchoolList      @relation(fields: [facultyId], references: [id], onDelete: Cascade)
-  headOfDepartment      UserLogin?             @relation("HeadOfDepartment", fields: [headOfDepartmentId], references: [id], onDelete: SetNull)
-  programs              Program[]
-  primaryEmployees      EmployeeDetails[]      @relation("PrimaryDepartment")
-  departmentPermissions DepartmentPermission[]
-  iprApplications       IprApplication[]       @relation("DepartmentIprApplications")
-  researchPapers        ResearchPaper[]        @relation("DepartmentResearchPapers")
-  researchContributions ResearchContribution[] @relation("DepartmentResearchContributions")
-
-  @@map("department")
-}
-
-// Central Departments (HR, ERP, DRD, etc.) - Not under any school
-model CentralDepartment {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  departmentCode     String   @unique @map("department_code") @db.VarChar(32)
-  departmentName     String   @map("department_name") @db.VarChar(256)
-  shortName          String?  @map("short_name") @db.VarChar(64)
-  description        String?
-  headOfDepartmentId String?  @map("head_of_department") @db.Uuid
-  contactEmail       String?  @map("contact_email") @db.Citext
-  contactPhone       String?  @map("contact_phone") @db.VarChar(20)
-  officeLocation     String?  @map("office_location")
-  departmentType     String?  @map("department_type") @db.VarChar(64) // e.g., 'administrative', 'support', 'service'
-  isActive           Boolean  @default(true) @map("is_active")
-  metadata           Json     @default("{}") @db.JsonB
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  headOfDepartment       UserLogin?                    @relation("HeadOfCentralDepartment", fields: [headOfDepartmentId], references: [id], onDelete: SetNull)
-  primaryEmployees       EmployeeDetails[]             @relation("PrimaryCentralDepartment")
-  centralDeptPermissions CentralDepartmentPermission[]
-
-  @@map("central_department")
-}
-
-model Program {
-  id                   String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  departmentId         String          @map("department_id") @db.Uuid
-  programCode          String          @unique @map("program_code") @db.VarChar(32)
-  programName          String          @map("program_name") @db.VarChar(256)
-  programType          ProgramTypeEnum @map("program_type")
-  shortName            String?         @map("short_name") @db.VarChar(64)
-  description          String?
-  durationYears        Int             @default(4) @map("duration_years")
-  durationSemesters    Int             @default(8) @map("duration_semesters")
-  totalCredits         Int?            @map("total_credits")
-  admissionCapacity    Int             @default(0) @map("admission_capacity")
-  currentEnrollment    Int             @default(0) @map("current_enrollment")
-  programCoordinatorId String?         @map("program_coordinator") @db.Uuid
-  accreditationBody    String?         @map("accreditation_body") @db.VarChar(128)
-  accreditationStatus  String?         @map("accreditation_status") @db.VarChar(64)
-  isActive             Boolean         @default(true) @map("is_active")
-  metadata             Json            @default("{}") @db.JsonB
-  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  department         Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  programCoordinator UserLogin?       @relation("ProgramCoordinator", fields: [programCoordinatorId], references: [id], onDelete: SetNull)
-  sections           Section[]
-  students           StudentDetails[]
-
-  @@map("program")
-}
-
-model Section {
-  id              String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  programId       String            @map("program_id") @db.Uuid
-  sectionCode     String            @map("section_code") @db.VarChar(32)
-  sectionName     String            @map("section_name") @db.VarChar(128)
-  academicYear    String            @map("academic_year") @db.VarChar(16)
-  semester        Int
-  batchYear       Int               @map("batch_year")
-  capacity        Int               @default(60)
-  currentStrength Int               @default(0) @map("current_strength")
-  classTeacherId  String?           @map("class_teacher") @db.Uuid
-  roomNumber      String?           @map("room_number") @db.VarChar(64)
-  timetableSlot   String?           @map("timetable_slot") @db.VarChar(32)
-  status          SectionStatusEnum @default(active)
-  metadata        Json              @default("{}") @db.JsonB
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  program      Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
-  classTeacher UserLogin?       @relation("ClassTeacher", fields: [classTeacherId], references: [id], onDelete: SetNull)
-  students     StudentDetails[]
-
-  @@unique([programId, sectionCode, academicYear, semester])
-  @@map("section")
-}
-
-model StudentDetails {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userLoginId          String?   @unique @map("user_login_id") @db.Uuid
-  studentId            String    @unique @map("student_id") @db.VarChar(64)
-  firstName            String    @map("first_name") @db.VarChar(128)
-  lastName             String?   @map("last_name") @db.VarChar(128)
-  displayName          String?   @map("display_name") @db.VarChar(256)
-  registrationNo       String?   @unique @map("registration_no") @db.VarChar(64)
-  middleName           String?   @map("middle_name") @db.VarChar(128)
-  email                String?   @unique @db.VarChar(256)
-  phone                String?   @db.VarChar(15)
-  photoFilePath        String?   @map("photo_file_path")
-  photo                String?   @db.VarChar(64)
-  sectionId            String?   @map("section_id") @db.Uuid
-  programId            String?   @map("program_id") @db.Uuid
-  rollNumber           String?   @map("roll_number") @db.VarChar(32)
-  admissionDate        DateTime? @map("admission_date") @db.Date
-  graduationDate       DateTime? @map("graduation_date") @db.Date
-  currentSemester      Int       @default(1) @map("current_semester")
-  cgpa                 Decimal?  @db.Decimal(4, 2)
-  attendancePercentage Decimal?  @map("attendance_percentage") @db.Decimal(5, 2)
-  parentContact        String?   @map("parent_contact") @db.VarChar(20)
-  emergencyContact     String?   @map("emergency_contact") @db.VarChar(20)
-  address              String?
-  dateOfBirth          DateTime? @map("date_of_birth") @db.Date
-  gender               String?   @db.VarChar(16)
-  bloodGroup           String?   @map("blood_group") @db.VarChar(8)
-  // Approval workflow fields
-  dataEntryStatus      String    @default("pending") @map("data_entry_status") @db.VarChar(32)
-  dataApprovedById     String?   @map("data_approved_by") @db.Uuid
-  dataApprovedAt       DateTime? @map("data_approved_at") @db.Timestamptz(6)
-  approvalComments     String?   @map("approval_comments")
-  photoCaptureAllowed  Boolean   @default(false) @map("photo_capture_allowed")
-  cardPrintAllowed     Boolean   @default(false) @map("card_print_allowed")
-  photoPath            String?   @map("photo_path") @db.VarChar(512)
-  photoCapturedAt      DateTime? @map("photo_captured_at") @db.Timestamptz(6)
-  photoCapturedBy      String?   @map("photo_captured_by") @db.Uuid
-  isActive             Boolean   @default(true) @map("is_active")
-  metadata             Json      @default("{}") @db.JsonB
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  userLogin       UserLogin?       @relation("StudentLogin", fields: [userLoginId], references: [id], onDelete: SetNull)
-  section         Section?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  program         Program?         @relation(fields: [programId], references: [id], onDelete: SetNull)
-  dataApprovedBy  UserLogin?       @relation("DataApprovedBy", fields: [dataApprovedById], references: [id], onDelete: SetNull)
-  parents         ParentDetails[]
-  cards           Card[]           @relation("StudentCards")
-  reissueRequests ReissueRequest[] @relation("StudentReissueRequests")
-
-  @@map("student_details")
-}
-
-model ParentDetails {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userLoginId      String?  @unique @map("user_login_id") @db.Uuid
-  studentId        String   @map("student_id") @db.Uuid
-  relationship     String   @db.VarChar(32)
-  firstName        String   @map("first_name") @db.VarChar(128)
-  lastName         String?  @map("last_name") @db.VarChar(128)
-  occupation       String?  @db.VarChar(128)
-  organization     String?  @db.VarChar(256)
-  phone            String?  @db.VarChar(20)
-  email            String?  @db.Citext
-  address          String?
-  isPrimaryContact Boolean  @default(false) @map("is_primary_contact")
-  isActive         Boolean  @default(true) @map("is_active")
-  metadata         Json     @default("{}") @db.JsonB
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  userLogin       UserLogin?       @relation("ParentLogin", fields: [userLoginId], references: [id], onDelete: SetNull)
-  student         StudentDetails   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  cards           Card[]           @relation("ParentCards")
-  reissueRequests ReissueRequest[] @relation("ParentReissueRequests")
-
-  @@map("parent_details")
-}
-
-// ====================
-// IPR & RESEARCH PAPER MANAGEMENT MODULE
-// ====================
-
-// IPR Application Types
 enum IprTypeEnum {
   patent
   copyright
@@ -800,7 +1329,6 @@ enum IprTypeEnum {
   @@map("ipr_type_enum")
 }
 
-// IPR Filing Types
 enum IprFilingTypeEnum {
   provisional
   complete
@@ -808,27 +1336,26 @@ enum IprFilingTypeEnum {
   @@map("ipr_filing_type_enum")
 }
 
-// IPR Status
 enum IprStatusEnum {
   draft
-  pending_mentor_approval // Waiting for mentor approval (student applications)
   submitted
   under_drd_review
   changes_required
   resubmitted
-  recommended_to_head // DRD Member recommends to DRD Head
-  drd_head_approved // DRD Head approved (ready for govt filing)
-  drd_rejected // DRD Member/Reviewer rejected
-  drd_head_rejected // DRD Head rejected the application
-  submitted_to_govt // Submitted to Government
-  govt_application_filed // Government Application ID received
-  govt_rejected // Government rejected the application
-  published // Publication ID received (patent granted)
-  under_finance_review // Finance auditing incentives
+  recommended_to_head
+  drd_head_approved
+  drd_rejected
+  submitted_to_govt
+  govt_application_filed
+  published
+  under_finance_review
   finance_approved
   finance_rejected
-  completed // Incentives credited, workflow complete
+  completed
   cancelled
+  govt_rejected
+  drd_head_rejected
+  pending_mentor_approval
 
   @@map("ipr_status_enum")
 }
@@ -842,7 +1369,6 @@ enum EditSuggestionStatusEnum {
   @@map("edit_suggestion_status_enum")
 }
 
-// Applicant Type
 enum ApplicantTypeEnum {
   internal_faculty
   internal_student
@@ -854,7 +1380,6 @@ enum ApplicantTypeEnum {
   @@map("applicant_type_enum")
 }
 
-// Project Type
 enum ProjectTypeEnum {
   phd
   pg_project
@@ -866,7 +1391,6 @@ enum ProjectTypeEnum {
   @@map("project_type_enum")
 }
 
-// Research Paper Status (Legacy - kept for backwards compatibility)
 enum ResearchPaperStatusEnum {
   draft
   submitted
@@ -878,9 +1402,6 @@ enum ResearchPaperStatusEnum {
   @@map("research_paper_status_enum")
 }
 
-// ========== RESEARCH CONTRIBUTION MODULE ENUMS ==========
-
-// Research Publication Type
 enum ResearchPublicationTypeEnum {
   research_paper
   book
@@ -891,10 +1412,8 @@ enum ResearchPublicationTypeEnum {
   @@map("research_publication_type_enum")
 }
 
-// Research Contribution Status
 enum ResearchContributionStatusEnum {
   draft
-  pending_mentor_approval // Waiting for mentor approval (student applications)
   submitted
   under_review
   changes_required
@@ -903,11 +1422,11 @@ enum ResearchContributionStatusEnum {
   rejected
   completed
   cancelled
+  pending_mentor_approval
 
   @@map("research_contribution_status_enum")
 }
 
-// Research Author Type
 enum ResearchAuthorTypeEnum {
   first_author
   corresponding_author
@@ -917,7 +1436,6 @@ enum ResearchAuthorTypeEnum {
   @@map("research_author_type_enum")
 }
 
-// Targeted Research Type
 enum TargetedResearchTypeEnum {
   scopus
   wos
@@ -935,989 +1453,4 @@ enum QuartileEnum {
   na
 
   @@map("quartile_enum")
-}
-
-// IPR Application Main Table
-model IprApplication {
-  id                String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  applicationNumber String?           @unique @map("application_number") @db.VarChar(32) // Unique application reference number
-  applicantUserId   String?           @map("applicant_user_id") @db.Uuid // For internal users
-  applicantType     ApplicantTypeEnum @map("applicant_type")
-
-  // IPR Details
-  iprType     IprTypeEnum       @map("ipr_type")
-  projectType ProjectTypeEnum   @map("project_type")
-  filingType  IprFilingTypeEnum @map("filing_type")
-  title       String            @db.VarChar(512)
-  description String            @db.Text
-  remarks     String?           @db.Text
-
-  // Complete Filing - Prototype & Conversion from Provisional
-  prototypeFilePath   String?   @map("prototype_file_path") // ZIP file for complete filing prototypes
-  sourceProvisionalId String?   @map("source_provisional_id") @db.Uuid // Reference to provisional app if converted
-  conversionDate      DateTime? @map("conversion_date") @db.Timestamptz(6) // When converted from provisional
-
-  // School/Department Mapping
-  schoolId     String? @map("school_id") @db.Uuid
-  departmentId String? @map("department_id") @db.Uuid
-
-  // Status & Workflow
-  status            IprStatusEnum @default(draft)
-  currentReviewerId String?       @map("current_reviewer_id") @db.Uuid // Current DRD reviewer
-  revisionCount     Int           @default(0) @map("revision_count") // Number of revision loops
-
-  // Government Filing Details
-  govtApplicationId String?   @map("govt_application_id") @db.VarChar(128) // Government Application Number
-  govtFilingDate    DateTime? @map("govt_filing_date") @db.Timestamptz(6)
-  publicationId     String?   @map("publication_id") @db.VarChar(128) // Publication/Grant Number
-  publicationDate   DateTime? @map("publication_date") @db.Timestamptz(6)
-
-  // File Attachments
-  annexureFilePath        String? @map("annexure_file_path") // Main document
-  supportingDocsFilePaths Json?   @map("supporting_docs_file_paths") @db.JsonB // Array of file paths
-
-  // Incentive & Points
-  incentiveAmount Decimal?  @map("incentive_amount") @db.Decimal(15, 2)
-  pointsAwarded   Int?      @map("points_awarded")
-  creditedAt      DateTime? @map("credited_at") @db.Timestamptz(6)
-
-  // Timestamps
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
-  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  applicantUser         UserLogin?                @relation("IprApplications", fields: [applicantUserId], references: [id], onDelete: SetNull)
-  school                FacultySchoolList?        @relation("SchoolIprApplications", fields: [schoolId], references: [id], onDelete: SetNull)
-  department            Department?               @relation("DepartmentIprApplications", fields: [departmentId], references: [id], onDelete: SetNull)
-  applicantDetails      IprApplicantDetails?
-  contributors          IprContributor[]
-  sdgs                  IprSdg[]
-  reviews               IprReview[]
-  statusHistory         IprStatusHistory[]
-  financeRecords        IprFinance[]
-  editSuggestions       IprEditSuggestion[]
-  collaborativeSessions IprCollaborativeSession[]
-  documentChanges       DocumentChange[]          @relation("DocumentChanges")
-  statusUpdates         IprStatusUpdate[] // DRD status updates for complete filings
-  sourceProvisional     IprApplication?           @relation("ProvisionalToComplete", fields: [sourceProvisionalId], references: [id], onDelete: SetNull)
-  convertedApplications IprApplication[]          @relation("ProvisionalToComplete")
-
-  @@index([applicantUserId])
-  @@index([status])
-  @@index([iprType])
-  @@index([schoolId])
-  @@index([departmentId])
-  @@index([sourceProvisionalId])
-  @@map("ipr_application")
-}
-
-// IPR Applicant Details (Internal & External)
-model IprApplicantDetails {
-  id               String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String @unique @map("ipr_application_id") @db.Uuid
-
-  // Internal Applicant (Faculty/Student/Staff)
-  employeeCategory   String? @map("employee_category") @db.VarChar(64) // Teaching, Non-Teaching, etc.
-  employeeType       String? @map("employee_type") @db.VarChar(64) // Staff, Student
-  uid                String? @db.VarChar(64)
-  email              String? @db.VarChar(256)
-  phone              String? @db.VarChar(20)
-  universityDeptName String? @map("university_dept_name") @db.VarChar(256)
-
-  // Student-specific fields
-  mentorName String? @map("mentor_name") @db.VarChar(256) // Only for students
-  mentorUid  String? @map("mentor_uid") @db.VarChar(64) // Only for students
-
-  // Inventor details (for all applicants)
-  isInventor    Boolean @default(false) @map("is_inventor")
-  inventorName  String? @map("inventor_name") @db.VarChar(256)
-  inventorUid   String? @map("inventor_uid") @db.VarChar(64)
-  inventorEmail String? @map("inventor_email") @db.VarChar(256)
-  inventorPhone String? @map("inventor_phone") @db.VarChar(20)
-
-  // External Applicant
-  externalName          String? @map("external_name") @db.VarChar(256)
-  externalOption        String? @map("external_option") @db.VarChar(64) // National, International, Industry
-  instituteType         String? @map("institute_type") @db.VarChar(64) // Academic, Industry
-  companyUniversityName String? @map("company_university_name") @db.VarChar(256)
-  externalEmail         String? @map("external_email") @db.VarChar(256)
-  externalPhone         String? @map("external_phone") @db.VarChar(20)
-  externalAddress       String? @map("external_address") @db.Text
-
-  // Metadata
-  metadata  Json     @default("{}") @db.JsonB
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-
-  @@map("ipr_applicant_details")
-}
-
-// IPR Contributors (Inventors/Co-applicants who can view the application)
-model IprContributor {
-  id               String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String  @map("ipr_application_id") @db.Uuid
-  userId           String? @map("user_id") @db.Uuid // Link to UserLogin if internal
-
-  // Contributor Details
-  uid              String? @db.VarChar(64)
-  name             String  @db.VarChar(256)
-  email            String? @db.VarChar(256)
-  phone            String? @db.VarChar(20)
-  department       String? @db.VarChar(256)
-  employeeCategory String? @map("employee_category") @db.VarChar(64) // internal/external
-  employeeType     String? @map("employee_type") @db.VarChar(64) // staff/student
-  role             String  @default("inventor") @db.VarChar(64) // inventor, co-applicant, contributor
-
-  // Access Control
-  canView Boolean @default(true) @map("can_view")
-  canEdit Boolean @default(false) @map("can_edit") // Always false for contributors
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  user           UserLogin?     @relation("IprContributors", fields: [userId], references: [id], onDelete: SetNull)
-
-  @@unique([iprApplicationId, uid])
-  @@index([iprApplicationId])
-  @@index([userId])
-  @@map("ipr_contributor")
-}
-
-// IPR SDG Mapping (Many-to-Many)
-model IprSdg {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String   @map("ipr_application_id") @db.Uuid
-  sdgCode          String   @map("sdg_code") @db.VarChar(16) // SDG1, SDG2, ..., SDG17
-  sdgTitle         String?  @map("sdg_title") @db.VarChar(256)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-
-  @@unique([iprApplicationId, sdgCode])
-  @@map("ipr_sdg")
-}
-
-// IPR Review (DRD Team Member Review)
-model IprReview {
-  id               String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String @map("ipr_application_id") @db.Uuid
-  reviewerId       String @map("reviewer_id") @db.Uuid
-  reviewerRole     String @map("reviewer_role") @db.VarChar(64) // drd_member, drd_dean, finance
-
-  // Review Details
-  comments String? @db.Text
-  edits    Json?   @db.JsonB // Store highlighted edits as JSON
-  decision String  @db.VarChar(32) // pending, approved, rejected, changes_required
-
-  // Collaborative Editing
-  hasSuggestions          Boolean @default(false) @map("has_suggestions")
-  suggestionsCount        Int     @default(0) @map("suggestions_count")
-  pendingSuggestionsCount Int     @default(0) @map("pending_suggestions_count")
-
-  // Timestamps
-  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  reviewer       UserLogin      @relation("IprReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@index([reviewerId])
-  @@map("ipr_review")
-}
-
-// IPR Edit Suggestions (Collaborative Editing)
-model IprEditSuggestion {
-  id                String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId  String                   @map("ipr_application_id") @db.Uuid
-  reviewerId        String                   @map("reviewer_id") @db.Uuid
-  fieldName         String                   @map("field_name") @db.VarChar(128)
-  fieldPath         String?                  @map("field_path") @db.VarChar(256)
-  originalValue     String?                  @map("original_value") @db.Text
-  suggestedValue    String?                  @map("suggested_value") @db.Text
-  suggestionNote    String?                  @map("suggestion_note") @db.Text
-  status            EditSuggestionStatusEnum @default(pending)
-  applicantResponse String?                  @map("applicant_response") @db.Text
-  reviewedAt        DateTime?                @map("reviewed_at") @db.Timestamptz(6)
-  respondedAt       DateTime?                @map("responded_at") @db.Timestamptz(6)
-  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  reviewer       UserLogin      @relation("IprEditSuggestions", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@index([reviewerId])
-  @@index([status])
-  @@map("ipr_edit_suggestion")
-}
-
-// IPR Collaborative Session
-model IprCollaborativeSession {
-  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String    @map("ipr_application_id") @db.Uuid
-  reviewerId       String    @map("reviewer_id") @db.Uuid
-  sessionData      Json      @default("{}") @map("session_data") @db.JsonB
-  isActive         Boolean   @default(true) @map("is_active")
-  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
-  endedAt          DateTime? @map("ended_at") @db.Timestamptz(6)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  reviewer       UserLogin      @relation("IprCollaborativeSessions", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@index([reviewerId])
-  @@map("ipr_collaborative_session")
-}
-
-// IPR Status History (Audit Trail)
-model IprStatusHistory {
-  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String         @map("ipr_application_id") @db.Uuid
-  fromStatus       IprStatusEnum? @map("from_status")
-  toStatus         IprStatusEnum  @map("to_status")
-  changedById      String         @map("changed_by_id") @db.Uuid
-  comments         String?        @db.Text
-  metadata         Json?          @db.JsonB
-  changedAt        DateTime       @default(now()) @map("changed_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  changedBy      UserLogin      @relation("IprStatusChanges", fields: [changedById], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@map("ipr_status_history")
-}
-
-// IPR Finance (Incentive Processing)
-model IprFinance {
-  id                String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId  String @map("ipr_application_id") @db.Uuid
-  financeReviewerId String @map("finance_reviewer_id") @db.Uuid
-
-  // Audit & Approval
-  auditStatus   String  @map("audit_status") @db.VarChar(64) // pending, approved, rejected
-  auditComments String? @map("audit_comments") @db.Text
-
-  // Incentive Details
-  incentiveAmount   Decimal @map("incentive_amount") @db.Decimal(15, 2)
-  pointsAwarded     Int?    @map("points_awarded")
-  paymentReference  String? @map("payment_reference") @db.VarChar(128)
-  creditedToAccount String? @map("credited_to_account") @db.VarChar(128)
-
-  // Timestamps
-  approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
-  creditedAt DateTime? @map("credited_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication  IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  financeReviewer UserLogin      @relation("IprFinanceReviews", fields: [financeReviewerId], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@map("ipr_finance")
-}
-
-// IPR Status Update (DRD communication with applicants/inventors for complete filings)
-model IprStatusUpdate {
-  id               String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String @map("ipr_application_id") @db.Uuid
-  createdById      String @map("created_by_id") @db.Uuid
-
-  // Update Details
-  updateMessage String @map("update_message") @db.Text
-  updateType    String @map("update_type") @db.VarChar(64) // hearing, document_request, milestone, general
-  priority      String @default("medium") @db.VarChar(32) // low, medium, high, urgent
-
-  // Visibility
-  isVisibleToApplicant Boolean @default(true) @map("is_visible_to_applicant")
-  isVisibleToInventors Boolean @default(true) @map("is_visible_to_inventors")
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation(fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  createdBy      UserLogin      @relation("IprStatusUpdates", fields: [createdById], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@index([createdById])
-  @@index([updateType])
-  @@map("ipr_status_update")
-}
-
-// Research Paper Management
-model ResearchPaper {
-  id           String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  authorUserId String @map("author_user_id") @db.Uuid
-
-  // Paper Details
-  title    String  @db.VarChar(512)
-  abstract String  @db.Text
-  keywords String? @db.VarChar(512)
-
-  // Publication Details
-  journalName     String?   @map("journal_name") @db.VarChar(256)
-  issn            String?   @db.VarChar(32)
-  impactFactor    Decimal?  @map("impact_factor") @db.Decimal(5, 2)
-  publicationDate DateTime? @map("publication_date") @db.Date
-  doi             String?   @db.VarChar(128)
-
-  // School/Department Mapping
-  schoolId     String? @map("school_id") @db.Uuid
-  departmentId String? @map("department_id") @db.Uuid
-
-  // Status & Workflow
-  status            ResearchPaperStatusEnum @default(draft)
-  currentReviewerId String?                 @map("current_reviewer_id") @db.Uuid
-
-  // File Attachments
-  manuscriptFilePath      String? @map("manuscript_file_path")
-  supportingDocsFilePaths Json?   @map("supporting_docs_file_paths") @db.JsonB
-
-  // Incentive & Points
-  incentiveAmount Decimal?  @map("incentive_amount") @db.Decimal(15, 2)
-  pointsAwarded   Int?      @map("points_awarded")
-  creditedAt      DateTime? @map("credited_at") @db.Timestamptz(6)
-
-  // Timestamps
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
-  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  author        UserLogin                    @relation("ResearchPapers", fields: [authorUserId], references: [id], onDelete: Cascade)
-  school        FacultySchoolList?           @relation("SchoolResearchPapers", fields: [schoolId], references: [id], onDelete: SetNull)
-  department    Department?                  @relation("DepartmentResearchPapers", fields: [departmentId], references: [id], onDelete: SetNull)
-  reviews       ResearchPaperReview[]
-  statusHistory ResearchPaperStatusHistory[]
-
-  @@index([authorUserId])
-  @@index([status])
-  @@index([schoolId])
-  @@index([departmentId])
-  @@map("research_paper")
-}
-
-// Research Paper Review
-model ResearchPaperReview {
-  id              String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchPaperId String @map("research_paper_id") @db.Uuid
-  reviewerId      String @map("reviewer_id") @db.Uuid
-
-  // Review Details
-  comments String? @db.Text
-  edits    Json?   @db.JsonB
-  decision String  @db.VarChar(32) // pending, approved, rejected, changes_required
-
-  // Timestamps
-  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  researchPaper ResearchPaper @relation(fields: [researchPaperId], references: [id], onDelete: Cascade)
-  reviewer      UserLogin     @relation("ResearchPaperReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([researchPaperId])
-  @@index([reviewerId])
-  @@map("research_paper_review")
-}
-
-// Research Paper Status History
-model ResearchPaperStatusHistory {
-  id              String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchPaperId String                   @map("research_paper_id") @db.Uuid
-  fromStatus      ResearchPaperStatusEnum? @map("from_status")
-  toStatus        ResearchPaperStatusEnum  @map("to_status")
-  changedById     String                   @map("changed_by_id") @db.Uuid
-  comments        String?                  @db.Text
-  metadata        Json?                    @db.JsonB
-  changedAt       DateTime                 @default(now()) @map("changed_at") @db.Timestamptz(6)
-
-  // Relations
-  researchPaper ResearchPaper @relation(fields: [researchPaperId], references: [id], onDelete: Cascade)
-  changedBy     UserLogin     @relation("ResearchPaperStatusChanges", fields: [changedById], references: [id], onDelete: Cascade)
-
-  @@index([researchPaperId])
-  @@map("research_paper_status_history")
-}
-
-// IPR (Intellectual Property Rights) Management
-model IPR {
-  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  // Basic Information
-  title       String @db.VarChar(255)
-  description String @db.Text
-  type        String @db.VarChar(50) // patent, copyright, trademark
-  status      String @default("draft") @db.VarChar(50) // draft, submitted, under_review, approved, granted, rejected
-
-  // Application Details
-  applicationNumber String?   @unique @map("application_number") @db.VarChar(100)
-  submissionDate    DateTime? @map("submission_date") @db.Timestamptz(6)
-
-  // Applicant Information
-  applicant    String @db.VarChar(255)
-  coApplicants Json?  @map("co_applicants") @db.JsonB // Array of co-applicants
-  department   String @db.VarChar(100)
-
-  // Technical Details
-  researchArea            String? @map("research_area") @db.VarChar(255)
-  keywords                Json?   @db.JsonB // Array of keywords
-  technicalSpecifications String? @map("technical_specifications") @db.Text
-
-  // Business Information
-  estimatedValue       Decimal? @map("estimated_value") @db.Decimal(15, 2)
-  marketPotential      String?  @map("market_potential") @db.Text
-  competitiveAdvantage String?  @map("competitive_advantage") @db.Text
-
-  // Priority and Classification
-  priority String @default("medium") @db.VarChar(20) // high, medium, low
-
-  // Review Information
-  reviewComments String?   @map("review_comments") @db.Text
-  reviewerNotes  String?   @map("reviewer_notes") @db.Text
-  reviewDate     DateTime? @map("review_date") @db.Timestamptz(6)
-
-  // Relationships
-  createdById  String  @map("created_by_id") @db.Uuid
-  approvedById String? @map("approved_by_id") @db.Uuid
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  createdBy  UserLogin     @relation("IPRCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  approvedBy UserLogin?    @relation("IPRApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  documents  IPRDocument[]
-
-  @@index([type])
-  @@index([status])
-  @@index([department])
-  @@index([createdById])
-  @@index([submissionDate])
-  @@map("ipr")
-}
-
-// IPR Documents
-model IPRDocument {
-  id    String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprId String @map("ipr_id") @db.Uuid
-
-  // Document Details
-  name     String @db.VarChar(255)
-  type     String @db.VarChar(100) // application_form, technical_drawings, supporting_docs, etc.
-  filePath String @map("file_path") @db.VarChar(500)
-  fileSize BigInt @map("file_size")
-  mimeType String @map("mime_type") @db.VarChar(100)
-
-  // Upload Information
-  uploadedById String   @map("uploaded_by_id") @db.Uuid
-  uploadedAt   DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
-
-  // Relations
-  ipr        IPR       @relation(fields: [iprId], references: [id], onDelete: Cascade)
-  uploadedBy UserLogin @relation("IPRDocumentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
-
-  @@index([iprId])
-  @@map("ipr_document")
-}
-
-// Google Docs-style Document Changes for Collaborative Editing
-model DocumentChange {
-  id               String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  iprApplicationId String @map("ipr_application_id") @db.Uuid
-
-  // Field and Change Details
-  fieldName    String  @map("field_name") @db.VarChar(100) // title, description, remarks, etc.
-  type         String  @db.VarChar(20) // insert, delete, replace
-  originalText String? @map("original_text") @db.Text
-  newText      String  @map("new_text") @db.Text
-  position     Int     @default(0) // Position in the text where change occurs
-
-  // Change Metadata
-  reviewerId String  @map("reviewer_id") @db.Uuid
-  comment    String? @db.Text
-  status     String  @default("pending") @db.VarChar(20) // pending, accepted, rejected
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  iprApplication IprApplication @relation("DocumentChanges", fields: [iprApplicationId], references: [id], onDelete: Cascade)
-  reviewer       UserLogin      @relation("DocumentChangeReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([iprApplicationId])
-  @@index([fieldName])
-  @@index([status])
-  @@index([reviewerId])
-  @@map("document_change")
-}
-
-// Notification Model for user notifications
-model Notification {
-  id     String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId String @map("user_id") @db.Uuid
-
-  // Notification Details
-  type    String @db.VarChar(50) // ipr_inventor, ipr_contributor, ipr_status, etc.
-  title   String @db.VarChar(255)
-  message String @db.Text
-
-  // Reference to related entity
-  referenceType String? @map("reference_type") @db.VarChar(50) // ipr_application, research_paper, etc.
-  referenceId   String? @map("reference_id") @db.Uuid
-
-  // Status
-  isRead Boolean   @default(false) @map("is_read")
-  readAt DateTime? @map("read_at") @db.Timestamptz(6)
-
-  // Metadata for additional info
-  metadata Json @default("{}") @db.JsonB
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  // Relations
-  user UserLogin @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([isRead])
-  @@index([type])
-  @@index([referenceId])
-  @@map("notification")
-}
-
-// IPR Incentive Policy - Admin configurable policies for incentive distribution
-model IncentivePolicy {
-  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  // Policy identification
-  iprType    String @map("ipr_type") @db.VarChar(50) // patent, copyright, trademark, design
-  policyName String @map("policy_name") @db.VarChar(255)
-
-  // Incentive amounts
-  baseIncentiveAmount Decimal @map("base_incentive_amount") @db.Decimal(15, 2)
-  basePoints          Int     @map("base_points")
-
-  // Distribution policy
-  splitPolicy          String   @map("split_policy") @db.VarChar(50) // equal, weighted, primary_inventor
-  primaryInventorShare Decimal? @map("primary_inventor_share") @db.Decimal(5, 2) // e.g., 50.00 for 50%
-
-  // Additional criteria
-  filingTypeMultiplier Json? @map("filing_type_multiplier") @db.JsonB // {"provisional": 0.5, "complete": 1.0}
-  projectTypeBonus     Json? @map("project_type_bonus") @db.JsonB // {"phd": 10000, "faculty_research": 5000}
-
-  // Policy status
-  isActive      Boolean   @default(true) @map("is_active")
-  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
-  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
-
-  // Audit
-  createdById String   @map("created_by_id") @db.Uuid
-  updatedById String?  @map("updated_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  createdBy UserLogin  @relation("PolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
-  updatedBy UserLogin? @relation("PolicyUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-
-  @@unique([iprType, isActive], map: "unique_active_policy_per_type")
-  @@index([iprType])
-  @@index([isActive])
-  @@map("incentive_policy")
-}
-
-// User Settings - Store user preferences and notification settings
-model UserSettings {
-  id     String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId String @unique @map("user_id") @db.Uuid
-
-  // Notification preferences
-  emailNotifications Boolean @default(true) @map("email_notifications")
-  pushNotifications  Boolean @default(true) @map("push_notifications")
-  iprUpdates         Boolean @default(true) @map("ipr_updates")
-  taskReminders      Boolean @default(true) @map("task_reminders")
-  systemAlerts       Boolean @default(true) @map("system_alerts")
-  weeklyDigest       Boolean @default(false) @map("weekly_digest")
-
-  // Display preferences
-  theme       String  @default("light") @db.VarChar(20)
-  language    String  @default("en") @db.VarChar(10)
-  compactView Boolean @default(false) @map("compact_view")
-  showTips    Boolean @default(true) @map("show_tips")
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  user UserLogin @relation("UserSettings", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_settings")
-}
-
-// ========== RESEARCH CONTRIBUTION MODULE MODELS ==========
-
-// Research Contribution Main Table
-model ResearchContribution {
-  id                String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  applicationNumber String?           @unique @map("application_number") @db.VarChar(32)
-  applicantUserId   String?           @map("applicant_user_id") @db.Uuid
-  applicantType     ApplicantTypeEnum @map("applicant_type")
-
-  // Publication Type & Category
-  publicationType ResearchPublicationTypeEnum @map("publication_type")
-
-  // Common Fields
-  title    String  @db.VarChar(512)
-  abstract String? @db.Text
-  keywords String? @db.VarChar(512)
-
-  // School/Department Mapping
-  schoolId     String? @map("school_id") @db.Uuid
-  departmentId String? @map("department_id") @db.Uuid
-
-  // Status & Workflow
-  status            ResearchContributionStatusEnum @default(draft)
-  currentReviewerId String?                        @map("current_reviewer_id") @db.Uuid
-  mentorId          String?                        @map("mentor_id") @db.Uuid
-  mentorApprovedAt  DateTime?                      @map("mentor_approved_at") @db.Timestamptz(6)
-  mentorRemarks     String?                        @map("mentor_remarks") @db.Text
-  revisionCount     Int                            @default(0) @map("revision_count")
-
-  // Research Paper Specific Fields
-  targetedResearchType       TargetedResearchTypeEnum? @map("targeted_research_type")
-  internationalAuthor        Boolean                   @default(false) @map("international_author")
-  foreignCollaborationsCount Int                       @default(0) @map("foreign_collaborations_count")
-  impactFactor               Decimal?                  @map("impact_factor") @db.Decimal(10, 4)
-  sjr                        Decimal?                  @db.Decimal(10, 4)
-  quartile                   QuartileEnum?
-  interdisciplinaryFromSgt   Boolean                   @default(false) @map("interdisciplinary_from_sgt")
-  studentsFromSgt            Boolean                   @default(false) @map("students_from_sgt")
-  journalName                String?                   @map("journal_name") @db.VarChar(512)
-  totalAuthors               Int                       @default(1) @map("total_authors")
-  sgtAffiliatedAuthors       Int                       @default(1) @map("sgt_affiliated_authors")
-  internalCoAuthors          Int                       @default(0) @map("internal_co_authors")
-  volume                     String?                   @db.VarChar(64)
-  issue                      String?                   @db.VarChar(64)
-  pageNumbers                String?                   @map("page_numbers") @db.VarChar(64)
-  doi                        String?                   @db.VarChar(256)
-  issn                       String?                   @db.VarChar(32)
-  publisherName              String?                   @map("publisher_name") @db.VarChar(256)
-
-  // Book/Chapter Specific Fields
-  isbn              String? @db.VarChar(32)
-  edition           String? @db.VarChar(64)
-  chapterNumber     String? @map("chapter_number") @db.VarChar(32)
-  bookTitle         String? @map("book_title") @db.VarChar(512)
-  editors           String? @db.VarChar(512)
-  publisherLocation String? @map("publisher_location") @db.VarChar(256)
-
-  // Conference Specific Fields
-  conferenceName     String?   @map("conference_name") @db.VarChar(512)
-  conferenceLocation String?   @map("conference_location") @db.VarChar(256)
-  conferenceDate     DateTime? @map("conference_date") @db.Date
-  proceedingsTitle   String?   @map("proceedings_title") @db.VarChar(512)
-
-  // Grant Proposal Specific Fields
-  fundingAgency         String?   @map("funding_agency") @db.VarChar(256)
-  proposalType          String?   @map("proposal_type") @db.VarChar(64)
-  requestedAmount       Decimal?  @map("requested_amount") @db.Decimal(15, 2)
-  sanctionedAmount      Decimal?  @map("sanctioned_amount") @db.Decimal(15, 2)
-  projectDurationMonths Int?      @map("project_duration_months")
-  projectStartDate      DateTime? @map("project_start_date") @db.Date
-  projectEndDate        DateTime? @map("project_end_date") @db.Date
-
-  // Publication Details
-  publicationDate   DateTime? @map("publication_date") @db.Date
-  publicationStatus String?   @map("publication_status") @db.VarChar(64)
-
-  // File Attachments
-  manuscriptFilePath      String? @map("manuscript_file_path")
-  supportingDocsFilePaths Json?   @map("supporting_docs_file_paths") @db.JsonB
-
-  // Indexing Information (JSON for flexibility)
-  indexingDetails Json? @map("indexing_details") @db.JsonB
-
-  // Incentive & Points (Pre-calculated at submission, credited at approval)
-  calculatedIncentiveAmount Decimal?  @map("calculated_incentive_amount") @db.Decimal(15, 2)
-  calculatedPoints          Int?      @map("calculated_points")
-  incentiveAmount           Decimal?  @map("incentive_amount") @db.Decimal(15, 2)
-  pointsAwarded             Int?      @map("points_awarded")
-  creditedAt                DateTime? @map("credited_at") @db.Timestamptz(6)
-
-  // Timestamps
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
-  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  applicantUser    UserLogin?                            @relation("ResearchContributions", fields: [applicantUserId], references: [id], onDelete: SetNull)
-  school           FacultySchoolList?                    @relation("SchoolResearchContributions", fields: [schoolId], references: [id], onDelete: SetNull)
-  department       Department?                           @relation("DepartmentResearchContributions", fields: [departmentId], references: [id], onDelete: SetNull)
-  applicantDetails ResearchContributionApplicantDetails?
-  authors          ResearchContributionAuthor[]
-  reviews          ResearchContributionReview[]
-  statusHistory    ResearchContributionStatusHistory[]
-  editSuggestions  ResearchContributionEditSuggestion[]
-  mentor           UserLogin?                            @relation("MentorResearchContributions", fields: [mentorId], references: [id], onDelete: SetNull)
-
-  @@index([applicantUserId])
-  @@index([status])
-  @@index([publicationType])
-  @@index([schoolId])
-  @@index([departmentId])
-  @@index([mentorId])
-  @@map("research_contribution")
-}
-
-// Research Contribution Applicant Details
-model ResearchContributionApplicantDetails {
-  id                     String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchContributionId String @unique @map("research_contribution_id") @db.Uuid
-
-  // Internal Applicant
-  employeeCategory   String? @map("employee_category") @db.VarChar(64)
-  employeeType       String? @map("employee_type") @db.VarChar(64)
-  uid                String? @db.VarChar(64)
-  email              String? @db.VarChar(256)
-  phone              String? @db.VarChar(20)
-  universityDeptName String? @map("university_dept_name") @db.VarChar(256)
-
-  // Student-specific fields
-  mentorName String? @map("mentor_name") @db.VarChar(256)
-  mentorUid  String? @map("mentor_uid") @db.VarChar(64)
-
-  // Ph.D. Work Linkage
-  isPhdWork         Boolean @default(false) @map("is_phd_work")
-  phdTitle          String? @map("phd_title") @db.VarChar(512)
-  phdObjectives     String? @map("phd_objectives") @db.Text
-  coveredObjectives String? @map("covered_objectives") @db.VarChar(256)
-
-  // Publication Addresses (What issues does this publication address)
-  addressesSocietal      Boolean @default(false) @map("addresses_societal")
-  addressesGovernment    Boolean @default(false) @map("addresses_government")
-  addressesEnvironmental Boolean @default(false) @map("addresses_environmental")
-  addressesIndustrial    Boolean @default(false) @map("addresses_industrial")
-  addressesBusiness      Boolean @default(false) @map("addresses_business")
-  addressesConceptual    Boolean @default(false) @map("addresses_conceptual")
-  enrichesDiscipline     Boolean @default(false) @map("enriches_discipline")
-
-  // Additional flags
-  isNewsworthy Boolean @default(false) @map("is_newsworthy")
-
-  // Metadata
-  metadata  Json     @default("{}") @db.JsonB
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  researchContribution ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade)
-
-  @@map("research_contribution_applicant_details")
-}
-
-// Research Contribution Author (Co-authors)
-model ResearchContributionAuthor {
-  id                     String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchContributionId String  @map("research_contribution_id") @db.Uuid
-  userId                 String? @map("user_id") @db.Uuid
-
-  // Author Details
-  uid             String?                @db.VarChar(64)
-  registrationNo  String?                @map("registration_no") @db.VarChar(64)
-  name            String                 @db.VarChar(256)
-  email           String?                @db.VarChar(256)
-  phone           String?                @db.VarChar(20)
-  affiliation     String?                @db.VarChar(256)
-  department      String?                @db.VarChar(256)
-  authorOrder     Int                    @default(1) @map("author_order")
-  isCorresponding Boolean                @default(false) @map("is_corresponding")
-  authorType      ResearchAuthorTypeEnum @default(co_author) @map("author_type")
-
-  // Author Category
-  isInternal     Boolean @default(true) @map("is_internal")
-  authorCategory String? @map("author_category") @db.VarChar(64) // student, faculty
-
-  // Ph.D. Linkage (for student authors)
-  isPhdWork         Boolean @default(false) @map("is_phd_work")
-  phdTitle          String? @map("phd_title") @db.VarChar(512)
-  phdObjectives     String? @map("phd_objectives") @db.Text
-  coveredObjectives String? @map("covered_objectives") @db.VarChar(256)
-
-  // Publication Addresses
-  addressesSocietal      Boolean @default(false) @map("addresses_societal")
-  addressesGovernment    Boolean @default(false) @map("addresses_government")
-  addressesEnvironmental Boolean @default(false) @map("addresses_environmental")
-  addressesIndustrial    Boolean @default(false) @map("addresses_industrial")
-  addressesBusiness      Boolean @default(false) @map("addresses_business")
-  addressesConceptual    Boolean @default(false) @map("addresses_conceptual")
-  isNewsworthy           Boolean @default(false) @map("is_newsworthy")
-
-  // Incentive share (calculated based on author type)
-  incentiveShare Decimal? @map("incentive_share") @db.Decimal(15, 2)
-  pointsShare    Int?     @map("points_share")
-
-  // Access Control
-  canView Boolean @default(true) @map("can_view")
-  canEdit Boolean @default(false) @map("can_edit")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  researchContribution ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade)
-  user                 UserLogin?           @relation("ResearchContributionAuthors", fields: [userId], references: [id], onDelete: SetNull)
-
-  @@unique([researchContributionId, uid])
-  @@index([researchContributionId])
-  @@index([userId])
-  @@map("research_contribution_author")
-}
-
-// Research Contribution Review
-model ResearchContributionReview {
-  id                     String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchContributionId String @map("research_contribution_id") @db.Uuid
-  reviewerId             String @map("reviewer_id") @db.Uuid
-  reviewerRole           String @map("reviewer_role") @db.VarChar(64)
-
-  comments String? @db.Text
-  edits    Json?   @db.JsonB
-  decision String  @db.VarChar(32)
-
-  hasSuggestions          Boolean @default(false) @map("has_suggestions")
-  suggestionsCount        Int     @default(0) @map("suggestions_count")
-  pendingSuggestionsCount Int     @default(0) @map("pending_suggestions_count")
-
-  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  researchContribution ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade)
-  reviewer             UserLogin            @relation("ResearchContributionReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([researchContributionId])
-  @@index([reviewerId])
-  @@map("research_contribution_review")
-}
-
-// Research Contribution Status History
-model ResearchContributionStatusHistory {
-  id                     String                          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchContributionId String                          @map("research_contribution_id") @db.Uuid
-  fromStatus             ResearchContributionStatusEnum? @map("from_status")
-  toStatus               ResearchContributionStatusEnum  @map("to_status")
-  changedById            String                          @map("changed_by_id") @db.Uuid
-  comments               String?                         @db.Text
-  metadata               Json?                           @db.JsonB
-  changedAt              DateTime                        @default(now()) @map("changed_at") @db.Timestamptz(6)
-
-  // Relations
-  researchContribution ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade)
-  changedBy            UserLogin            @relation("ResearchContributionStatusChanges", fields: [changedById], references: [id], onDelete: Cascade)
-
-  @@index([researchContributionId])
-  @@map("research_contribution_status_history")
-}
-
-// Research Contribution Edit Suggestion
-model ResearchContributionEditSuggestion {
-  id                     String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  researchContributionId String                   @map("research_contribution_id") @db.Uuid
-  reviewerId             String                   @map("reviewer_id") @db.Uuid
-  fieldName              String                   @map("field_name") @db.VarChar(128)
-  fieldPath              String?                  @map("field_path") @db.VarChar(256)
-  originalValue          String?                  @map("original_value") @db.Text
-  suggestedValue         String?                  @map("suggested_value") @db.Text
-  suggestionNote         String?                  @map("suggestion_note") @db.Text
-  status                 EditSuggestionStatusEnum @default(pending)
-  applicantResponse      String?                  @map("applicant_response") @db.Text
-  reviewedAt             DateTime?                @map("reviewed_at") @db.Timestamptz(6)
-  respondedAt            DateTime?                @map("responded_at") @db.Timestamptz(6)
-  createdAt              DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  researchContribution ResearchContribution @relation(fields: [researchContributionId], references: [id], onDelete: Cascade)
-  reviewer             UserLogin            @relation("ResearchContributionEditSuggestions", fields: [reviewerId], references: [id], onDelete: Cascade)
-
-  @@index([researchContributionId])
-  @@index([reviewerId])
-  @@map("research_contribution_edit_suggestion")
-}
-
-// Research Incentive Policy - Admin configurable policies for research incentive distribution
-model ResearchIncentivePolicy {
-  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  // Policy identification
-  publicationType String @map("publication_type") @db.VarChar(50)
-  policyName      String @map("policy_name") @db.VarChar(255)
-
-  // Base incentives
-  baseIncentiveAmount Decimal @map("base_incentive_amount") @db.Decimal(15, 2)
-  basePoints          Int     @map("base_points")
-
-  // Percentage-based distribution (new approach)
-  firstAuthorPercentage        Decimal? @default(40) @map("first_author_percentage") @db.Decimal(5, 2)
-  correspondingAuthorPercentage Decimal? @default(30) @map("corresponding_author_percentage") @db.Decimal(5, 2)
-  // Remaining percentage will be divided equally among co-authors
-
-  // Split policy
-  splitPolicy        String   @map("split_policy") @db.VarChar(50)
-  primaryAuthorShare Decimal? @map("primary_author_share") @db.Decimal(5, 2)
-
-  // Author type multipliers (JSON) - DEPRECATED, use percentage fields above
-  authorTypeMultipliers Json? @map("author_type_multipliers") @db.JsonB
-
-  // Indexing bonuses
-  indexingBonuses Json? @map("indexing_bonuses") @db.JsonB
-
-  // Impact factor tiers
-  impactFactorTiers Json? @map("impact_factor_tiers") @db.JsonB
-
-  // Policy status
-  isActive      Boolean   @default(true) @map("is_active")
-  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
-  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
-
-  // Audit
-  createdById String   @map("created_by_id") @db.Uuid
-  updatedById String?  @map("updated_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  createdBy UserLogin  @relation("ResearchPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
-  updatedBy UserLogin? @relation("ResearchPolicyUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-
-  @@unique([publicationType, isActive], map: "unique_active_research_policy_per_type")
-  @@index([publicationType])
-  @@index([isActive])
-  @@map("research_incentive_policy")
 }

@@ -49,35 +49,21 @@ export const useAuthStore = create<AuthState>()(
 
       checkAuth: async () => {
         const state = get();
-        // If we already have user data from persisted state, validate it with the server
-        // But don't clear the user immediately - only on explicit auth failure
+        // If we already have user data from persisted state, trust it
+        // The ProtectedRoute components will handle validation on navigation
         if (state.user && state.isAuthenticated) {
-          console.log('AuthStore - Already have user from persisted state:', state.user.username);
-          // Optionally validate in background without blocking
-          try {
-            const user = await authService.getCurrentUser();
-            console.log('AuthStore - Validated user from server:', user.username);
-            set({ user, isAuthenticated: true, isLoading: false });
-          } catch (error) {
-            console.log('AuthStore - Server validation failed, clearing auth');
-            set({ user: null, isAuthenticated: false, isLoading: false });
-          }
+          console.log('AuthStore - Using persisted auth state for user:', state.user.username);
+          set({ isLoading: false });
           return;
         }
         
+        // Only check with server if we don't have persisted state
         console.log('AuthStore - No persisted auth, checking with server');
         set({ isLoading: true });
         try {
-          const isAuth = await authService.checkAuthentication();
-          if (isAuth) {
-            console.log('AuthStore - authenticated, fetching user');
-            const user = await authService.getCurrentUser();
-            console.log('AuthStore - user fetched:', user);
-            set({ user, isAuthenticated: true, isLoading: false });
-          } else {
-            console.log('AuthStore - not authenticated');
-            set({ user: null, isAuthenticated: false, isLoading: false });
-          }
+          const user = await authService.getCurrentUser();
+          console.log('AuthStore - user fetched from server:', user);
+          set({ user, isAuthenticated: true, isLoading: false });
         } catch (error) {
           console.error('AuthStore - checkAuth error:', error);
           set({ user: null, isAuthenticated: false, isLoading: false });

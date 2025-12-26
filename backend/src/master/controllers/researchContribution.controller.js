@@ -2011,4 +2011,118 @@ exports.getIncentivePolicies = async (req, res) => {
   }
 };
 
+/**
+ * Upload documents for a research contribution
+ * Allows uploading research document and supporting documents
+ */
+exports.uploadDocuments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Check if contribution exists and user has access
+    const contribution = await prisma.researchContribution.findUnique({
+      where: { id }
+    });
+
+    if (!contribution) {
+      return res.status(404).json({
+        success: false,
+        message: 'Research contribution not found'
+      });
+    }
+
+    // Check if user is the applicant
+    if (contribution.applicantUserId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only upload documents for your own contributions'
+      });
+    }
+
+    // Process uploaded files
+    const uploadedFiles = {
+      researchDocument: null,
+      supportingDocuments: []
+    };
+
+    if (req.files) {
+      // Handle research document
+      if (req.files.researchDocument && req.files.researchDocument[0]) {
+        const file = req.files.researchDocument[0];
+        uploadedFiles.researchDocument = {
+          filename: file.filename,
+          originalName: file.originalname,
+          path: `/uploads/research/${file.filename}`,
+          size: file.size,
+          mimetype: file.mimetype
+        };
+      }
+
+      // Handle supporting documents
+      if (req.files.supportingDocuments) {
+        uploadedFiles.supportingDocuments = req.files.supportingDocuments.map(file => ({
+          filename: file.filename,
+          originalName: file.originalname,
+          path: `/uploads/research/${file.filename}`,
+          size: file.size,
+          mimetype: file.mimetype
+        }));
+      }
+    }
+
+    // Update contribution with document paths
+    const updateData = {};
+    
+    if (uploadedFiles.researchDocument) {
+      updateData.manuscriptFilePath = uploadedFiles.researchDocument.path;
+    }
+
+    if (uploadedFiles.supportingDocuments.length > 0) {
+      // Merge with existing supporting documents if any
+      const existingSupportingDocs = contribution.supportingDocsFilePaths || { files: [] };
+      const allSupportingDocs = [
+        ...(existingSupportingDocs.files || []),
+        ...uploadedFiles.supportingDocuments.map(doc => ({
+          path: doc.path,
+          name: doc.originalName,
+          size: doc.size,
+          mimetype: doc.mimetype,
+          uploadedAt: new Date().toISOString()
+        }))
+      ];
+      
+      updateData.supportingDocsFilePaths = {
+        files: allSupportingDocs
+      };
+    }
+
+    const updatedContribution = await prisma.researchContribution.update({
+      where: { id },
+      data: updateData
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Documents uploaded successfully',
+      data: {
+        researchDocument: uploadedFiles.researchDocument,
+        supportingDocuments: uploadedFiles.supportingDocuments,
+        contribution: {
+          id: updatedContribution.id,
+          manuscriptFilePath: updatedContribution.manuscriptFilePath,
+          supportingDocsFilePaths: updatedContribution.supportingDocsFilePaths
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Upload documents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload documents',
+      error: error.message
+    });
+  }
+};
+
 module.exports = exports;

@@ -70,6 +70,26 @@ const GRANT_STATUSES = [
   { value: 'completed', label: 'Completed' },
 ];
 
+const SDG_GOALS = [
+  { value: 'sdg1', label: 'SDG 1: No Poverty' },
+  { value: 'sdg2', label: 'SDG 2: Zero Hunger' },
+  { value: 'sdg3', label: 'SDG 3: Good Health and Well-being' },
+  { value: 'sdg4', label: 'SDG 4: Quality Education' },
+  { value: 'sdg5', label: 'SDG 5: Gender Equality' },
+  { value: 'sdg6', label: 'SDG 6: Clean Water and Sanitation' },
+  { value: 'sdg7', label: 'SDG 7: Affordable and Clean Energy' },
+  { value: 'sdg8', label: 'SDG 8: Decent Work and Economic Growth' },
+  { value: 'sdg9', label: 'SDG 9: Industry, Innovation and Infrastructure' },
+  { value: 'sdg10', label: 'SDG 10: Reduced Inequalities' },
+  { value: 'sdg11', label: 'SDG 11: Sustainable Cities and Communities' },
+  { value: 'sdg12', label: 'SDG 12: Responsible Consumption and Production' },
+  { value: 'sdg13', label: 'SDG 13: Climate Action' },
+  { value: 'sdg14', label: 'SDG 14: Life Below Water' },
+  { value: 'sdg15', label: 'SDG 15: Life on Land' },
+  { value: 'sdg16', label: 'SDG 16: Peace, Justice and Strong Institutions' },
+  { value: 'sdg17', label: 'SDG 17: Partnerships for the Goals' },
+];
+
 interface Author {
   id?: string;
   authorType: string;
@@ -120,6 +140,7 @@ export default function ResearchContributionForm({ publicationType, contribution
     isInterdisciplinary: 'yes' as 'yes' | 'no',
     hasLpuStudents: 'yes' as 'yes' | 'no',
     journalName: '',
+    sdgGoals: [] as string[],
     
     // Publication Details
     volume: '',
@@ -157,6 +178,10 @@ export default function ResearchContributionForm({ publicationType, contribution
     affiliation?: string;
     authorRole?: string;
   }>>([]);
+  
+  // Document upload state
+  const [researchDocument, setResearchDocument] = useState<File | null>(null);
+  const [supportingDocuments, setSupportingDocuments] = useState<File[]>([]);
   
   // Current author being edited (index)
   const [editingAuthorIndex, setEditingAuthorIndex] = useState<number | null>(null);
@@ -262,28 +287,30 @@ export default function ResearchContributionForm({ publicationType, contribution
   };
   
   // Helper function to get allowed user roles based on counts
-  // UNIVERSAL PATTERN for Research Paper:
-  // - Solo author (Total=1, SGT=1, Co-Authors=0): Must be first_and_corresponding
-  // - Two internal authors (Total=2, SGT=2, Co-Authors=0): Can be first OR corresponding (not both)
-  // - SGT=1 with 1 internal co-author: User must be co_author, colleague is first/corresponding
-  // - All other cases: All roles available
+  // ROLE DETERMINATION LOGIC:
+  // Rule 1: Solo author (Total=1, Internal=1, Co-Authors=0) -> Must be First & Corresponding
+  // Rule 2: All internal are co-authors (Internal = Co-Authors) -> User MUST be Co-Author
+  // Rule 3: Two internal, no co-authors -> Can be First OR Corresponding (not both, no co-author option)
+  // Rule 4: Flexible scenarios -> User can choose their role
   const getAllowedUserRoles = () => {
-    // Case 1: Solo author - must be first and corresponding
+    // Rule 1: Solo author - must be first and corresponding
     if (totalAuthors === 1 && totalInternalAuthors === 1 && totalInternalCoAuthors === 0) {
       return ['first_and_corresponding'];
     }
     
-    // Case 2: Two internal authors with no co-authors - can be first OR corresponding (not both)
-    if (totalAuthors === 2 && totalInternalAuthors === 2 && totalInternalCoAuthors === 0) {
-      return ['first', 'corresponding'];
-    }
-    
-    // Case 3: SGT=1 and 1 internal co-author (UNIVERSAL - any total author count)
-    // User must be co_author, the internal colleague will be first/corresponding
-    if (totalInternalAuthors === 1 && totalInternalCoAuthors === 1) {
+    // Rule 2: All internal authors are co-authors (Internal = Co-Authors)
+    // User MUST be co-author, external author(s) will have First/Corresponding
+    if (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0) {
       return ['co_author'];
     }
     
+    // Rule 3: Two internal authors, zero co-authors - can be first OR corresponding (not both, not co-author)
+    // This means both are primary authors, not co-authors
+    if (totalInternalAuthors === 2 && totalInternalCoAuthors === 0) {
+      return ['first', 'corresponding'];
+    }
+    
+    // Rule 4: Flexible scenarios - user can choose their role
     // All other cases: all roles available
     return ['first_and_corresponding', 'corresponding', 'first', 'co_author'];
   };
@@ -319,6 +346,40 @@ export default function ResearchContributionForm({ publicationType, contribution
   const getAvailableOtherAuthorRoles = () => {
     const usedRoles = getUsedRoles();
     
+    // Special case: When all internal authors are co-authors (Internal = Co-Authors)
+    // ALL internal authors (including others being added) MUST be co-authors
+    if (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0 && newAuthor.authorCategory === 'Internal') {
+      return [
+        { value: 'co_author', label: 'Co-Author' },
+      ];
+    }
+    
+    // Special case: User selected Co-Author and there's only 1 internal co-author slot (Total Internal Co-Authors = 1)
+    // This means the user IS that co-author, so other internal authors CANNOT be co-authors
+    if (totalInternalCoAuthors === 1 && userAuthorType === 'co_author' && newAuthor.authorCategory === 'Internal') {
+      const roles = [
+        { value: 'first_and_corresponding', label: 'First and Corresponding Author' },
+        { value: 'first_author', label: 'First Author' },
+        { value: 'corresponding_author', label: 'Corresponding Author' },
+      ];
+      // Filter out already used roles
+      return roles.filter(role => {
+        if (role.value === 'first_and_corresponding') {
+          // Can use if neither first nor corresponding is taken
+          return !usedRoles.includes('first_author') && !usedRoles.includes('corresponding_author');
+        }
+        return !usedRoles.includes(role.value);
+      });
+    }
+    
+    // Special case: User selected First/Corresponding Author and there's only 1 internal co-author slot
+    // The other internal author MUST be the co-author
+    if (totalInternalCoAuthors === 1 && userAuthorType !== 'co_author' && newAuthor.authorCategory === 'Internal') {
+      return [
+        { value: 'co_author', label: 'Co-Author' },
+      ];
+    }
+    
     // Special case: User is co-author with only 2 total authors
     // The other author MUST be First & Corresponding Author
     if (totalAuthors === 2 && userAuthorType === 'co_author') {
@@ -327,17 +388,8 @@ export default function ResearchContributionForm({ publicationType, contribution
       ];
     }
     
-    // Special case: SGT=1 & Internal Co-Authors=1 and adding Internal author
-    // The internal colleague MUST be first/corresponding (user is co_author)
-    if (totalInternalAuthors === 1 && totalInternalCoAuthors === 1 && newAuthor.authorCategory === 'Internal') {
-      return [
-        { value: 'first_and_corresponding', label: 'First and Corresponding Author' },
-        { value: 'first_author', label: 'First Author' },
-        { value: 'corresponding_author', label: 'Corresponding Author' },
-      ];
-    }
-    
     const allRoles = [
+      { value: 'first_and_corresponding', label: 'First and Corresponding Author' },
       { value: 'first_author', label: 'First Author' },
       { value: 'corresponding_author', label: 'Corresponding Author' },
       { value: 'co_author', label: 'Co-Author' },
@@ -348,6 +400,10 @@ export default function ResearchContributionForm({ publicationType, contribution
       // Co-author can be used multiple times
       if (role.value === 'co_author') {
         return true;
+      }
+      // First and Corresponding Author - can use if neither role is taken
+      if (role.value === 'first_and_corresponding') {
+        return !usedRoles.includes('first_author') && !usedRoles.includes('corresponding_author');
       }
       // First author and corresponding author can only be used once
       return !usedRoles.includes(role.value);
@@ -558,6 +614,26 @@ export default function ResearchContributionForm({ publicationType, contribution
     });
   };
 
+  const handleResearchDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setResearchDocument(e.target.files[0]);
+    }
+  };
+
+  const handleSupportingDocumentsUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setSupportingDocuments(Array.from(e.target.files));
+    }
+  };
+
+  const removeResearchDocument = () => {
+    setResearchDocument(null);
+  };
+
+  const removeSupportingDocument = (index: number) => {
+    setSupportingDocuments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const searchAuthors = async (searchTerm: string) => {
     if (!searchTerm || searchTerm.length < 3) {
       setSearchSuggestions([]);
@@ -604,6 +680,18 @@ export default function ResearchContributionForm({ publicationType, contribution
     
     // userData from search has: uid, name, role, department, designation
     const authorType = userData.role === 'student' ? 'Student' : 'Faculty';
+    
+    // Check if interdisciplinary is no and user is from different school
+    if (formData.isInterdisciplinary === 'no' && user?.employeeDetails?.department?.school?.id) {
+      const userSchoolId = user.employeeDetails.department.school.id;
+      const userSchoolName = user.employeeDetails.department.school.name;
+      
+      // Check if searched user is from same school
+      if (userData.schoolId && userData.schoolId !== userSchoolId) {
+        setError(`For non-interdisciplinary research, co-authors must be from your school (${userSchoolName})`);
+        return;
+      }
+    }
     
     // Fetch full details using lookup for email
     try {
@@ -777,14 +865,24 @@ export default function ResearchContributionForm({ publicationType, contribution
       
       // Check specific limits based on author category being added
       if (newAuthor.authorCategory === 'Internal') {
-        // Internal co-authors limit is based on totalInternalCoAuthors
-        if (internalAdded >= totalInternalCoAuthors) {
-          setError(`You can only add ${totalInternalCoAuthors} internal co-author(s). You've already added ${internalAdded}.`);
+        // When all internal are co-authors (Internal = Co-Authors), you need to add (Co-Authors - 1) internal
+        // Otherwise, you need to add Co-Authors internal
+        const maxInternalToAdd = (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0)
+          ? totalInternalCoAuthors - 1  // Exclude yourself
+          : totalInternalCoAuthors;
+        
+        if (internalAdded >= maxInternalToAdd) {
+          setError(`You can only add ${maxInternalToAdd} internal co-author(s). You've already added ${internalAdded}.`);
           return;
         }
       } else {
-        // External authors = total co-authors - internal co-authors
-        const maxExternalAuthors = maxCoAuthors - totalInternalCoAuthors;
+        // External authors calculation:
+        // When all internal are co-authors: external = total - internal
+        // Otherwise: external = total - 1 (you) - internal co-authors
+        const maxExternalAuthors = (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0)
+          ? totalAuthors - totalInternalAuthors
+          : maxCoAuthors - totalInternalCoAuthors;
+        
         if (externalAdded >= maxExternalAuthors) {
           setError(`You can only add ${maxExternalAuthors} external author(s). You've already added ${externalAdded}.`);
           return;
@@ -1010,6 +1108,8 @@ export default function ResearchContributionForm({ publicationType, contribution
       publisherLocation: formData.publisherLocation || null,
       publicationDate: formData.publicationDate ? new Date(formData.publicationDate).toISOString() : null,
       publicationStatus: formData.publicationStatus || null,
+      // SDG Goals
+      sdgGoals: formData.sdgGoals.length > 0 ? formData.sdgGoals : null,
     };
     
     return data;
@@ -1028,13 +1128,31 @@ export default function ResearchContributionForm({ publicationType, contribution
       const data = buildSubmitData();
       
       let response;
+      let contributionId = currentId;
+      
       if (currentId) {
         response = await researchService.updateContribution(currentId, data);
       } else {
         response = await researchService.createContribution(data);
         if (response.data?.id) {
-          setCurrentId(response.data.id);
+          contributionId = response.data.id;
+          setCurrentId(contributionId);
         }
+      }
+      
+      // Upload documents if any
+      if (contributionId && (researchDocument || supportingDocuments.length > 0)) {
+        const formData = new FormData();
+        
+        if (researchDocument) {
+          formData.append('researchDocument', researchDocument);
+        }
+        
+        supportingDocuments.forEach((file, index) => {
+          formData.append('supportingDocuments', file);
+        });
+        
+        await researchService.uploadDocuments(contributionId, formData);
       }
       
       setSuccess('Draft saved successfully');
@@ -1068,6 +1186,12 @@ export default function ResearchContributionForm({ publicationType, contribution
       return;
     }
     
+    // Validate research document is uploaded
+    if (!researchDocument && !currentId) {
+      setError('Please upload the research document before submitting');
+      return;
+    }
+    
     try {
       setSubmitting(true);
       setError(null);
@@ -1086,6 +1210,21 @@ export default function ResearchContributionForm({ publicationType, contribution
       
       if (!id) {
         throw new Error('Failed to create contribution');
+      }
+      
+      // Upload documents if any
+      if (researchDocument || supportingDocuments.length > 0) {
+        const formData = new FormData();
+        
+        if (researchDocument) {
+          formData.append('researchDocument', researchDocument);
+        }
+        
+        supportingDocuments.forEach((file, index) => {
+          formData.append('supportingDocuments', file);
+        });
+        
+        await researchService.uploadDocuments(id, formData);
       }
       
       // Then submit
@@ -1123,169 +1262,158 @@ export default function ResearchContributionForm({ publicationType, contribution
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+    <div className="space-y-5">
+      {/* Header - Professional */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 px-6 py-4">
+        <h1 className="text-2xl font-bold text-gray-900">
           {contributionId ? 'Edit' : 'New'} {getPublicationTypeLabel()}
         </h1>
-        <p className="text-gray-600">Fill in the details of your publication</p>
+        <p className="text-gray-500 mt-1">Fill in the details of your publication</p>
       </div>
 
       {/* Tab Navigation */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex">
-            <button
-              className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${activeTab === 'entry'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-              onClick={() => setActiveTab('entry')}
-            >
-              Contribution Entry
-            </button>
-            <button
-              className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${activeTab === 'process'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-              onClick={() => setActiveTab('process')}
-            >
-              Already in Process
-            </button>
-          </nav>
-        </div>
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+        <nav className="flex border-b border-gray-200">
+          <button
+            className={`py-3.5 px-6 font-medium text-sm transition-all ${activeTab === 'entry'
+                ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+            onClick={() => setActiveTab('entry')}
+          >
+            Contribution Entry
+          </button>
+          <button
+            className={`py-3.5 px-6 font-medium text-sm transition-all ${activeTab === 'process'
+                ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+            onClick={() => setActiveTab('process')}
+          >
+            Already in Process
+          </button>
+        </nav>
       </div>
 
       {/* Error/Success Messages */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
-          <AlertCircle className="w-5 h-5 text-red-600 mr-3" />
-          <p className="text-red-700">{error}</p>
-          <button onClick={() => setError(null)} className="ml-auto">
-            <X className="w-5 h-5 text-red-600" />
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center shadow-sm">
+          <AlertCircle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0" />
+          <p className="text-red-700 flex-1">{error}</p>
+          <button onClick={() => setError(null)} className="ml-2 p-1 hover:bg-red-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-red-500" />
           </button>
         </div>
       )}
       
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center">
-          <CheckCircle className="w-5 h-5 text-green-600 mr-3" />
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center shadow-sm">
+          <CheckCircle className="w-5 h-5 text-green-500 mr-3" />
           <p className="text-green-700">{success}</p>
         </div>
       )}
 
       {activeTab === 'entry' && (
         <>
-          {/* Research Paper Form */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="space-y-4">
+          {/* Research Paper Form - Professional */}
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+              <h2 className="text-lg font-semibold text-white">Publication Details</h2>
+            </div>
+            <div className="p-6 space-y-5">
               {/* Title of Paper */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title of Paper: <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="title"
-              value={formData.title}
-              onChange={handleInputChange}
-              required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter paper title"
-            />
-          </div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Title of Paper <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleInputChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 hover:bg-white transition-colors"
+                  placeholder="Enter the complete title of your research paper"
+                />
+              </div>
 
-          {/* Targeted Research Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Targeted Research Type: <span className="text-red-500">*</span>
-            </label>
-            <div className="flex flex-wrap gap-4">
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="targetedResearchType"
-                  value="scopus"
-                  checked={formData.targetedResearchType === 'scopus'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">Scopus</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="targetedResearchType"
-                  value="wos"
-                  checked={formData.targetedResearchType === 'wos'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">SCI/SCIF</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="targetedResearchType"
-                  value="both"
-                  checked={formData.targetedResearchType === 'both'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">Both</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="targetedResearchType"
-                  value="ugc"
-                  checked={formData.targetedResearchType === 'ugc'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">UGC</span>
-              </label>
-            </div>
-          </div>
-
-          {/* International Author */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              International Author: <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-4">
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="hasInternationalAuthor"
-                  value="yes"
-                  checked={formData.hasInternationalAuthor === 'yes'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">Yes</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="hasInternationalAuthor"
-                  value="no"
-                  checked={formData.hasInternationalAuthor === 'no'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">No</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Number of foreign Universities - Only show when International Author is Yes */}
-          {formData.hasInternationalAuthor === 'yes' && (
+          {/* Row 1: Options Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-5 p-5 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-slate-200">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Number of foreign Universities/Research organizations collaborated:
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Targeted Research <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-3">
+                {[{v:'scopus',l:'Scopus'},{v:'wos',l:'SCI/SCIE'},{v:'both',l:'Both'}].map(opt => (
+                  <label key={opt.v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="targetedResearchType" value={opt.v}
+                      checked={formData.targetedResearchType === opt.v}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{opt.l}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                International Author <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="hasInternationalAuthor" value={v}
+                      checked={formData.hasInternationalAuthor === v}
+                      onChange={(e) => { handleInputChange(e); setError(null); }}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Interdisciplinary(SGT) <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="isInterdisciplinary" value={v}
+                      checked={formData.isInterdisciplinary === v}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Student(s) from SGT <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="hasLpuStudents" value={v}
+                      checked={formData.hasLpuStudents === v}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Conditional: Foreign Universities count */}
+          {formData.hasInternationalAuthor === 'yes' && (
+            <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <label className="text-sm font-medium text-gray-700">
+                Foreign Universities Collaborated:
               </label>
               <input
                 type="number"
@@ -1293,174 +1421,57 @@ export default function ResearchContributionForm({ publicationType, contribution
                 value={formData.numForeignUniversities}
                 onChange={handleInputChange}
                 min="0"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="0"
               />
             </div>
           )}
 
-          {/* Conditional Fields Based on Targeted Research Type */}
-          {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both') && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  SJR:
-                </label>
-                <input
-                  type="text"
-                  name="sjr"
-                  value={formData.sjr}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter SJR value"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Quartile: <span className="text-red-500">*</span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      name="quartile"
-                      value="q1"
-                      checked={formData.quartile === 'q1'}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
+          {/* Conditional Fields: SJR + Quartile + Impact Factor */}
+          {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both' || formData.targetedResearchType === 'wos') && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both') && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SJR</label>
+                    <input type="text" name="sjr" value={formData.sjr} onChange={handleInputChange}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-colors"
+                      placeholder="e.g. 0.5"
                     />
-                    <span className="ml-2">Q1</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      name="quartile"
-                      value="q2"
-                      checked={formData.quartile === 'q2'}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">Q2</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      name="quartile"
-                      value="q3"
-                      checked={formData.quartile === 'q3'}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">Q3</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      name="quartile"
-                      value="q4"
-                      checked={formData.quartile === 'q4'}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">Q4</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      name="quartile"
-                      value="na"
-                      checked={formData.quartile === 'na'}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">N/A</span>
-                  </label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Quartile <span className="text-red-500">*</span></label>
+                    <div className="flex flex-wrap gap-3">
+                      {['q1','q2','q3','q4','na'].map(q => (
+                        <label key={q} className="inline-flex items-center text-sm cursor-pointer">
+                          <input type="radio" name="quartile" value={q}
+                            checked={formData.quartile === q}
+                            onChange={handleInputChange}
+                            className="w-4 h-4 text-blue-600"
+                          />
+                          <span className="ml-1 uppercase text-gray-700">{q === 'na' ? 'N/A' : q}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              {(formData.targetedResearchType === 'wos' || formData.targetedResearchType === 'both') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Impact Factor <span className="text-red-500">*</span></label>
+                  <input type="text" name="impactFactor" value={formData.impactFactor} onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-colors"
+                    placeholder="e.g. 2.5"
+                  />
                 </div>
-              </div>
+              )}
             </div>
           )}
-          
-          {(formData.targetedResearchType === 'wos' || formData.targetedResearchType === 'both') && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Impact Factor: <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="impactFactor"
-                value={formData.impactFactor}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter Impact Factor"
-              />
-            </div>
-          )}
-
-          {/* Interdisciplinary */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Interdisciplinary(from SGT): <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-4">
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="isInterdisciplinary"
-                  value="yes"
-                  checked={formData.isInterdisciplinary === 'yes'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">Yes</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="isInterdisciplinary"
-                  value="no"
-                  checked={formData.isInterdisciplinary === 'no'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">No</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Student(s) from SGT */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Student(s) (from SGT): <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-4">
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="hasLpuStudents"
-                  value="yes"
-                  checked={formData.hasLpuStudents === 'yes'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">Yes</span>
-              </label>
-              <label className="inline-flex items-center">
-                <input
-                  type="radio"
-                  name="hasLpuStudents"
-                  value="no"
-                  checked={formData.hasLpuStudents === 'no'}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="ml-2">No</span>
-              </label>
-            </div>
-          </div>
 
           {/* Journal Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Journal Name: <span className="text-red-500">*</span>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Journal Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -1468,175 +1479,180 @@ export default function ResearchContributionForm({ publicationType, contribution
               value={formData.journalName}
               onChange={handleInputChange}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter journal name"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-colors"
+              placeholder="Enter the journal name"
             />
           </div>
 
+          {/* SDG Goals */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              UN Sustainable Development Goals (SDGs)
+            </label>
+            <details className="group">
+              <summary className="cursor-pointer px-4 py-3 border border-gray-300 rounded-xl bg-gray-50 hover:bg-white flex justify-between items-center transition-colors">
+                <span className="text-gray-600">
+                  {formData.sdgGoals.length > 0 
+                    ? `${formData.sdgGoals.length} SDG${formData.sdgGoals.length !== 1 ? 's' : ''} selected`
+                    : 'Click to select relevant SDGs'}
+                </span>
+                <svg className="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="mt-2 p-4 border border-gray-200 rounded-xl bg-white shadow-lg max-h-64 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {SDG_GOALS.map((sdg) => (
+                    <label key={sdg.value} className="flex items-center space-x-2 px-3 py-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formData.sdgGoals.includes(sdg.value)}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setFormData(prev => ({
+                            ...prev,
+                            sdgGoals: isChecked
+                              ? [...prev.sdgGoals, sdg.value]
+                              : prev.sdgGoals.filter(g => g !== sdg.value)
+                          }));
+                        }}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-sm">{sdg.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </details>
+            {formData.sdgGoals.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {formData.sdgGoals.map(sdgValue => {
+                  const sdg = SDG_GOALS.find(s => s.value === sdgValue);
+                  return sdg ? (
+                    <span key={sdgValue} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                      {sdg.label.replace('SDG ', '')}
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({
+                          ...prev,
+                          sdgGoals: prev.sdgGoals.filter(g => g !== sdgValue)
+                        }))}
+                        className="hover:text-blue-900 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Publication Details Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Volume */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Volume Number
-              </label>
-              <input
-                type="text"
-                name="volume"
-                value={formData.volume}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 45"
-              />
+          <div className="p-5 bg-slate-50 rounded-xl border border-slate-200">
+            <h4 className="text-sm font-semibold text-gray-700 mb-4">Publication Information</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Volume</label>
+                <input type="text" name="volume" value={formData.volume} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="Vol"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Issue</label>
+                <input type="text" name="issue" value={formData.issue} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="Iss"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Pages</label>
+                <input type="text" name="pageNumbers" value={formData.pageNumbers} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="1-10"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">DOI</label>
+                <input type="text" name="doi" value={formData.doi} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="10.xxx"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">ISSN</label>
+                <input type="text" name="issn" value={formData.issn} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="1234-5678"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Pub. Date</label>
+                <input type="date" name="publicationDate" value={formData.publicationDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
-
-            {/* Issue */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Issue Number
-              </label>
-              <input
-                type="text"
-                name="issue"
-                value={formData.issue}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 3"
-              />
-            </div>
-
-            {/* Page Numbers */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Page Numbers
-              </label>
-              <input
-                type="text"
-                name="pageNumbers"
-                value={formData.pageNumbers}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 123-145"
-              />
-            </div>
-          </div>
-
-          {/* DOI and ISSN */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* DOI */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                DOI (Digital Object Identifier)
-              </label>
-              <input
-                type="text"
-                name="doi"
-                value={formData.doi}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 10.1234/example.2024"
-              />
-            </div>
-
-            {/* ISSN */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                ISSN
-              </label>
-              <input
-                type="text"
-                name="issn"
-                value={formData.issn}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 1234-5678"
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-600 mb-2">Publisher Name</label>
+              <input type="text" name="publisherName" value={formData.publisherName} onChange={handleInputChange}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="Enter publisher name"
               />
             </div>
           </div>
 
-          {/* Publisher Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Publisher Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Publisher Name
-              </label>
-              <input
-                type="text"
-                name="publisherName"
-                value={formData.publisherName}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter publisher name"
-              />
+          {/* Document Upload Section */}
+          <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-100 rounded-lg">
+                <FileText className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Upload Documents</h3>
+                <p className="text-sm text-gray-500">Upload all documents as a single ZIP file (Max 5 MB)</p>
+              </div>
             </div>
-
-            {/* Publisher Location */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Publisher Location
-              </label>
+            <div className="relative">
               <input
-                type="text"
-                name="publisherLocation"
-                value={formData.publisherLocation}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., New York, USA"
+                type="file"
+                accept=".zip"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 5 * 1024 * 1024) {
+                      setError('File size must not exceed 5 MB');
+                      e.target.value = '';
+                      return;
+                    }
+                    handleResearchDocumentUpload(e);
+                  }
+                }}
+                className="w-full file:mr-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:font-medium file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200 file:cursor-pointer cursor-pointer border border-dashed border-amber-300 rounded-xl p-3 bg-white"
               />
-            </div>
-          </div>
-
-          {/* Publication Date and Status */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Publication Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Publication Date
-              </label>
-              <input
-                type="date"
-                name="publicationDate"
-                value={formData.publicationDate}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Publication Status */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Publication Status
-              </label>
-              <select
-                name="publicationStatus"
-                value={formData.publicationStatus}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="published">Published</option>
-                <option value="in_press">In Press</option>
-                <option value="accepted">Accepted</option>
-                <option value="under_review">Under Review</option>
-              </select>
+              {researchDocument && (
+                <div className="mt-3 flex items-center justify-between p-3 bg-white rounded-lg border border-green-200">
+                  <span className="text-green-700 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {researchDocument.name} ({(researchDocument.size / 1024 / 1024).toFixed(2)} MB)
+                  </span>
+                  <button type="button" onClick={removeResearchDocument}
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Mentor Selection (Only for Students) */}
+      {/* Mentor Selection (Only for Students) - Compact */}
       {user?.userType === 'student' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Mentor Details (Optional for Students)</h2>
-          <p className="text-sm text-gray-600 mb-6">
-            You may optionally select a faculty mentor who will review your research contribution before it goes to DRD.
-          </p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+          <h2 className="text-sm font-semibold text-gray-900 mb-2">Mentor Details (Optional)</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Mentor UID with Autocomplete */}
             <div className="relative" ref={mentorSuggestionsRef}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Mentor UID (Faculty Only)
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Mentor UID (Faculty)
               </label>
               <input
                 type="text"
@@ -1644,22 +1660,21 @@ export default function ResearchContributionForm({ publicationType, contribution
                 value={formData.mentorUid}
                 onChange={handleMentorUidChange}
                 onFocus={() => formData.mentorUid.length >= 3 && setShowMentorSuggestions(true)}
-                placeholder="Enter Mentor's UID (Faculty)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter Mentor's UID"
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
               />
               
               {/* Autocomplete Suggestions Dropdown */}
               {showMentorSuggestions && mentorSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto">
                   {mentorSuggestions.map((suggestion, index) => (
                     <div
                       key={index}
                       onClick={() => selectMentorSuggestion(suggestion)}
-                      className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      className="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                     >
-                      <div className="font-medium text-gray-900">{suggestion.uid}</div>
-                      <div className="text-sm text-gray-600">{suggestion.name}</div>
-                      <div className="text-xs text-gray-500">{suggestion.email}</div>
+                      <div className="font-medium text-gray-900 text-sm">{suggestion.uid}</div>
+                      <div className="text-xs text-gray-600">{suggestion.name}</div>
                     </div>
                   ))}
                 </div>
@@ -1668,168 +1683,125 @@ export default function ResearchContributionForm({ publicationType, contribution
             
             {/* Mentor Name (Auto-filled) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Mentor Name
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Mentor Name</label>
               <input
                 type="text"
                 name="mentorName"
                 value={formData.mentorName}
                 readOnly
-                placeholder="Auto-filled from UID"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+                placeholder="Auto-filled"
+                className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-50 text-sm text-gray-700"
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* Authors Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6">Author Information</h2>
+      {/* Authors Section - Professional */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 px-5 py-3">
+          <h2 className="text-lg font-semibold text-white">Author Information</h2>
+        </div>
+        <div className="p-5">
         
         {/* Author Counts */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="flex flex-wrap items-end gap-4 mb-4 p-4 bg-gradient-to-r from-gray-50 to-emerald-50 rounded-xl border border-gray-100">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Total Number of Authors <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={totalAuthors}
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Total Authors <span className="text-red-500">*</span></label>
+            <input type="number" min="1" value={totalAuthors}
               onChange={(e) => {
                 const value = Number(e.target.value);
-                if (value < 1) {
-                  setError('Total authors must be at least 1');
-                  return;
-                }
+                if (value < 1) { setError('Total authors must be at least 1'); return; }
                 setTotalAuthors(value);
-                // Adjust internal authors if needed
-                if (totalInternalAuthors > value) {
-                  setTotalInternalAuthors(value);
-                }
+                if (totalInternalAuthors > value) { setTotalInternalAuthors(value); }
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="1"
             />
           </div>
-          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Total No. of SGT Affiliated Author(s) (including you) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              max={totalAuthors}
-              value={totalInternalAuthors}
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">SGT Authors <span className="text-red-500">*</span></label>
+            <input type="number" min="1" max={totalAuthors} value={totalInternalAuthors}
               onChange={(e) => {
                 const value = Number(e.target.value);
-                if (value < 1) {
-                  setError('SGT affiliated authors must be at least 1 (you)');
-                  return;
-                }
-                if (value > totalAuthors) {
-                  setError('SGT affiliated authors cannot exceed total authors');
-                  return;
-                }
+                if (value < 1) { setError('SGT affiliated authors must be at least 1 (you)'); return; }
+                if (value > totalAuthors) { setError('SGT affiliated authors cannot exceed total authors'); return; }
                 setTotalInternalAuthors(value);
-                // Adjust co-authors if needed
-                if (totalInternalCoAuthors >= value) {
-                  setTotalInternalCoAuthors(value - 1);
-                }
+                const maxCoAuthors = totalAuthors === value ? value - 1 : value;
+                if (totalInternalCoAuthors > maxCoAuthors) { setTotalInternalCoAuthors(maxCoAuthors); }
                 setError(null);
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="1"
             />
           </div>
-          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Total No. of Internal Co Authors <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Internal Co-Authors <span className="text-red-500">*</span>
+              <span className="text-gray-400 ml-1 font-normal">(Max: {totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors})</span>
             </label>
-            <input
-              type="number"
-              min="0"
-              max={totalInternalAuthors - 1}
+            <input type="number" min="0"
+              max={totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors}
               value={totalInternalCoAuthors}
               onChange={(e) => {
                 const value = Number(e.target.value);
-                const maxCoAuthors = totalInternalAuthors - 1;
-                if (value < 0) {
-                  setError('Internal co-authors cannot be negative');
-                  return;
-                }
-                if (value > maxCoAuthors) {
-                  setError(`Internal co-authors cannot exceed ${maxCoAuthors} (total internal - you)`);
-                  return;
-                }
+                const maxCoAuthors = totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors;
+                if (value < 0) { setError('Internal co-authors cannot be negative'); return; }
+                if (value > maxCoAuthors) { setError(`Internal co-authors cannot exceed ${maxCoAuthors}.`); return; }
                 setTotalInternalCoAuthors(value);
                 setError(null);
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              disabled={totalInternalAuthors === 1 && totalAuthors === 1}
+              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="0"
             />
-            {totalInternalAuthors === 1 && totalAuthors === 1 && (
-              <p className="text-xs text-gray-500 mt-1">
-                Must be 0 when you are the only SGT affiliated author
-              </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Role <span className="text-red-500">*</span></label>
+            {getAllowedUserRoles().length === 1 ? (
+              <div className="px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700">
+                {userAuthorType === 'first_and_corresponding' && 'First & Corresponding'}
+                {userAuthorType === 'corresponding' && 'Corresponding'}
+                {userAuthorType === 'first' && 'First Author'}
+                {userAuthorType === 'co_author' && 'Co-Author'}
+              </div>
+            ) : (
+              <select value={userAuthorType} onChange={(e) => setUserAuthorType(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+              >
+                {getAllowedUserRoles().includes('first_and_corresponding') && <option value="first_and_corresponding">First & Corresponding</option>}
+                {getAllowedUserRoles().includes('corresponding') && <option value="corresponding">Corresponding</option>}
+                {getAllowedUserRoles().includes('first') && <option value="first">First Author</option>}
+                {getAllowedUserRoles().includes('co_author') && <option value="co_author">Co-Author</option>}
+              </select>
             )}
           </div>
         </div>
         
-        {/* User's Author Role */}
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Your Author Role: <span className="text-red-500">*</span>
-          </label>
-          {getAllowedUserRoles().length === 1 ? (
-            <div className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700">
-              {userAuthorType === 'first_and_corresponding' && 'First and Corresponding Author'}
-              {userAuthorType === 'corresponding' && 'Corresponding Author'}
-              {userAuthorType === 'first' && 'First Author'}
-              {userAuthorType === 'co_author' && 'Co-Author'}
-              <span className="text-sm text-gray-500 ml-2">(Determined by author counts)</span>
-            </div>
-          ) : (
-            <select
-              value={userAuthorType}
-              onChange={(e) => setUserAuthorType(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-            >
-              {getAllowedUserRoles().includes('first_and_corresponding') && (
-                <option value="first_and_corresponding">First and Corresponding Author</option>
-              )}
-              {getAllowedUserRoles().includes('corresponding') && (
-                <option value="corresponding">Corresponding Author</option>
-              )}
-              {getAllowedUserRoles().includes('first') && (
-                <option value="first">First Author</option>
-              )}
-              {getAllowedUserRoles().includes('co_author') && (
-                <option value="co_author">Co-Author</option>
-              )}
-            </select>
-          )}
-        </div>
-        
-        {/* Add Other Author's Detail - Show if there are co-author slots or if there are external authors to add */}
+        {/* Add Other Author's Detail - Compact */}
         {(totalAuthors > 1) && (
-          <div className="border-2 border-orange-300 bg-orange-50 rounded-lg p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Add Other Author's Detail {editingAuthorIndex !== null && <span className="text-sm text-blue-600">(Editing)</span>}
+          <div className="border border-orange-300 bg-orange-50 rounded p-3 mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">
+              Add Other Authors {editingAuthorIndex !== null && <span className="text-xs text-blue-600">(Editing)</span>}
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-xs text-gray-600 mb-2">
               {(() => {
                 const maxCoAuthors = totalAuthors - 1;
                 const currentAdded = coAuthors.filter(a => a.name).length;
                 const internalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
                 const externalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
-                const maxExternal = maxCoAuthors - totalInternalCoAuthors;
                 
-                if (totalInternalAuthors === 1 && totalInternalCoAuthors === 1) {
-                  return `You must add 1 internal co-author who will be the First/Corresponding Author. You are fixed as Co-Author. ${currentAdded} added.`;
+                // When all internal are co-authors (Internal = Co-Authors)
+                if (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0) {
+                  const internalToAdd = totalInternalCoAuthors - 1; // Exclude yourself
+                  const externalToAdd = maxCoAuthors - internalToAdd;
+                  const parts = [];
+                  if (internalToAdd > 0) {
+                    parts.push(`${internalToAdd} internal co-author(s) [${internalAdded} added]`);
+                  }
+                  if (externalToAdd > 0) {
+                    parts.push(`${externalToAdd} external author(s) [${externalAdded} added]`);
+                  }
+                  return `All ${totalInternalCoAuthors} internal (including you) are co-authors. Add ${parts.join(' and ')}. Total: ${currentAdded}/${maxCoAuthors}.`;
                 }
+                
+                const maxExternal = maxCoAuthors - totalInternalCoAuthors;
                 
                 const parts = [];
                 if (totalInternalCoAuthors > 0) {
@@ -1856,7 +1828,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                     <input
                       type="radio"
                       value="Internal"
-                      checked={newAuthor.authorCategory === 'Internal' || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1)}
+                      checked={newAuthor.authorCategory === 'Internal' || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1) || totalAuthors === totalInternalAuthors}
                       onChange={(e) => {
                         const availableRoles = getAvailableOtherAuthorRoles();
                         setNewAuthor(prev => ({ 
@@ -1873,13 +1845,13 @@ export default function ResearchContributionForm({ publicationType, contribution
                         setShowSuggestions(false);
                       }}
                       className="w-4 h-4 text-blue-600"
-                      disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 1}
+                      disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors}
                     />
-                    <span className="ml-2">Internal {totalInternalAuthors === 1 && totalInternalCoAuthors === 1 && '(Required)'}</span>
+                    <span className="ml-2">Internal {(totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors) && '(Required)'}</span>
                   </label>
                 )}
-                {/* Show External option only when NOT in the SGT=1 & Internal Co-Authors=1 scenario */}
-                {!(totalInternalAuthors === 1 && totalInternalCoAuthors === 1) && (
+                {/* Show External option only when there are external authors (totalAuthors > totalInternalAuthors) */}
+                {totalAuthors > totalInternalAuthors && !(totalInternalAuthors === 1 && totalInternalCoAuthors === 1) && (
                   <label className="inline-flex items-center">
                     <input
                       type="radio"
@@ -1910,6 +1882,11 @@ export default function ResearchContributionForm({ publicationType, contribution
               {totalInternalAuthors === 1 && totalInternalCoAuthors === 1 && (
                 <p className="text-xs text-orange-600 mt-1">
                   You must add an Internal co-author who will be First/Corresponding Author
+                </p>
+              )}
+              {totalAuthors === totalInternalAuthors && totalAuthors > 1 && (
+                <p className="text-xs text-blue-600 mt-1">
+                  All authors are internal (SGT affiliated). External option is hidden.
                 </p>
               )}
             </div>
@@ -2321,6 +2298,7 @@ export default function ResearchContributionForm({ publicationType, contribution
           </div>
         </div>
       </div>
+        </div>
         </>
       )}
 

@@ -10,7 +10,7 @@ interface AuthenticatedLayoutProps {
 }
 
 export default function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
-  const [isCollapsed, setIsCollapsed] = useState(true); // Default collapsed like LMS
+  const [isCollapsed, setIsCollapsed] = useState(false); // Default expanded
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   useEffect(() => {

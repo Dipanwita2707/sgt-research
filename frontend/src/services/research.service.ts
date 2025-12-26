@@ -104,6 +104,13 @@ export interface ResearchContribution {
   status: ResearchContributionStatus;
   currentReviewerId?: string;
   
+  // File paths
+  manuscriptFilePath?: string;
+  supportingDocsFilePaths?: any;
+  
+  // UN Sustainable Development Goals
+  sdgGoals?: string[];
+  
   // Incentives
   calculatedIncentiveAmount?: number;
   calculatedPoints?: number;
@@ -256,6 +263,15 @@ class ResearchService {
 
   async submitContribution(id: string) {
     const response = await api.post(`/research/${id}/submit`);
+    return response.data;
+  }
+
+  async uploadDocuments(id: string, formData: FormData) {
+    const response = await api.post(`/research/${id}/documents`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data;
   }
 
