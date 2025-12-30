@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { iprService, fileUploadService } from '@/services/ipr.service';
 import { schoolService } from '@/services/school.service';
 import { useAuthStore } from '@/store/authStore';
-import { FileText, Upload, X, Plus, AlertCircle, CheckCircle, Eye, Download } from 'lucide-react';
+import { FileText, Upload, X, Plus, AlertCircle, CheckCircle, Eye, Download, Coins, Award } from 'lucide-react';
 
 // Define field configurations for each IPR type
 const IPR_FIELD_CONFIG = {
@@ -444,6 +444,33 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
   // Remove contributor from list
   const removeContributor = (id: number) => {
     setContributors(prev => prev.filter(c => c.id !== id));
+  };
+
+  // Helper function to calculate incentive and points for IPR contributors
+  // Employees get both incentive and points, students get only incentive, external get neither
+  const calculateContributorIncentivePoints = (employeeCategory: string, employeeType: string) => {
+    // Base values for IPR (these should match backend policy)
+    const baseIncentive = formData.ideaFor === 'patent' ? 20000 : 
+                          formData.ideaFor === 'copyright' ? 10000 :
+                          formData.ideaFor === 'design' ? 15000 :
+                          formData.ideaFor === 'trademark' ? 12000 : 10000;
+    const basePoints = formData.ideaFor === 'patent' ? 40 : 
+                       formData.ideaFor === 'copyright' ? 20 :
+                       formData.ideaFor === 'design' ? 30 :
+                       formData.ideaFor === 'trademark' ? 25 : 20;
+    
+    // External contributors get no incentive or points
+    if (employeeCategory === 'external') {
+      return { incentive: 0, points: 0 };
+    }
+    
+    // Students get only incentives, no points
+    if (employeeType === 'student') {
+      return { incentive: baseIncentive, points: 0 };
+    }
+    
+    // Staff/Faculty get both
+    return { incentive: baseIncentive, points: basePoints };
   };
 
 
@@ -1206,33 +1233,71 @@ export default function IPRIdeaRequestForm({ initialType = 'patent' }: IPRIdeaRe
                           <th className="px-4 py-2 border text-sm font-medium text-gray-700">UID/Name</th>
                           <th className="px-4 py-2 border text-sm font-medium text-gray-700">Email</th>
                           <th className="px-4 py-2 border text-sm font-medium text-gray-700">Phone</th>
+                          <th className="px-4 py-2 border text-sm font-medium text-gray-700">
+                            <div className="flex items-center justify-center gap-1">
+                              <Coins className="w-3.5 h-3.5 text-green-600" />
+                              Incentive
+                            </div>
+                          </th>
+                          <th className="px-4 py-2 border text-sm font-medium text-gray-700">
+                            <div className="flex items-center justify-center gap-1">
+                              <Award className="w-3.5 h-3.5 text-blue-600" />
+                              Points
+                            </div>
+                          </th>
                           <th className="px-4 py-2 border text-sm font-medium text-gray-700">Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {contributors.map((contributor) => (
-                          <tr key={contributor.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 border text-sm">{contributor.employeeCategory.toUpperCase()}</td>
-                            <td className="px-4 py-2 border text-sm">{contributor.employeeType || contributor.externalOption}</td>
-                            <td className="px-4 py-2 border text-sm">
-                              {contributor.uid ? `${contributor.uid} - ${contributor.name}` : contributor.name}
-                            </td>
-                            <td className="px-4 py-2 border text-sm">{contributor.email}</td>
-                            <td className="px-4 py-2 border text-sm">{contributor.phone}</td>
-                            <td className="px-4 py-2 border text-sm">
-                              <button
-                                type="button"
-                                onClick={() => removeContributor(contributor.id)}
-                                className="bg-[#e74c3c] text-white px-3 py-1 rounded-lg hover:bg-[#c0392b] text-xs transition-colors"
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {contributors.map((contributor) => {
+                          const { incentive, points } = calculateContributorIncentivePoints(
+                            contributor.employeeCategory,
+                            contributor.employeeType
+                          );
+                          return (
+                            <tr key={contributor.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 border text-sm">{contributor.employeeCategory.toUpperCase()}</td>
+                              <td className="px-4 py-2 border text-sm">{contributor.employeeType || contributor.externalOption}</td>
+                              <td className="px-4 py-2 border text-sm">
+                                {contributor.uid ? `${contributor.uid} - ${contributor.name}` : contributor.name}
+                              </td>
+                              <td className="px-4 py-2 border text-sm">{contributor.email}</td>
+                              <td className="px-4 py-2 border text-sm">{contributor.phone}</td>
+                              <td className="px-4 py-2 border text-sm text-center">
+                                {contributor.employeeCategory === 'internal' ? (
+                                  <span className="text-green-600 font-medium">₹{incentive.toLocaleString()}</span>
+                                ) : (
+                                  <span className="text-gray-400">N/A</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 border text-sm text-center">
+                                {contributor.employeeCategory === 'internal' && contributor.employeeType !== 'student' ? (
+                                  <span className="text-blue-600 font-medium">{points}</span>
+                                ) : contributor.employeeCategory === 'internal' && contributor.employeeType === 'student' ? (
+                                  <span className="text-gray-400 text-xs">No Points</span>
+                                ) : (
+                                  <span className="text-gray-400">N/A</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 border text-sm">
+                                <button
+                                  type="button"
+                                  onClick={() => removeContributor(contributor.id)}
+                                  className="bg-[#e74c3c] text-white px-3 py-1 rounded-lg hover:bg-[#c0392b] text-xs transition-colors"
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    <span className="font-medium">Note:</span> Internal Staff/Faculty receive both Incentives and Points. 
+                    Internal Students receive only Incentives (no Points). External contributors receive neither.
+                  </p>
                 </div>
               )}
             </div>

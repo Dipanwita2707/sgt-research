@@ -19,6 +19,8 @@ import {
   Mic,
   Gift,
   Percent,
+  Calendar,
+  Info,
 } from 'lucide-react';
 import { researchPolicyService, ResearchIncentivePolicy, IndexingBonuses, QuartileBonuses } from '@/services/researchPolicy.service';
 
@@ -31,45 +33,52 @@ const PUBLICATION_TYPES = [
 ];
 
 const SPLIT_POLICIES = [
-  { value: 'equal', label: 'Equal Split', description: 'Divide equally among all authors' },
-  { value: 'author_role_based', label: 'Author Role Based', description: 'Based on author role (first, corresponding, co-author)' },
-  { value: 'weighted', label: 'Weighted by Contribution', description: 'Based on contribution percentage' },
+  { value: 'percentage_based', label: 'Percentage Based', description: 'Distribute based on author role percentages' },
 ];
 
+// Only First Author and Corresponding Author percentages are defined
+// Co-Author percentage is automatically calculated as remainder (100% - first - corresponding)
+// If same person is both First & Corresponding, they get both percentages combined
 const AUTHOR_ROLES = [
-  { value: 'first_and_corresponding', label: 'First & Corresponding Author' },
-  { value: 'first_author', label: 'First Author' },
-  { value: 'corresponding_author', label: 'Corresponding Author' },
-  { value: 'co_author', label: 'Co-Author' },
-  { value: 'senior_author', label: 'Senior Author' },
+  { value: 'first_author', label: 'First Author', defaultPercentage: 35 },
+  { value: 'corresponding_author', label: 'Corresponding Author', defaultPercentage: 30 },
+  // co_author percentage = 100 - first_author - corresponding_author (auto-calculated, split equally among co-authors)
 ];
 
-const INDEXING_TYPES = ['scopus', 'wos', 'sci', 'ugc', 'pubmed', 'ieee'];
-const QUARTILES = ['q1', 'q2', 'q3', 'q4'];
+// Quartile-based incentive structure (mandatory)
+interface QuartileIncentive {
+  quartile: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  incentiveAmount: number;
+  points: number;
+}
 
-const DEFAULT_AUTHOR_MULTIPLIERS: Record<string, number> = {
-  first_and_corresponding: 1.0,
-  first_author: 0.7,
-  corresponding_author: 0.7,
-  co_author: 0.3,
-  senior_author: 0.4,
-};
+// SJR range-based incentive structure (optional)
+interface SJRRange {
+  id: string;
+  minSJR: number;
+  maxSJR: number;
+  incentiveAmount: number;
+  points: number;
+}
 
-const DEFAULT_INDEXING_BONUSES: IndexingBonuses = {
-  scopus: 10000,
-  wos: 15000,
-  sci: 20000,
-  ugc: 5000,
-  pubmed: 12000,
-  ieee: 12000,
-};
+interface RolePercentage {
+  role: string;
+  percentage: number;
+}
 
-const DEFAULT_QUARTILE_BONUSES: QuartileBonuses = {
-  q1: 25000,
-  q2: 15000,
-  q3: 8000,
-  q4: 3000,
-};
+const DEFAULT_QUARTILE_INCENTIVES: QuartileIncentive[] = [
+  { quartile: 'Q1', incentiveAmount: 50000, points: 50 },
+  { quartile: 'Q2', incentiveAmount: 30000, points: 30 },
+  { quartile: 'Q3', incentiveAmount: 15000, points: 15 },
+  { quartile: 'Q4', incentiveAmount: 5000, points: 5 },
+];
+
+// Default role percentages - only First Author and Corresponding Author
+// Co-Author gets the remainder (100 - 35 - 30 = 35%), split equally among all co-authors
+const DEFAULT_ROLE_PERCENTAGES: RolePercentage[] = [
+  { role: 'first_author', percentage: 35 },
+  { role: 'corresponding_author', percentage: 30 },
+];
 
 export default function ResearchPolicyManagement() {
   const [policies, setPolicies] = useState<ResearchIncentivePolicy[]>([]);
@@ -84,37 +93,21 @@ export default function ResearchPolicyManagement() {
   const [formData, setFormData] = useState<{
     publicationType: string;
     policyName: string;
-    baseIncentiveAmount: number;
-    basePoints: number;
-    splitPolicy: 'equal' | 'author_role_based' | 'weighted';
-    primaryAuthorShare: number;
-    firstAuthorPercentage: number;
-    correspondingAuthorPercentage: number;
-    authorTypeMultipliers: Record<string, number>;
-    indexingBonuses: IndexingBonuses;
-    quartileBonuses: QuartileBonuses;
-    impactFactorTiers: Array<{ minIF: number; maxIF: number | null; bonus: number }>;
-    isActive: boolean;
+    splitPolicy: 'percentage_based';
+    quartileIncentives: QuartileIncentive[];
+    sjrRanges: SJRRange[];
+    rolePercentages: RolePercentage[];
+    effectiveFrom: string;
+    effectiveTo: string;
   }>({
     publicationType: 'research_paper',
     policyName: '',
-    baseIncentiveAmount: 30000,
-    basePoints: 30,
-    splitPolicy: 'author_role_based',
-    primaryAuthorShare: 50,
-    firstAuthorPercentage: 40,
-    correspondingAuthorPercentage: 30,
-    authorTypeMultipliers: { ...DEFAULT_AUTHOR_MULTIPLIERS },
-    indexingBonuses: { ...DEFAULT_INDEXING_BONUSES },
-    quartileBonuses: { ...DEFAULT_QUARTILE_BONUSES },
-    impactFactorTiers: [
-      { minIF: 0, maxIF: 1, bonus: 0 },
-      { minIF: 1, maxIF: 3, bonus: 5000 },
-      { minIF: 3, maxIF: 5, bonus: 10000 },
-      { minIF: 5, maxIF: 10, bonus: 20000 },
-      { minIF: 10, maxIF: null, bonus: 40000 },
-    ],
-    isActive: true,
+    splitPolicy: 'percentage_based',
+    quartileIncentives: [...DEFAULT_QUARTILE_INCENTIVES],
+    sjrRanges: [],
+    rolePercentages: [...DEFAULT_ROLE_PERCENTAGES],
+    effectiveFrom: new Date().toISOString().split('T')[0],
+    effectiveTo: '',
   });
 
   useEffect(() => {
@@ -135,50 +128,32 @@ export default function ResearchPolicyManagement() {
 
   const handleOpenModal = (policy?: ResearchIncentivePolicy) => {
     if (policy) {
+      // Extract data from stored policy
+      const quartileData = (policy.indexingBonuses as any)?.quartileIncentives || DEFAULT_QUARTILE_INCENTIVES;
+      const sjrData = (policy.indexingBonuses as any)?.sjrRanges || [];
+      const rolePercentagesData = (policy.indexingBonuses as any)?.rolePercentages || DEFAULT_ROLE_PERCENTAGES;
       setEditingPolicy(policy);
       setFormData({
         publicationType: policy.publicationType,
         policyName: policy.policyName,
-        baseIncentiveAmount: Number(policy.baseIncentiveAmount),
-        basePoints: policy.basePoints,
-        splitPolicy: policy.splitPolicy,
-        primaryAuthorShare: policy.primaryAuthorShare ? Number(policy.primaryAuthorShare) : 50,
-        firstAuthorPercentage: policy.firstAuthorPercentage ? Number(policy.firstAuthorPercentage) : 40,
-        correspondingAuthorPercentage: policy.correspondingAuthorPercentage ? Number(policy.correspondingAuthorPercentage) : 30,
-        authorTypeMultipliers: policy.authorTypeMultipliers || { ...DEFAULT_AUTHOR_MULTIPLIERS },
-        indexingBonuses: policy.indexingBonuses || { ...DEFAULT_INDEXING_BONUSES },
-        quartileBonuses: (policy.indexingBonuses as any)?.quartileBonuses || { ...DEFAULT_QUARTILE_BONUSES },
-        impactFactorTiers: policy.impactFactorTiers || [
-          { minIF: 0, maxIF: 1, bonus: 0 },
-          { minIF: 1, maxIF: 3, bonus: 5000 },
-          { minIF: 3, maxIF: 5, bonus: 10000 },
-          { minIF: 5, maxIF: 10, bonus: 20000 },
-          { minIF: 10, maxIF: null, bonus: 40000 },
-        ],
-        isActive: policy.isActive,
+        splitPolicy: 'percentage_based',
+        quartileIncentives: quartileData,
+        sjrRanges: sjrData,
+        rolePercentages: rolePercentagesData,
+        effectiveFrom: policy.effectiveFrom ? new Date(policy.effectiveFrom).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        effectiveTo: policy.effectiveTo ? new Date(policy.effectiveTo).toISOString().split('T')[0] : '',
       });
     } else {
       setEditingPolicy(null);
       setFormData({
         publicationType: 'research_paper',
         policyName: '',
-        baseIncentiveAmount: 30000,
-        basePoints: 30,
-        splitPolicy: 'author_role_based',
-        primaryAuthorShare: 50,
-        firstAuthorPercentage: 40,
-        correspondingAuthorPercentage: 30,
-        authorTypeMultipliers: { ...DEFAULT_AUTHOR_MULTIPLIERS },
-        indexingBonuses: { ...DEFAULT_INDEXING_BONUSES },
-        quartileBonuses: { ...DEFAULT_QUARTILE_BONUSES },
-        impactFactorTiers: [
-          { minIF: 0, maxIF: 1, bonus: 0 },
-          { minIF: 1, maxIF: 3, bonus: 5000 },
-          { minIF: 3, maxIF: 5, bonus: 10000 },
-          { minIF: 5, maxIF: 10, bonus: 20000 },
-          { minIF: 10, maxIF: null, bonus: 40000 },
-        ],
-        isActive: true,
+        splitPolicy: 'percentage_based',
+        quartileIncentives: [...DEFAULT_QUARTILE_INCENTIVES],
+        sjrRanges: [],
+        rolePercentages: [...DEFAULT_ROLE_PERCENTAGES],
+        effectiveFrom: new Date().toISOString().split('T')[0],
+        effectiveTo: '',
       });
     }
     setShowModal(true);
@@ -194,25 +169,56 @@ export default function ResearchPolicyManagement() {
         return;
       }
 
-      // Merge quartile bonuses into indexing bonuses
-      const indexingBonusesWithQuartiles = {
-        ...formData.indexingBonuses,
-        quartileBonuses: formData.quartileBonuses,
+      if (!formData.effectiveFrom) {
+        setError('Please provide an effective from date');
+        return;
+      }
+
+      // Validate role percentages: First Author + Corresponding Author must be <= 100
+      const firstAuthorPct = formData.rolePercentages.find(rp => rp.role === 'first_author')?.percentage || 0;
+      const correspondingAuthorPct = formData.rolePercentages.find(rp => rp.role === 'corresponding_author')?.percentage || 0;
+      const totalDefinedPct = firstAuthorPct + correspondingAuthorPct;
+      
+      if (totalDefinedPct > 100) {
+        setError(`First Author (${firstAuthorPct}%) + Corresponding Author (${correspondingAuthorPct}%) cannot exceed 100%`);
+        return;
+      }
+
+      if (firstAuthorPct <= 0 || correspondingAuthorPct <= 0) {
+        setError('First Author and Corresponding Author percentages must be greater than 0');
+        return;
+      }
+
+      // Validate SJR ranges don't overlap (if any are defined)
+      if (formData.sjrRanges.length > 0) {
+        const sortedRanges = [...formData.sjrRanges].sort((a, b) => a.minSJR - b.minSJR);
+        for (let i = 0; i < sortedRanges.length - 1; i++) {
+          if (sortedRanges[i].maxSJR >= sortedRanges[i + 1].minSJR) {
+            setError('SJR ranges cannot overlap');
+            return;
+          }
+        }
+      }
+
+      // Store quartile incentives, SJR ranges, and role percentages in indexingBonuses field
+      const indexingBonusesData = {
+        quartileIncentives: formData.quartileIncentives,
+        sjrRanges: formData.sjrRanges,
+        rolePercentages: formData.rolePercentages,
       };
+
+      // Calculate base amount and points from Q1 for backward compatibility
+      const q1Incentive = formData.quartileIncentives.find(q => q.quartile === 'Q1') || formData.quartileIncentives[0];
 
       const policyData = {
         publicationType: formData.publicationType,
         policyName: formData.policyName,
-        baseIncentiveAmount: formData.baseIncentiveAmount,
-        basePoints: formData.basePoints,
+        baseIncentiveAmount: q1Incentive.incentiveAmount,
+        basePoints: q1Incentive.points,
         splitPolicy: formData.splitPolicy,
-        primaryAuthorShare: formData.splitPolicy === 'weighted' ? formData.primaryAuthorShare : undefined,
-        firstAuthorPercentage: formData.firstAuthorPercentage,
-        correspondingAuthorPercentage: formData.correspondingAuthorPercentage,
-        authorTypeMultipliers: formData.authorTypeMultipliers,
-        indexingBonuses: indexingBonusesWithQuartiles,
-        impactFactorTiers: formData.impactFactorTiers,
-        isActive: formData.isActive,
+        indexingBonuses: indexingBonusesData,
+        effectiveFrom: new Date(formData.effectiveFrom).toISOString(),
+        effectiveTo: formData.effectiveTo ? new Date(formData.effectiveTo).toISOString() : null,
       };
 
       if (editingPolicy) {
@@ -252,6 +258,15 @@ export default function ResearchPolicyManagement() {
     return PUBLICATION_TYPES.find(t => t.value === type) || { value: type, label: type, icon: '📄' };
   };
 
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return 'Not set';
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -273,7 +288,7 @@ export default function ResearchPolicyManagement() {
             Research Paper Incentive Policies
           </h1>
           <p className="text-gray-500 mt-1">
-            Configure incentive amounts and distribution policies for research publications
+            Configure incentive amounts and points based on journal quartile (Q1-Q4) and optional SJR ranges
           </p>
         </div>
         <button
@@ -283,6 +298,23 @@ export default function ResearchPolicyManagement() {
           <Plus className="w-5 h-5" />
           Add Policy
         </button>
+      </div>
+
+      {/* Info Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+        <div className="text-sm text-blue-800">
+          <p className="font-semibold mb-1">Incentive Distribution Rules:</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li>Quartile incentives (Q1-Q4) are <strong>mandatory</strong> for all policies</li>
+            <li>SJR range incentives are <strong>optional</strong> and override quartile amounts when defined</li>
+            <li><strong>First Author</strong> and <strong>Corresponding Author</strong> percentages are defined in policy</li>
+            <li><strong>Co-Authors</strong> automatically share the remainder (100% - First - Corresponding), split equally</li>
+            <li>If same person is <strong>First + Corresponding</strong>, they get both percentages combined</li>
+            <li>If <strong>single author</strong>, they get 100% of the incentive</li>
+            <li>Points are distributed only among <strong>employees</strong> (students get 0 points)</li>
+          </ul>
+        </div>
       </div>
 
       {/* Alerts */}
@@ -306,8 +338,8 @@ export default function ResearchPolicyManagement() {
       {/* Policies Grid */}
       <div className="grid gap-6">
         {PUBLICATION_TYPES.map(pubType => {
-          const typePolicy = policies.find(p => p.publicationType === pubType.value && p.isActive);
-          const inactivePolicies = policies.filter(p => p.publicationType === pubType.value && !p.isActive);
+          const typePolicies = policies.filter(p => p.publicationType === pubType.value);
+          const activePolicy = typePolicies.find(p => p.isActive);
 
           return (
             <div key={pubType.value} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -319,90 +351,143 @@ export default function ResearchPolicyManagement() {
                     <div>
                       <h3 className="font-semibold text-gray-900">{pubType.label}</h3>
                       <p className="text-sm text-gray-500">
-                        {typePolicy ? `Active: ${typePolicy.policyName}` : 'Using default policy'}
+                        {activePolicy ? (
+                          <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            Currently Active: {activePolicy.policyName}
+                          </span>
+                        ) : 'No active policy for current date'}
                       </p>
                     </div>
                   </div>
-                  {!typePolicy && (
-                    <button
-                      onClick={() => {
-                        setFormData(prev => ({ ...prev, publicationType: pubType.value }));
-                        handleOpenModal();
-                      }}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Create Policy
-                    </button>
-                  )}
+                  <button
+                    onClick={() => {
+                      setFormData(prev => ({ ...prev, publicationType: pubType.value }));
+                      handleOpenModal();
+                    }}
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Policy
+                  </button>
                 </div>
               </div>
 
               {/* Active Policy */}
-              {typePolicy && (
+              {activePolicy && (
                 <div className="p-6">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                        <div className="bg-green-50 rounded-lg p-3">
-                          <p className="text-xs text-green-600 font-medium">Base Amount</p>
-                          <p className="text-lg font-bold text-green-700">₹{Number(typePolicy.baseIncentiveAmount).toLocaleString()}</p>
-                        </div>
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <p className="text-xs text-blue-600 font-medium">Base Points</p>
-                          <p className="text-lg font-bold text-blue-700">{typePolicy.basePoints} pts</p>
-                        </div>
-                        <div className="bg-purple-50 rounded-lg p-3">
-                          <p className="text-xs text-purple-600 font-medium">Split Policy</p>
-                          <p className="text-lg font-bold text-purple-700 capitalize">{typePolicy.splitPolicy?.replace(/_/g, ' ')}</p>
-                        </div>
-                        <div className="bg-amber-50 rounded-lg p-3">
-                          <p className="text-xs text-amber-600 font-medium">Status</p>
-                          <p className="text-lg font-bold text-amber-700">Active ✓</p>
+                      {/* Validity Period */}
+                      <div className="mb-4 flex items-center gap-2 text-sm">
+                        <Calendar className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-600">
+                          Valid: {formatDate(activePolicy.effectiveFrom)} → {formatDate(activePolicy.effectiveTo)}
+                        </span>
+                      </div>
+
+                      {/* Quartile Incentives */}
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Quartile-Based Incentives</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          {((activePolicy.indexingBonuses as any)?.quartileIncentives || DEFAULT_QUARTILE_INCENTIVES).map((q: QuartileIncentive) => (
+                            <div key={q.quartile} className="flex items-center gap-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3">
+                              <div className="flex-1">
+                                <span className="text-sm font-bold text-gray-700">{q.quartile}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="text-base font-bold text-green-600">
+                                    ₹{Number(q.incentiveAmount).toLocaleString()}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm text-blue-600 font-semibold">
+                                    {q.points} pts
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
-                      {/* Author Role Multipliers */}
-                      {typePolicy.authorTypeMultipliers && (
+                      {/* SJR Ranges (if any) */}
+                      {((activePolicy.indexingBonuses as any)?.sjrRanges || []).length > 0 && (
                         <div className="mb-4">
-                          <p className="text-sm font-medium text-gray-700 mb-2">Author Role Multipliers:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(typePolicy.authorTypeMultipliers).map(([role, multiplier]) => (
-                              <span key={role} className="px-2 py-1 bg-gray-100 rounded text-xs">
-                                {role.replace(/_/g, ' ')}: {(Number(multiplier) * 100).toFixed(0)}%
-                              </span>
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">SJR-Based Incentives (Optional)</h4>
+                          <div className="space-y-2">
+                            {((activePolicy.indexingBonuses as any)?.sjrRanges || []).map((range: SJRRange, idx: number) => (
+                              <div key={idx} className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3">
+                                <div className="flex-1">
+                                  <span className="text-sm font-medium text-gray-700">
+                                    SJR {range.minSJR.toFixed(2)} - {range.maxSJR.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <div className="text-right">
+                                    <p className="text-lg font-bold text-green-600">
+                                      ₹{Number(range.incentiveAmount).toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-sm text-blue-600 font-semibold">
+                                      {range.points} pts
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {/* Indexing Bonuses */}
-                      {typePolicy.indexingBonuses && (
-                        <div className="mb-4">
-                          <p className="text-sm font-medium text-gray-700 mb-2">Indexing Bonuses:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(typePolicy.indexingBonuses)
-                              .filter(([key]) => !['quartileBonuses'].includes(key))
-                              .map(([index, bonus]) => (
-                                <span key={index} className="px-2 py-1 bg-blue-100 rounded text-xs">
-                                  {index.toUpperCase()}: ₹{Number(bonus).toLocaleString()}
-                                </span>
-                              ))}
-                          </div>
+                      {/* Role Percentages */}
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Author Role Percentages</h4>
+                        <div className="space-y-2">
+                          {((activePolicy.indexingBonuses as any)?.rolePercentages || DEFAULT_ROLE_PERCENTAGES).map((rp: RolePercentage) => {
+                            const roleInfo = AUTHOR_ROLES.find(r => r.value === rp.role);
+                            return (
+                              <div key={rp.role} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                                <span className="text-sm text-gray-700">{roleInfo?.label || rp.role}</span>
+                                <span className="text-sm font-semibold text-blue-600">{rp.percentage}%</span>
+                              </div>
+                            );
+                          })}
+                          {/* Show calculated Co-Author percentage */}
+                          {(() => {
+                            const rolePercentages = (activePolicy.indexingBonuses as any)?.rolePercentages || DEFAULT_ROLE_PERCENTAGES;
+                            const firstPct = rolePercentages.find((r: RolePercentage) => r.role === 'first_author')?.percentage || 0;
+                            const corrPct = rolePercentages.find((r: RolePercentage) => r.role === 'corresponding_author')?.percentage || 0;
+                            const coAuthorPct = 100 - firstPct - corrPct;
+                            return (
+                              <div className="flex items-center justify-between bg-amber-50 rounded px-3 py-2 border border-amber-200">
+                                <span className="text-sm text-gray-700">Co-Authors (shared equally)</span>
+                                <span className="text-sm font-semibold text-amber-600">{coAuthorPct}%</span>
+                              </div>
+                            );
+                          })()}
                         </div>
-                      )}
+                      </div>
+
+                      {/* Split Policy */}
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <Users className="w-4 h-4" />
+                        <span>Split Policy: <strong className="text-gray-800">{activePolicy.splitPolicy?.replace(/_/g, ' ') || 'Percentage Based'}</strong></span>
+                      </div>
                     </div>
 
                     <div className="flex gap-2 ml-4">
                       <button
-                        onClick={() => handleOpenModal(typePolicy)}
+                        onClick={() => handleOpenModal(activePolicy)}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         title="Edit Policy"
                       >
                         <Edit2 className="w-5 h-5" />
                       </button>
                       <button
-                        onClick={() => handleDelete(typePolicy)}
+                        onClick={() => handleDelete(activePolicy)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete Policy"
                       >
@@ -413,11 +498,20 @@ export default function ResearchPolicyManagement() {
                 </div>
               )}
 
-              {/* Default Policy Notice */}
-              {!typePolicy && (
+              {/* No Active Policy Notice */}
+              {!activePolicy && (
                 <div className="p-6 bg-gray-50">
                   <p className="text-sm text-gray-500 text-center">
-                    Using system defaults. Create a custom policy to override.
+                    No active policy. Create one to set incentives for this publication type.
+                  </p>
+                </div>
+              )}
+
+              {/* Inactive Policies */}
+              {typePolicies.filter(p => !p.isActive).length > 0 && (
+                <div className="border-t border-gray-200 px-6 py-3 bg-gray-50">
+                  <p className="text-xs text-gray-500">
+                    {typePolicies.filter(p => !p.isActive).length} inactive policy(ies)
                   </p>
                 </div>
               )}
@@ -429,7 +523,7 @@ export default function ResearchPolicyManagement() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">
@@ -470,44 +564,335 @@ export default function ResearchPolicyManagement() {
                     type="text"
                     value={formData.policyName}
                     onChange={(e) => setFormData({ ...formData, policyName: e.target.value })}
-                    placeholder="e.g., Research Paper Policy 2024"
+                    placeholder="e.g., Research Paper Policy 2025"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Base Incentive Amount (₹) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.baseIncentiveAmount}
-                    onChange={(e) => setFormData({ ...formData, baseIncentiveAmount: Number(e.target.value) })}
-                    min="0"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
+              {/* Validity Period */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  Policy Validity Period
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Incentives will be calculated based on this policy if the publication date falls within this period.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Effective From <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.effectiveFrom}
+                      onChange={(e) => setFormData({ ...formData, effectiveFrom: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Effective To <span className="text-gray-400">(Optional)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.effectiveTo}
+                      onChange={(e) => setFormData({ ...formData, effectiveTo: e.target.value })}
+                      min={formData.effectiveFrom}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Leave empty for no end date</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quartile-Based Incentives (Mandatory) */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-green-600" />
+                  Quartile-Based Incentives <span className="text-red-500 text-sm">*</span>
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Define base incentive amounts for each journal quartile (Q1, Q2, Q3, Q4). These are mandatory.
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {formData.quartileIncentives.map((q) => (
+                    <div key={q.quartile} className="p-4 rounded-xl border-2 border-green-200 bg-green-50/30">
+                      <h4 className="font-bold text-gray-900 mb-3 text-lg">{q.quartile}</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Coins className="w-4 h-4 inline mr-1 text-green-600" />
+                            Incentive (₹)
+                          </label>
+                          <input
+                            type="number"
+                            value={q.incentiveAmount}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              quartileIncentives: formData.quartileIncentives.map(qi => 
+                                qi.quartile === q.quartile ? { ...qi, incentiveAmount: Number(e.target.value) } : qi
+                              )
+                            })}
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Award className="w-4 h-4 inline mr-1 text-blue-600" />
+                            Points
+                          </label>
+                          <input
+                            type="number"
+                            value={q.points}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              quartileIncentives: formData.quartileIncentives.map(qi => 
+                                qi.quartile === q.quartile ? { ...qi, points: Number(e.target.value) } : qi
+                              )
+                            })}
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SJR-Based Incentives (Optional) */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-blue-600" />
+                  SJR-Based Incentive Ranges <span className="text-gray-400 text-sm">(Optional)</span>
+                </h3>
+                <p className="text-sm text-gray-600 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <strong>Optional:</strong> Define additional incentive amounts based on specific SJR value ranges. If not defined, quartile-based incentives will be used.
+                </p>
+                
+                <div className="space-y-3">
+                  {formData.sjrRanges.map((range, index) => (
+                    <div key={range.id} className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50/30">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">Range #{index + 1}</h4>
+                        {formData.sjrRanges.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData({
+                              ...formData,
+                              sjrRanges: formData.sjrRanges.filter(r => r.id !== range.id)
+                            })}
+                            className="text-red-600 hover:text-red-700 text-sm font-medium flex items-center gap-1"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Min SJR
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={range.minSJR}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              sjrRanges: formData.sjrRanges.map(r => 
+                                r.id === range.id ? { ...r, minSJR: Number(e.target.value) } : r
+                              )
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Max SJR
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={range.maxSJR}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              sjrRanges: formData.sjrRanges.map(r => 
+                                r.id === range.id ? { ...r, maxSJR: Number(e.target.value) } : r
+                              )
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Coins className="w-4 h-4 inline mr-1 text-green-600" />
+                            Incentive (₹)
+                          </label>
+                          <input
+                            type="number"
+                            value={range.incentiveAmount}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              sjrRanges: formData.sjrRanges.map(r => 
+                                r.id === range.id ? { ...r, incentiveAmount: Number(e.target.value) } : r
+                              )
+                            })}
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Award className="w-4 h-4 inline mr-1 text-blue-600" />
+                            Points
+                          </label>
+                          <input
+                            type="number"
+                            value={range.points}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              sjrRanges: formData.sjrRanges.map(r => 
+                                r.id === range.id ? { ...r, points: Number(e.target.value) } : r
+                              )
+                            })}
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Base Points <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.basePoints}
-                    onChange={(e) => setFormData({ ...formData, basePoints: Number(e.target.value) })}
-                    min="0"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
+                <button
+                  type="button"
+                  onClick={() => setFormData({
+                    ...formData,
+                    sjrRanges: [
+                      ...formData.sjrRanges,
+                      {
+                        id: Date.now().toString(),
+                        minSJR: 0,
+                        maxSJR: 0,
+                        incentiveAmount: 5000,
+                        points: 5,
+                      }
+                    ]
+                  })}
+                  className="mt-3 w-full py-2 border-2 border-dashed border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  Add SJR Range
+                </button>
+              </div>
+
+              {/* Author Role Percentages */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Percent className="w-5 h-5 text-blue-600" />
+                  Author Role Percentages
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Define percentages for First Author and Corresponding Author. Co-Authors automatically share the remainder.
+                </p>
+                
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-amber-800 font-medium mb-2">Distribution Examples:</p>
+                  <ul className="text-sm text-amber-700 space-y-1 list-disc list-inside">
+                    <li>Single author → gets 100% (regardless of role)</li>
+                    <li>Same person is First + Corresponding → gets both percentages combined</li>
+                    <li>First (35%) + Corresponding (30%) + 2 Co-Authors → Co-authors each get 17.5%</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-3">
+                  {formData.rolePercentages.map(rp => {
+                    const roleInfo = AUTHOR_ROLES.find(r => r.value === rp.role);
+                    return (
+                      <div key={rp.role} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                        <div className="flex-1">
+                          <label className="font-medium text-gray-700">{roleInfo?.label}</label>
+                        </div>
+                        <div className="w-32">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={rp.percentage}
+                              onChange={(e) => setFormData({
+                                ...formData,
+                                rolePercentages: formData.rolePercentages.map(r => 
+                                  r.role === rp.role ? { ...r, percentage: Number(e.target.value) } : r
+                                )
+                              })}
+                              min="1"
+                              max="99"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-gray-600 font-semibold">%</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Show calculated Co-Author percentage */}
+                  {(() => {
+                    const firstPct = formData.rolePercentages.find(rp => rp.role === 'first_author')?.percentage || 0;
+                    const corrPct = formData.rolePercentages.find(rp => rp.role === 'corresponding_author')?.percentage || 0;
+                    const coAuthorPct = 100 - firstPct - corrPct;
+                    return (
+                      <div className="flex items-center gap-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <div className="flex-1">
+                          <label className="font-medium text-amber-800">Co-Authors (auto-calculated)</label>
+                          <p className="text-xs text-amber-600">Split equally among all co-authors</p>
+                        </div>
+                        <div className="w-32">
+                          <div className="flex items-center gap-2">
+                            <div className="w-full px-3 py-2 bg-amber-100 rounded-lg text-amber-800 font-bold text-center">
+                              {coAuthorPct}
+                            </div>
+                            <span className="text-amber-600 font-semibold">%</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  {(() => {
+                    const firstPct = formData.rolePercentages.find(rp => rp.role === 'first_author')?.percentage || 0;
+                    const corrPct = formData.rolePercentages.find(rp => rp.role === 'corresponding_author')?.percentage || 0;
+                    const totalDefined = firstPct + corrPct;
+                    return (
+                      <p className="text-sm text-blue-800">
+                        <strong>First + Corresponding:</strong> {totalDefined}% 
+                        {totalDefined > 100 && (
+                          <span className="text-red-600 ml-2">⚠️ Cannot exceed 100%</span>
+                        )}
+                        {totalDefined <= 100 && (
+                          <span className="text-green-600 ml-2">✓ Remaining {100 - totalDefined}% for Co-Authors</span>
+                        )}
+                      </p>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Split Policy */}
+              <div className="border-t pt-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Split Policy <span className="text-red-500">*</span>
+                    Split Policy
                   </label>
                   <select
                     value={formData.splitPolicy}
-                    onChange={(e) => setFormData({ ...formData, splitPolicy: e.target.value as any })}
+                    onChange={(e) => setFormData({ ...formData, splitPolicy: e.target.value as 'percentage_based' })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
                     {SPLIT_POLICIES.map(policy => (
@@ -520,265 +905,12 @@ export default function ResearchPolicyManagement() {
                     {SPLIT_POLICIES.find(p => p.value === formData.splitPolicy)?.description}
                   </p>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Active Status
-                  </label>
-                  <label className="inline-flex items-center mt-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.isActive}
-                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                      className="w-5 h-5 text-blue-600 rounded"
-                    />
-                    <span className="ml-2">Active</span>
-                  </label>
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    <strong>Note:</strong> Policy will be automatically active based on its effective date range. Policies with overlapping dates for the same publication type are not allowed.
+                  </p>
                 </div>
               </div>
-
-              {/* Percentage-Based Distribution (NEW) */}
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Percent className="w-5 h-5 text-blue-600" />
-                  Percentage-Based Incentive Distribution
-                </h3>
-                <p className="text-sm text-gray-600 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200">
-                  <strong>How it works:</strong> The base amount is the TOTAL incentive pool. First author gets their %, corresponding author gets their %. 
-                  If one person is both first and corresponding, they get both percentages added. The remaining percentage is divided equally among all co-authors.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      First Author Percentage (%)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.firstAuthorPercentage}
-                      onChange={(e) => setFormData({ ...formData, firstAuthorPercentage: Number(e.target.value) })}
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Default: 40%</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Corresponding Author Percentage (%)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.correspondingAuthorPercentage}
-                      onChange={(e) => setFormData({ ...formData, correspondingAuthorPercentage: Number(e.target.value) })}
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Default: 30%</p>
-                  </div>
-
-                  <div className="flex flex-col justify-center">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Co-Authors Share
-                    </label>
-                    <div className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700">
-                      {100 - formData.firstAuthorPercentage - formData.correspondingAuthorPercentage}% 
-                      <span className="text-xs text-gray-500 ml-1">(divided equally)</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">Calculated automatically</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Author Role Multipliers (DEPRECATED) */}
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-gray-400" />
-                  Author Role Multipliers <span className="text-sm text-gray-500 font-normal">(Deprecated - Use percentages above)</span>
-                </h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Define percentage of base incentive each author role receives
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {AUTHOR_ROLES.map(role => (
-                    <div key={role.value}>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {role.label}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          value={(formData.authorTypeMultipliers[role.value] || 0) * 100}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            authorTypeMultipliers: {
-                              ...formData.authorTypeMultipliers,
-                              [role.value]: Number(e.target.value) / 100
-                            }
-                          })}
-                          min="0"
-                          max="100"
-                          step="5"
-                          className="w-full px-4 py-2 pr-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Indexing Bonuses */}
-              {(formData.publicationType === 'research_paper' || formData.publicationType === 'conference_paper') && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Award className="w-5 h-5 text-blue-600" />
-                    Indexing Bonuses (₹)
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {INDEXING_TYPES.map(index => (
-                      <div key={index}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1 uppercase">
-                          {index}
-                        </label>
-                        <input
-                          type="number"
-                          value={(formData.indexingBonuses[index] as number) || 0}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            indexingBonuses: {
-                              ...formData.indexingBonuses,
-                              [index]: Number(e.target.value)
-                            }
-                          })}
-                          min="0"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Quartile Bonuses */}
-              {formData.publicationType === 'research_paper' && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Gift className="w-5 h-5 text-blue-600" />
-                    Quartile Bonuses (₹)
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {QUARTILES.map(quartile => (
-                      <div key={quartile}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1 uppercase">
-                          {quartile}
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.quartileBonuses[quartile] || 0}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            quartileBonuses: {
-                              ...formData.quartileBonuses,
-                              [quartile]: Number(e.target.value)
-                            }
-                          })}
-                          min="0"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Impact Factor Tiers */}
-              {formData.publicationType === 'research_paper' && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-blue-600" />
-                    Impact Factor Bonus Tiers
-                  </h3>
-                  <div className="space-y-3">
-                    {formData.impactFactorTiers.map((tier, index) => (
-                      <div key={index} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-1 grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Min IF</label>
-                            <input
-                              type="number"
-                              value={tier.minIF}
-                              onChange={(e) => {
-                                const newTiers = [...formData.impactFactorTiers];
-                                newTiers[index] = { ...tier, minIF: Number(e.target.value) };
-                                setFormData({ ...formData, impactFactorTiers: newTiers });
-                              }}
-                              step="0.1"
-                              min="0"
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Max IF</label>
-                            <input
-                              type="number"
-                              value={tier.maxIF ?? ''}
-                              onChange={(e) => {
-                                const newTiers = [...formData.impactFactorTiers];
-                                newTiers[index] = { ...tier, maxIF: e.target.value === '' ? null : Number(e.target.value) };
-                                setFormData({ ...formData, impactFactorTiers: newTiers });
-                              }}
-                              step="0.1"
-                              min="0"
-                              placeholder="∞"
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Bonus (₹)</label>
-                            <input
-                              type="number"
-                              value={tier.bonus}
-                              onChange={(e) => {
-                                const newTiers = [...formData.impactFactorTiers];
-                                newTiers[index] = { ...tier, bonus: Number(e.target.value) };
-                                setFormData({ ...formData, impactFactorTiers: newTiers });
-                              }}
-                              min="0"
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                            />
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const newTiers = formData.impactFactorTiers.filter((_, i) => i !== index);
-                            setFormData({ ...formData, impactFactorTiers: newTiers });
-                          }}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={() => setFormData({
-                        ...formData,
-                        impactFactorTiers: [
-                          ...formData.impactFactorTiers,
-                          { minIF: 0, maxIF: null, bonus: 0 }
-                        ]
-                      })}
-                      className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
-                    >
-                      <Plus className="w-4 h-4 inline mr-1" />
-                      Add Tier
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Modal Footer */}

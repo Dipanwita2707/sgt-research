@@ -197,6 +197,8 @@ exports.createPolicy = async (req, res) => {
       authorTypeMultipliers,
       indexingBonuses,
       impactFactorTiers,
+      effectiveFrom,
+      effectiveTo,
       isActive
     } = req.body;
 
@@ -208,16 +210,53 @@ exports.createPolicy = async (req, res) => {
       });
     }
 
-    // If setting as active, deactivate other policies for this type
-    if (isActive !== false) {
-      await prisma.researchIncentivePolicy.updateMany({
-        where: {
-          publicationType: publicationType.toLowerCase(),
-          isActive: true
-        },
-        data: { isActive: false }
+    if (!effectiveFrom) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an effectiveFrom date'
       });
     }
+
+    // Check for overlapping date ranges with existing policies of same publication type
+    const existingPolicies = await prisma.researchIncentivePolicy.findMany({
+      where: {
+        publicationType: publicationType.toLowerCase()
+      }
+    });
+
+    const newStartDate = new Date(effectiveFrom);
+    const newEndDate = effectiveTo ? new Date(effectiveTo) : null;
+
+    for (const existingPolicy of existingPolicies) {
+      const existingStart = new Date(existingPolicy.effectiveFrom);
+      const existingEnd = existingPolicy.effectiveTo ? new Date(existingPolicy.effectiveTo) : null;
+
+      // Check for overlap
+      const overlaps = (
+        // New policy starts during existing policy
+        (newStartDate >= existingStart && (!existingEnd || newStartDate <= existingEnd)) ||
+        // New policy ends during existing policy
+        (newEndDate && newEndDate >= existingStart && (!existingEnd || newEndDate <= existingEnd)) ||
+        // New policy completely contains existing policy
+        (newStartDate <= existingStart && (!newEndDate || (existingEnd && newEndDate >= existingEnd) || !existingEnd)) ||
+        // Existing policy completely contains new policy
+        (existingStart <= newStartDate && (!existingEnd || (newEndDate && existingEnd >= newEndDate) || !newEndDate))
+      );
+
+      if (overlaps) {
+        return res.status(400).json({
+          success: false,
+          message: `Date range overlaps with existing policy "${existingPolicy.policyName}". Policies for the same publication type cannot have overlapping date ranges.`
+        });
+      }
+    }
+
+    const now = new Date();
+    const policyStartDate = new Date(effectiveFrom);
+    const policyEndDate = effectiveTo ? new Date(effectiveTo) : null;
+    
+    // Determine if policy is currently active based on dates
+    const isCurrentlyActive = policyStartDate <= now && (!policyEndDate || policyEndDate >= now);
 
     const policy = await prisma.researchIncentivePolicy.create({
       data: {
@@ -225,12 +264,14 @@ exports.createPolicy = async (req, res) => {
         policyName,
         baseIncentiveAmount,
         basePoints,
-        splitPolicy: splitPolicy || 'author_role_based',
+        splitPolicy: splitPolicy || 'equal',
         primaryAuthorShare,
         authorTypeMultipliers: authorTypeMultipliers || DEFAULT_RESEARCH_POLICIES.research_paper.authorRoleMultipliers,
         indexingBonuses: indexingBonuses || DEFAULT_RESEARCH_POLICIES.research_paper.indexingBonuses,
         impactFactorTiers: impactFactorTiers || DEFAULT_RESEARCH_POLICIES.research_paper.impactFactorTiers,
-        isActive: isActive !== false,
+        effectiveFrom: policyStartDate,
+        effectiveTo: policyEndDate,
+        isActive: isCurrentlyActive,
         createdById: req.user.id
       }
     });
@@ -265,6 +306,8 @@ exports.updatePolicy = async (req, res) => {
       authorTypeMultipliers,
       indexingBonuses,
       impactFactorTiers,
+      effectiveFrom,
+      effectiveTo,
       isActive
     } = req.body;
 
@@ -280,17 +323,45 @@ exports.updatePolicy = async (req, res) => {
       });
     }
 
-    // If setting as active, deactivate other policies for this type
-    if (isActive === true && !existingPolicy.isActive) {
-      await prisma.researchIncentivePolicy.updateMany({
+    // If dates are being updated, check for overlapping date ranges
+    if (effectiveFrom || effectiveTo !== undefined) {
+      const newStartDate = effectiveFrom ? new Date(effectiveFrom) : existingPolicy.effectiveFrom;
+      const newEndDate = effectiveTo === null ? null : (effectiveTo ? new Date(effectiveTo) : existingPolicy.effectiveTo);
+
+      const otherPolicies = await prisma.researchIncentivePolicy.findMany({
         where: {
           publicationType: existingPolicy.publicationType,
-          isActive: true,
           id: { not: id }
-        },
-        data: { isActive: false }
+        }
       });
+
+      for (const otherPolicy of otherPolicies) {
+        const existingStart = new Date(otherPolicy.effectiveFrom);
+        const existingEnd = otherPolicy.effectiveTo ? new Date(otherPolicy.effectiveTo) : null;
+
+        // Check for overlap
+        const overlaps = (
+          (newStartDate >= existingStart && (!existingEnd || newStartDate <= existingEnd)) ||
+          (newEndDate && newEndDate >= existingStart && (!existingEnd || newEndDate <= existingEnd)) ||
+          (newStartDate <= existingStart && (!newEndDate || (existingEnd && newEndDate >= existingEnd) || !existingEnd)) ||
+          (existingStart <= newStartDate && (!existingEnd || (newEndDate && existingEnd >= newEndDate) || !newEndDate))
+        );
+
+        if (overlaps) {
+          return res.status(400).json({
+            success: false,
+            message: `Date range overlaps with existing policy "${otherPolicy.policyName}". Policies for the same publication type cannot have overlapping date ranges.`
+          });
+        }
+      }
     }
+
+    const now = new Date();
+    const policyStartDate = effectiveFrom ? new Date(effectiveFrom) : existingPolicy.effectiveFrom;
+    const policyEndDate = effectiveTo === null ? null : (effectiveTo ? new Date(effectiveTo) : existingPolicy.effectiveTo);
+    
+    // Determine if policy is currently active based on dates
+    const isCurrentlyActive = policyStartDate <= now && (!policyEndDate || policyEndDate >= now);
 
     const updatedPolicy = await prisma.researchIncentivePolicy.update({
       where: { id },
@@ -303,7 +374,9 @@ exports.updatePolicy = async (req, res) => {
         authorTypeMultipliers: authorTypeMultipliers || existingPolicy.authorTypeMultipliers,
         indexingBonuses: indexingBonuses || existingPolicy.indexingBonuses,
         impactFactorTiers: impactFactorTiers || existingPolicy.impactFactorTiers,
-        isActive: isActive ?? existingPolicy.isActive,
+        effectiveFrom: policyStartDate,
+        effectiveTo: policyEndDate,
+        isActive: isCurrentlyActive,
         updatedById: req.user.id
       }
     });

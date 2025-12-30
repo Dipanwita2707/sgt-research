@@ -1,5 +1,26 @@
 import api from '@/lib/api';
 
+// Quartile-based incentive structure (mandatory)
+export interface QuartileIncentive {
+  quartile: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  incentiveAmount: number;
+  points: number;
+}
+
+// SJR range-based incentive structure
+export interface SJRRange {
+  id?: string;
+  minSJR: number;
+  maxSJR: number;
+  incentiveAmount: number;
+  points: number;
+}
+
+export interface RolePercentage {
+  role: string;
+  percentage: number;
+}
+
 export interface QuartileBonuses {
   q1?: number;
   q2?: number;
@@ -16,7 +37,10 @@ export interface IndexingBonuses {
   pubmed?: number;
   ieee?: number;
   quartileBonuses?: QuartileBonuses;
-  [key: string]: number | QuartileBonuses | undefined;
+  quartileIncentives?: QuartileIncentive[];
+  sjrRanges?: SJRRange[];
+  rolePercentages?: RolePercentage[];
+  [key: string]: number | QuartileBonuses | QuartileIncentive[] | SJRRange[] | RolePercentage[] | undefined;
 }
 
 export interface ResearchIncentivePolicy {
@@ -25,11 +49,8 @@ export interface ResearchIncentivePolicy {
   policyName: string;
   baseIncentiveAmount: number;
   basePoints: number;
-  splitPolicy: 'equal' | 'author_role_based' | 'weighted';
+  splitPolicy: 'percentage_based' | 'equal' | 'author_role_based' | 'weighted';
   primaryAuthorShare?: number;
-  // New percentage-based fields
-  firstAuthorPercentage?: number;
-  correspondingAuthorPercentage?: number;
   // Deprecated fields
   authorTypeMultipliers?: Record<string, number>;
   indexingBonuses?: IndexingBonuses;
@@ -60,11 +81,8 @@ export interface CreateResearchPolicyData {
   policyName: string;
   baseIncentiveAmount: number;
   basePoints: number;
-  splitPolicy?: 'equal' | 'author_role_based' | 'weighted';
+  splitPolicy?: 'percentage_based' | 'equal' | 'author_role_based' | 'weighted';
   primaryAuthorShare?: number;
-  // New percentage-based fields
-  firstAuthorPercentage?: number;
-  correspondingAuthorPercentage?: number;
   // Deprecated fields
   authorTypeMultipliers?: Record<string, number>;
   indexingBonuses?: IndexingBonuses;
@@ -74,6 +92,8 @@ export interface CreateResearchPolicyData {
     maxIF: number | null;
     bonus: number;
   }>;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
   isActive?: boolean;
 }
 

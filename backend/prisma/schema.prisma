@@ -56,6 +56,8 @@ model UserLogin {
   researchContributionStatusChanges   ResearchContributionStatusHistory[]  @relation("ResearchContributionStatusChanges")
   createdResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyCreatedBy")
   updatedResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyUpdatedBy")
+  createdIncentivePolicies            IncentivePolicy[]                    @relation("IncentivePolicyCreatedBy")
+  updatedIncentivePolicies            IncentivePolicy[]                    @relation("IncentivePolicyUpdatedBy")
   researchPapers                      ResearchPaper[]                      @relation("ResearchPapers")
   researchPaperReviews                ResearchPaperReview[]                @relation("ResearchPaperReviews")
   researchPaperStatusChanges          ResearchPaperStatusHistory[]         @relation("ResearchPaperStatusChanges")
@@ -1242,6 +1244,30 @@ model ResearchIncentivePolicy {
   @@index([publicationType])
   @@index([isActive])
   @@map("research_incentive_policy")
+}
+
+model IncentivePolicy {
+  id                    String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iprType               String     @map("ipr_type") @db.VarChar(50)
+  policyName            String     @map("policy_name") @db.VarChar(255)
+  baseIncentiveAmount   Decimal    @map("base_incentive_amount") @db.Decimal(15, 2)
+  basePoints            Int        @map("base_points")
+  splitPolicy           String     @default("equal") @map("split_policy") @db.VarChar(50)
+  filingTypeMultiplier  Json?      @default("{\"provisional\": 0.5, \"complete\": 1.0, \"granted\": 1.5}") @map("filing_type_multiplier")
+  projectTypeBonus      Json?      @default("{\"industry_sponsored\": 5000, \"government_funded\": 10000, \"institutional\": 2500}") @map("project_type_bonus")
+  isActive              Boolean    @default(true) @map("is_active")
+  effectiveFrom         DateTime   @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo           DateTime?  @map("effective_to") @db.Timestamptz(6)
+  createdById           String     @map("created_by_id") @db.Uuid
+  updatedById           String?    @map("updated_by_id") @db.Uuid
+  createdAt             DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy             UserLogin  @relation("IncentivePolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, map: "incentive_policy_created_by_fkey")
+  updatedBy             UserLogin? @relation("IncentivePolicyUpdatedBy", fields: [updatedById], references: [id], map: "incentive_policy_updated_by_fkey")
+
+  @@index([iprType])
+  @@index([isActive])
+  @@map("incentive_policy")
 }
 
 enum UserRoleEnum {

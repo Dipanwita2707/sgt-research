@@ -179,6 +179,59 @@ export default function ResearchContributionForm({ publicationType, contribution
     authorRole?: string;
   }>>([]);
   
+  // Check if any authors have been added (to lock author count fields)
+  const hasAuthorsAdded = coAuthors.some(a => a.name);
+  
+  // Helper function to calculate incentive and points for an author
+  // Updated to use SJR-based percentage distribution
+  const calculateAuthorIncentivePoints = (authorType: string, authorCategory: string, authorRole: string) => {
+    // SJR-based incentives (default values)
+    const defaultSJRRanges = [
+      { minSJR: 2.0, maxSJR: 999, incentiveAmount: 50000, points: 50 },
+      { minSJR: 1.0, maxSJR: 1.99, incentiveAmount: 30000, points: 30 },
+      { minSJR: 0.5, maxSJR: 0.99, incentiveAmount: 15000, points: 15 },
+      { minSJR: 0.0, maxSJR: 0.49, incentiveAmount: 5000, points: 5 },
+    ];
+
+    // Role percentages for distribution
+    const rolePercentages: Record<string, number> = {
+      'first_and_corresponding': 30,
+      'first_author': 25,
+      'corresponding_author': 20,
+      'co_author': 15,
+    };
+    
+    // Get SJR value from form data
+    const sjrValue = Number(formData.sjr) || 0;
+    
+    // Find matching SJR range
+    const matchingRange = defaultSJRRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR) 
+      || defaultSJRRanges[defaultSJRRanges.length - 1];
+    
+    const totalIncentive = matchingRange.incentiveAmount;
+    const totalPoints = matchingRange.points;
+    
+    // Get percentage for this author role
+    const rolePercentage = rolePercentages[authorRole] || 15;
+    
+    // Calculate this author's share based on role percentage
+    const authorIncentive = Math.round((totalIncentive * rolePercentage) / 100);
+    const authorPoints = Math.round((totalPoints * rolePercentage) / 100);
+    
+    // External authors get no incentive or points
+    if (authorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+    
+    // Students get only incentives, no points
+    if (authorType === 'Student') {
+      return { incentive: authorIncentive, points: 0 };
+    }
+    
+    // Faculty/Employees get both
+    return { incentive: authorIncentive, points: authorPoints };
+  };
+  
   // Document upload state
   const [researchDocument, setResearchDocument] = useState<File | null>(null);
   const [supportingDocuments, setSupportingDocuments] = useState<File[]>([]);
@@ -226,6 +279,18 @@ export default function ResearchContributionForm({ publicationType, contribution
       }));
     }
   }, [totalInternalAuthors, totalInternalCoAuthors]);
+  
+  // Ensure authorCategory is set to Internal when all authors are internal
+  useEffect(() => {
+    if (totalAuthors === totalInternalAuthors && totalAuthors > 1) {
+      setNewAuthor(prev => ({
+        ...prev,
+        authorCategory: 'Internal',
+        authorType: 'Faculty',
+        affiliation: 'SGT University'
+      }));
+    }
+  }, [totalAuthors, totalInternalAuthors]);
   
   // Fetch my contributions for the "Already in Process" tab
   useEffect(() => {
@@ -1710,18 +1775,22 @@ export default function ResearchContributionForm({ publicationType, contribution
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Total Authors <span className="text-red-500">*</span></label>
             <input type="number" min="1" value={totalAuthors}
               onChange={(e) => {
+                if (hasAuthorsAdded) return;
                 const value = Number(e.target.value);
                 if (value < 1) { setError('Total authors must be at least 1'); return; }
                 setTotalAuthors(value);
                 if (totalInternalAuthors > value) { setTotalInternalAuthors(value); }
               }}
-              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="1"
+              disabled={hasAuthorsAdded}
+              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
+              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
             />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">SGT Authors <span className="text-red-500">*</span></label>
             <input type="number" min="1" max={totalAuthors} value={totalInternalAuthors}
               onChange={(e) => {
+                if (hasAuthorsAdded) return;
                 const value = Number(e.target.value);
                 if (value < 1) { setError('SGT affiliated authors must be at least 1 (you)'); return; }
                 if (value > totalAuthors) { setError('SGT affiliated authors cannot exceed total authors'); return; }
@@ -1730,7 +1799,9 @@ export default function ResearchContributionForm({ publicationType, contribution
                 if (totalInternalCoAuthors > maxCoAuthors) { setTotalInternalCoAuthors(maxCoAuthors); }
                 setError(null);
               }}
-              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="1"
+              disabled={hasAuthorsAdded}
+              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
+              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
             />
           </div>
           <div>
@@ -1742,6 +1813,7 @@ export default function ResearchContributionForm({ publicationType, contribution
               max={totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors}
               value={totalInternalCoAuthors}
               onChange={(e) => {
+                if (hasAuthorsAdded) return;
                 const value = Number(e.target.value);
                 const maxCoAuthors = totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors;
                 if (value < 0) { setError('Internal co-authors cannot be negative'); return; }
@@ -1749,13 +1821,17 @@ export default function ResearchContributionForm({ publicationType, contribution
                 setTotalInternalCoAuthors(value);
                 setError(null);
               }}
-              className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500" placeholder="0"
+              disabled={hasAuthorsAdded}
+              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="0"
+              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
             />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Role <span className="text-red-500">*</span></label>
-            {getAllowedUserRoles().length === 1 ? (
-              <div className="px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700">
+            {getAllowedUserRoles().length === 1 || hasAuthorsAdded ? (
+              <div className={`px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700 ${hasAuthorsAdded ? 'cursor-not-allowed' : ''}`}
+                title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
+              >
                 {userAuthorType === 'first_and_corresponding' && 'First & Corresponding'}
                 {userAuthorType === 'corresponding' && 'Corresponding'}
                 {userAuthorType === 'first' && 'First Author'}
@@ -1772,6 +1848,12 @@ export default function ResearchContributionForm({ publicationType, contribution
               </select>
             )}
           </div>
+          {hasAuthorsAdded && (
+            <div className="flex items-center text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+              <AlertCircle className="w-4 h-4 mr-2" />
+              Remove all added authors to modify these fields
+            </div>
+          )}
         </div>
         
         {/* Add Other Author's Detail - Compact */}
@@ -1894,10 +1976,30 @@ export default function ResearchContributionForm({ publicationType, contribution
             {/* Author Category Type - Different options for Internal vs External */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Author category: <span className="text-red-500">*</span>
+                {newAuthor.authorCategory === 'Internal' ? 'Select Type:' : 'Author category:'} <span className="text-red-500">*</span>
               </label>
               {newAuthor.authorCategory === 'Internal' ? (
                 <div className="flex gap-6">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      value="Faculty"
+                      checked={newAuthor.authorType === 'Faculty'}
+                      onChange={(e) => {
+                        setNewAuthor(prev => ({ 
+                          ...prev, 
+                          authorType: e.target.value,
+                          uid: '',
+                          name: '',
+                          email: ''
+                        }));
+                        setSearchSuggestions([]);
+                        setShowSuggestions(false);
+                      }}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="ml-2">Teacher</span>
+                  </label>
                   <label className="inline-flex items-center">
                     <input
                       type="radio"
@@ -1917,26 +2019,6 @@ export default function ResearchContributionForm({ publicationType, contribution
                       className="w-4 h-4 text-blue-600"
                     />
                     <span className="ml-2">Student</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="Faculty"
-                      checked={newAuthor.authorType === 'Faculty'}
-                      onChange={(e) => {
-                        setNewAuthor(prev => ({ 
-                          ...prev, 
-                          authorType: e.target.value,
-                          uid: '',
-                          name: '',
-                          email: ''
-                        }));
-                        setSearchSuggestions([]);
-                        setShowSuggestions(false);
-                      }}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">Faculty</span>
                   </label>
                 </div>
               ) : (
@@ -2015,7 +2097,7 @@ export default function ResearchContributionForm({ publicationType, contribution
             {newAuthor.authorCategory === 'Internal' && (
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {newAuthor.authorType === 'Student' ? 'Enter Reg No:' : 'Enter UID:'} <span className="text-red-500">*</span>
+                  {newAuthor.authorType === 'Student' ? 'Reg No:' : 'UID:'} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -2118,7 +2200,7 @@ export default function ResearchContributionForm({ publicationType, contribution
             {/* Affiliation/Organization */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {newAuthor.authorCategory === 'Internal' ? 'University:' : 'Organization/Institute:'} <span className="text-red-500">*</span>
+                {newAuthor.authorCategory === 'Internal' ? 'Institute:' : 'Organization/Institute:'} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -2126,7 +2208,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                 onChange={(e) => setNewAuthor(prev => ({ ...prev, affiliation: e.target.value }))}
                 placeholder={newAuthor.authorCategory === 'Internal' ? 'SGT University' : 'Enter organization/institute name'}
                 readOnly={newAuthor.authorCategory === 'Internal'}
-                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${newAuthor.authorCategory === 'Internal' ? 'bg-gray-50' : ''}`}
+                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${newAuthor.authorCategory === 'Internal' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
               />
             </div>
           </div>
@@ -2194,6 +2276,18 @@ export default function ResearchContributionForm({ publicationType, contribution
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
                       Affiliation
                     </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
+                      <div className="flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-green-600" />
+                        Incentive
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
+                      <div className="flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5 text-blue-600" />
+                        Points
+                      </div>
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Action
                     </th>
@@ -2202,6 +2296,11 @@ export default function ResearchContributionForm({ publicationType, contribution
                 <tbody className="bg-white divide-y divide-gray-200">
                   {coAuthors.filter(a => a.name).map((coAuthor, index) => {
                     const actualIndex = coAuthors.findIndex(a => a === coAuthor);
+                    const { incentive, points } = calculateAuthorIncentivePoints(
+                      coAuthor.authorType,
+                      coAuthor.authorCategory,
+                      coAuthor.authorRole || 'co_author'
+                    );
                     return (
                       <tr key={actualIndex}>
                         <td className="px-4 py-3 text-sm text-gray-900 border-r">
@@ -2218,6 +2317,22 @@ export default function ResearchContributionForm({ publicationType, contribution
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 border-r">
                           {coAuthor.affiliation}
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          {coAuthor.authorCategory === 'Internal' ? (
+                            <span className="text-green-600 font-medium">₹{incentive.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-gray-400">N/A</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          {coAuthor.authorCategory === 'Internal' && coAuthor.authorType !== 'Student' ? (
+                            <span className="text-blue-600 font-medium">{points}</span>
+                          ) : coAuthor.authorCategory === 'Internal' && coAuthor.authorType === 'Student' ? (
+                            <span className="text-gray-400 text-xs">Students: No Points</span>
+                          ) : (
+                            <span className="text-gray-400">N/A</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
                           <div className="flex gap-2">
@@ -2244,6 +2359,10 @@ export default function ResearchContributionForm({ publicationType, contribution
                 </tbody>
               </table>
             </div>
+            <p className="mt-2 text-xs text-gray-500">
+              <span className="font-medium">Note:</span> Internal Faculty/Employees receive both Incentives and Points. 
+              Internal Students receive only Incentives (no Points). External authors receive neither.
+            </p>
           </div>
         )}
       </div>

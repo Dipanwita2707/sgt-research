@@ -576,7 +576,8 @@ const getDrdReviewStatistics = async (req, res) => {
 };
 
 // Calculate incentive points
-const calculateIncentivePoints = (iprType, projectType) => {
+// isStudent parameter: if true, returns 0 points (students get only incentives)
+const calculateIncentivePoints = (iprType, projectType, isStudent = false) => {
   const pointMatrix = {
     patent: {
       phd: { points: 100, amount: 50000 },
@@ -604,7 +605,14 @@ const calculateIncentivePoints = (iprType, projectType) => {
     }
   };
 
-  return pointMatrix[iprType]?.[projectType] || { points: 0, amount: 0 };
+  const result = pointMatrix[iprType]?.[projectType] || { points: 0, amount: 0 };
+  
+  // Students get only incentives, no points
+  if (isStudent) {
+    return { points: 0, amount: result.amount };
+  }
+  
+  return result;
 };
 
 // DRD Head Final Approval - sends to Finance directly (no Dean)
@@ -1312,6 +1320,7 @@ const creditIncentivesToInventors = async (application, userId) => {
           select: {
             id: true,
             uid: true,
+            userType: true,
             employeeDetails: {
               select: { firstName: true, lastName: true, displayName: true }
             }
@@ -1327,10 +1336,16 @@ const creditIncentivesToInventors = async (application, userId) => {
     if (application.applicantUserId) {
       const applicantInList = inventors.some(i => i.userId === application.applicantUserId);
       if (!applicantInList) {
+        // Get applicant user info to check if student
+        const applicantUser = await prisma.userLogin.findUnique({
+          where: { id: application.applicantUserId },
+          select: { userType: true }
+        });
         inventors.push({
           userId: application.applicantUserId,
           name: 'Applicant',
-          role: 'primary_inventor'
+          role: 'primary_inventor',
+          user: { userType: applicantUser?.userType }
         });
       }
     }
@@ -1344,20 +1359,31 @@ const creditIncentivesToInventors = async (application, userId) => {
     // Notify and track each inventor
     for (const inventor of inventors) {
       if (inventor.userId) {
+        // Check if inventor is a student - students get only incentive, no points
+        const isStudent = inventor.user?.userType === 'student' || 
+                         inventor.employeeType === 'student' ||
+                         (inventor.applicantDetails?.employeeType === 'student');
+        
+        const inventorPoints = isStudent ? 0 : perInventorPoints;
+        const pointsMessage = isStudent 
+          ? `₹${perInventorIncentive.toLocaleString()} has been credited (students receive incentives only, no points)` 
+          : `₹${perInventorIncentive.toLocaleString()} and ${perInventorPoints} research points have been credited`;
+        
         // Notify the inventor about their credited incentive
         await prisma.notification.create({
           data: {
             userId: inventor.userId,
             type: 'incentive_credited',
             title: 'Incentive Credited! 💰',
-            message: `Congratulations! ₹${perInventorIncentive.toLocaleString()} and ${perInventorPoints} research points have been credited for your contribution to "${application.title}".`,
+            message: `Congratulations! ${pointsMessage} for your contribution to "${application.title}".`,
             referenceType: 'ipr_application',
             referenceId: application.id,
             metadata: {
               incentiveAmount: perInventorIncentive,
-              pointsAwarded: perInventorPoints,
+              pointsAwarded: inventorPoints,
               publicationId: application.publicationId,
-              totalInventors: inventorCount
+              totalInventors: inventorCount,
+              isStudent: isStudent
             }
           }
         });

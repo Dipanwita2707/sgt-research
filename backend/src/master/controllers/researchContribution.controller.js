@@ -42,80 +42,140 @@ const generateApplicationNumber = async (publicationType) => {
 };
 
 // Calculate incentives based on publication type, author type, indexing, etc.
-const calculateIncentives = async (contributionData, publicationType, authorType) => {
-  // Get active policy for this publication type
+// Note: Students get only incentives (no points), employees get both
+// Updated logic:
+// - First Author gets their percentage
+// - Corresponding Author gets their percentage  
+// - If same person is First + Corresponding, they get BOTH percentages combined
+// - Co-Authors share the remainder (100% - first - corresponding) equally
+// - Single author gets 100%
+const calculateIncentives = async (contributionData, publicationType, authorRole, isStudent = false, sjrValue = 0, coAuthorCount = 0, totalAuthors = 1) => {
+  // Get active policy for this publication type based on publication date
+  const publicationDate = contributionData.publicationDate ? new Date(contributionData.publicationDate) : new Date();
+  
   const policy = await prisma.researchIncentivePolicy.findFirst({
     where: {
       publicationType: publicationType,
-      isActive: true
-    }
+      isActive: true,
+      effectiveFrom: { lte: publicationDate },
+      OR: [
+        { effectiveTo: null },
+        { effectiveTo: { gte: publicationDate } }
+      ]
+    },
+    orderBy: { effectiveFrom: 'desc' }
   });
 
-  // Default values if no policy found
-  const defaults = {
-    research_paper: { baseAmount: 15000, basePoints: 30 },
-    book: { baseAmount: 25000, basePoints: 50 },
-    book_chapter: { baseAmount: 10000, basePoints: 20 },
-    conference_paper: { baseAmount: 7500, basePoints: 15 },
-    grant_proposal: { baseAmount: 5000, basePoints: 10 }
-  };
+  // Default quartile incentives
+  const defaultQuartileIncentives = [
+    { quartile: 'Q1', incentiveAmount: 50000, points: 50 },
+    { quartile: 'Q2', incentiveAmount: 30000, points: 30 },
+    { quartile: 'Q3', incentiveAmount: 15000, points: 15 },
+    { quartile: 'Q4', incentiveAmount: 5000, points: 5 },
+  ];
 
-  const base = policy ? {
-    baseAmount: Number(policy.baseIncentiveAmount),
-    basePoints: policy.basePoints
-  } : defaults[publicationType] || { baseAmount: 10000, basePoints: 20 };
+  // Default SJR ranges (optional override)
+  const defaultSJRRanges = [
+    { minSJR: 2.0, maxSJR: 999, incentiveAmount: 50000, points: 50 },
+    { minSJR: 1.0, maxSJR: 1.99, incentiveAmount: 30000, points: 30 },
+    { minSJR: 0.5, maxSJR: 0.99, incentiveAmount: 15000, points: 15 },
+    { minSJR: 0.0, maxSJR: 0.49, incentiveAmount: 5000, points: 5 },
+  ];
 
-  let totalAmount = base.baseAmount;
-  let totalPoints = base.basePoints;
+  // Default role percentages (only first_author and corresponding_author defined)
+  // Co-author percentage is auto-calculated as: 100 - first - corresponding
+  const defaultRolePercentages = [
+    { role: 'first_author', percentage: 35 },
+    { role: 'corresponding_author', percentage: 30 },
+  ];
 
-  // Author type multipliers
-  const authorMultipliers = policy?.authorTypeMultipliers || {
-    first_author: 1.0,
-    corresponding_author: 0.8,
-    co_author: 0.5,
-    first_and_corresponding_author: 1.2
-  };
+  // Get data from policy or use defaults
+  const quartileIncentives = policy?.indexingBonuses?.quartileIncentives || defaultQuartileIncentives;
+  const sjrRanges = policy?.indexingBonuses?.sjrRanges || [];
+  const rolePercentages = policy?.indexingBonuses?.rolePercentages || defaultRolePercentages;
+  
+  // Get the total pool based on quartile first, then check SJR override
+  let totalAmount = 0;
+  let totalPoints = 0;
+  
+  // First try quartile-based incentives (primary/mandatory)
+  const quartile = contributionData.quartile;
+  if (quartile) {
+    const quartileMatch = quartileIncentives.find(q => q.quartile === quartile);
+    if (quartileMatch) {
+      totalAmount = Number(quartileMatch.incentiveAmount) || 0;
+      totalPoints = Number(quartileMatch.points) || 0;
+    }
+  }
+  
+  // If SJR ranges are defined and we have SJR value, check for override
+  const sjrVal = Number(sjrValue) || 0;
+  if (sjrRanges.length > 0 && sjrVal > 0) {
+    const matchingRange = sjrRanges.find(range => sjrVal >= range.minSJR && sjrVal <= range.maxSJR);
+    if (matchingRange) {
+      totalAmount = Number(matchingRange.incentiveAmount) || totalAmount;
+      totalPoints = Number(matchingRange.points) || totalPoints;
+    }
+  }
+  
+  // Fallback to default SJR ranges if no quartile and no policy-defined ranges matched
+  if (totalAmount === 0) {
+    const fallbackRange = defaultSJRRanges.find(range => sjrVal >= range.minSJR && sjrVal <= range.maxSJR)
+      || defaultSJRRanges[defaultSJRRanges.length - 1];
+    totalAmount = Number(fallbackRange.incentiveAmount) || 0;
+    totalPoints = Number(fallbackRange.points) || 0;
+  }
 
-  const multiplier = authorMultipliers[authorType] || 0.5;
-  totalAmount = totalAmount * multiplier;
-  totalPoints = Math.round(totalPoints * multiplier);
+  // Get role percentages from policy
+  const firstAuthorPct = rolePercentages.find(rp => rp.role === 'first_author')?.percentage || 35;
+  const correspondingAuthorPct = rolePercentages.find(rp => rp.role === 'corresponding_author')?.percentage || 30;
+  const coAuthorTotalPct = 100 - firstAuthorPct - correspondingAuthorPct;
 
-  // Indexing bonuses (for research papers and conference papers)
-  if (['research_paper', 'conference_paper'].includes(publicationType)) {
-    const indexingBonuses = policy?.indexingBonuses || {
-      scopus: 5000,
-      wos: 7500,
-      both: 10000,
-      ugc: 2500
+  // Calculate percentage based on role
+  let rolePercentage = 0;
+  
+  // Single author gets 100%
+  if (totalAuthors === 1) {
+    rolePercentage = 100;
+  }
+  // First and Corresponding author (same person) gets BOTH percentages combined
+  else if (authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding') {
+    rolePercentage = firstAuthorPct + correspondingAuthorPct;
+  }
+  // First author gets their percentage
+  else if (authorRole === 'first_author') {
+    rolePercentage = firstAuthorPct;
+  }
+  // Corresponding author gets their percentage
+  else if (authorRole === 'corresponding_author') {
+    rolePercentage = correspondingAuthorPct;
+  }
+  // Co-authors split the remainder equally
+  else if (authorRole === 'co_author') {
+    // Split co-author total percentage among all co-authors
+    const effectiveCoAuthorCount = Math.max(coAuthorCount, 1);
+    rolePercentage = coAuthorTotalPct / effectiveCoAuthorCount;
+  }
+  // Default fallback
+  else {
+    rolePercentage = coAuthorTotalPct / Math.max(coAuthorCount, 1);
+  }
+
+  // Calculate this author's share based on role percentage
+  const authorIncentive = Math.round((totalAmount * rolePercentage) / 100);
+  const authorPoints = Math.round((totalPoints * rolePercentage) / 100);
+
+  // Students get only incentives, no points
+  if (isStudent) {
+    return {
+      incentiveAmount: authorIncentive,
+      points: 0
     };
-
-    const targetedType = contributionData.targetedResearchType;
-    if (targetedType && indexingBonuses[targetedType]) {
-      totalAmount += indexingBonuses[targetedType];
-    }
-
-    // Impact factor tiers
-    if (contributionData.impactFactor) {
-      const impactFactorTiers = policy?.impactFactorTiers || [
-        { min: 0, max: 1, bonus: 0 },
-        { min: 1, max: 3, bonus: 5000 },
-        { min: 3, max: 5, bonus: 10000 },
-        { min: 5, max: 100, bonus: 20000 }
-      ];
-
-      const impactFactor = Number(contributionData.impactFactor);
-      for (const tier of impactFactorTiers) {
-        if (impactFactor >= tier.min && impactFactor < tier.max) {
-          totalAmount += tier.bonus;
-          break;
-        }
-      }
-    }
   }
 
   return {
-    incentiveAmount: totalAmount,
-    points: totalPoints
+    incentiveAmount: authorIncentive,
+    points: authorPoints
   };
 };
 
@@ -188,7 +248,8 @@ exports.createResearchContribution = async (req, res) => {
 
     // Determine applicant type
     let applicantType = 'internal_faculty';
-    if (userRole === 'student') {
+    const isStudent = userRole === 'student';
+    if (isStudent) {
       applicantType = 'internal_student';
     } else if (userRole === 'staff') {
       applicantType = 'internal_staff';
@@ -197,11 +258,24 @@ exports.createResearchContribution = async (req, res) => {
     // Generate application number
     const applicationNumber = await generateApplicationNumber(publicationType);
 
-    // Calculate pre-determined incentives based on author type
+    // Count total authors and co-authors for incentive calculation
+    const authorsList = authors || [];
+    const totalAuthorCount = authorsList.length || 1;
+    const coAuthorCount = authorsList.filter(a => 
+      a.authorRole === 'co_author' || a.authorRole === 'co'
+    ).length;
+
+    // Calculate pre-determined incentives based on quartile/SJR and author role percentage
+    // Students get only incentives, no points
+    const sjrValue = Number(sjr) || 0;
     const incentiveCalculation = await calculateIncentives(
-      { targetedResearchType, impactFactor, sjr },
+      { publicationDate, quartile },
       publicationType,
-      authorType || 'co_author'
+      authorRole || 'co_author',
+      isStudent,
+      sjrValue,
+      coAuthorCount,
+      totalAuthorCount
     );
 
     // Resolve and validate school/department references to avoid FK violations
@@ -247,7 +321,6 @@ exports.createResearchContribution = async (req, res) => {
       const applicantEmployee = await prisma.employeeDetails.findFirst({
         where: { userLoginId: userId },
         select: {
-          primarySchoolId: true,
           primaryDepartmentId: true,
           primaryDepartment: {
             select: {
@@ -263,7 +336,7 @@ exports.createResearchContribution = async (req, res) => {
       }
 
       if (!resolvedSchoolId) {
-        resolvedSchoolId = applicantEmployee?.primarySchoolId || applicantEmployee?.primaryDepartment?.facultyId || null;
+        resolvedSchoolId = applicantEmployee?.primaryDepartment?.facultyId || null;
       }
     }
 
@@ -383,6 +456,9 @@ exports.createResearchContribution = async (req, res) => {
         let mappedAuthorType = 'co_author';
         if (author.authorRole === 'first_and_corresponding' || author.authorRole === 'first_and_corresponding_author') {
           mappedAuthorType = 'first_and_corresponding_author';
+        } else if ((author.authorRole === 'first_author' || author.authorRole === 'first') && author.isCorresponding) {
+          // If marked as first_author AND isCorresponding flag is true, it's first_and_corresponding_author
+          mappedAuthorType = 'first_and_corresponding_author';
         } else if (author.authorRole === 'first_author' || author.authorRole === 'first') {
           mappedAuthorType = 'first_author';
         } else if (author.authorRole === 'corresponding_author' || author.authorRole === 'corresponding') {
@@ -399,10 +475,12 @@ exports.createResearchContribution = async (req, res) => {
 
         // Extract author category (faculty, student, etc.) from authorType
         let authorCategory = null;
+        let authorIsStudent = false;
         if (author.authorType === 'internal_faculty') {
           authorCategory = 'faculty';
         } else if (author.authorType === 'internal_student') {
           authorCategory = 'student';
+          authorIsStudent = true;
         } else if (author.authorType === 'external_academic') {
           authorCategory = 'academic';
         } else if (author.authorType === 'external_industry') {
@@ -411,11 +489,17 @@ exports.createResearchContribution = async (req, res) => {
           authorCategory = 'other';
         }
 
-        // Calculate author's incentive share
+        // Calculate author's incentive share based on quartile/SJR and role percentage
+        // Students get only incentives, no points
+        const sjrValue = Number(sjr) || 0;
         const authorIncentive = await calculateIncentives(
-          { targetedResearchType, impactFactor, sjr },
+          { publicationDate, quartile },
           publicationType,
-          mappedAuthorType
+          mappedAuthorType,
+          authorIsStudent,
+          sjrValue,
+          coAuthorCount,
+          totalAuthorCount
         );
 
         await prisma.researchContributionAuthor.create({
@@ -950,15 +1034,31 @@ exports.updateResearchContribution = async (req, res) => {
     }
 
     // Recalculate incentives if relevant fields changed
+    // Check if applicant is a student
+    const applicantIsStudent = contribution.applicantType === 'internal_student';
+    const sjrValue = Number(contributionData.sjr) || Number(contribution.sjr) || 0;
+    const quartileValue = contributionData.quartile || contribution.quartile;
+    
+    // Count co-authors for distribution
+    const authorsList = authors || contribution.authors || [];
+    const totalAuthorCount = authorsList.length || 1;
+    const coAuthorCount = authorsList.filter(a => 
+      a.authorRole === 'co_author' || a.authorRole === 'co' || a.authorType === 'co_author'
+    ).length;
+    
     let incentiveUpdate = {};
-    if (contributionData.targetedResearchType || contributionData.impactFactor || contributionData.authorType) {
+    if (contributionData.sjr || contributionData.quartile || contributionData.authorRole || contributionData.publicationDate) {
       const incentiveCalculation = await calculateIncentives(
         {
-          targetedResearchType: contributionData.targetedResearchType || contribution.targetedResearchType,
-          impactFactor: contributionData.impactFactor || contribution.impactFactor
+          publicationDate: contributionData.publicationDate || contribution.publicationDate,
+          quartile: quartileValue
         },
         contribution.publicationType,
-        contributionData.authorType || 'co_author'
+        contributionData.authorRole || contribution.authorRole || 'co_author',
+        applicantIsStudent,
+        sjrValue,
+        coAuthorCount,
+        totalAuthorCount
       );
       incentiveUpdate = {
         calculatedIncentiveAmount: incentiveCalculation.incentiveAmount,
@@ -1069,6 +1169,9 @@ exports.updateResearchContribution = async (req, res) => {
         let mappedAuthorType = 'co_author';
         if (author.authorRole === 'first_and_corresponding' || author.authorRole === 'first_and_corresponding_author') {
           mappedAuthorType = 'first_and_corresponding_author';
+        } else if ((author.authorRole === 'first_author' || author.authorRole === 'first') && author.isCorresponding) {
+          // If marked as first_author AND isCorresponding flag is true, it's first_and_corresponding_author
+          mappedAuthorType = 'first_and_corresponding_author';
         } else if (author.authorRole === 'first_author' || author.authorRole === 'first') {
           mappedAuthorType = 'first_author';
         } else if (author.authorRole === 'corresponding_author' || author.authorRole === 'corresponding') {
@@ -1084,10 +1187,12 @@ exports.updateResearchContribution = async (req, res) => {
 
         // Extract author category
         let authorCategory = null;
+        let authorIsStudent = false;
         if (author.authorType === 'internal_faculty') {
           authorCategory = 'faculty';
         } else if (author.authorType === 'internal_student') {
           authorCategory = 'student';
+          authorIsStudent = true;
         } else if (author.authorType === 'external_academic') {
           authorCategory = 'academic';
         } else if (author.authorType === 'external_industry') {
@@ -1096,15 +1201,19 @@ exports.updateResearchContribution = async (req, res) => {
           authorCategory = 'other';
         }
 
-        // Calculate author's incentive share
+        // Calculate author's incentive share based on quartile/SJR and role percentage
+        // Students get only incentives, no points
         const authorIncentive = await calculateIncentives(
           { 
-            targetedResearchType: contributionData.targetedResearchType || contribution.targetedResearchType,
-            impactFactor: contributionData.impactFactor || contribution.impactFactor,
-            sjr: contributionData.sjr || contribution.sjr
+            publicationDate: contributionData.publicationDate || contribution.publicationDate,
+            quartile: quartileValue
           },
           contribution.publicationType,
-          mappedAuthorType
+          mappedAuthorType,
+          authorIsStudent,
+          sjrValue,
+          coAuthorCount,
+          totalAuthorCount
         );
 
         await prisma.researchContributionAuthor.create({
@@ -1676,14 +1785,31 @@ exports.addAuthor = async (req, res) => {
       }
     }
 
-    // Calculate author's incentive share
+    // Count existing authors for incentive calculation
+    const existingAuthors = await prisma.researchContributionAuthor.findMany({
+      where: { researchContributionId: id },
+      select: { authorType: true }
+    });
+    const totalAuthorCount = existingAuthors.length + 2; // +1 for new author, +1 for applicant
+    const coAuthorCount = existingAuthors.filter(a => a.authorType === 'co_author').length 
+                        + (authorData.authorRole === 'co_author' || authorData.authorRole === 'co' ? 1 : 0);
+
+    // Calculate author's incentive share based on quartile/SJR and role percentage
+    // Check if author is a student based on authorData
+    const authorIsStudent = authorData.authorType === 'internal_student' || 
+                           (authorData.authorCategory && authorData.authorCategory.toLowerCase() === 'student');
+    const sjrValueForAdd = Number(contribution.sjr) || 0;
     const authorIncentive = await calculateIncentives(
       {
-        targetedResearchType: contribution.targetedResearchType,
-        impactFactor: contribution.impactFactor
+        publicationDate: contribution.publicationDate,
+        quartile: contribution.quartile
       },
       contribution.publicationType,
-      authorData.authorType || 'co_author'
+      authorData.authorRole || 'co_author',
+      authorIsStudent,
+      sjrValueForAdd,
+      coAuthorCount,
+      totalAuthorCount
     );
 
     const author = await prisma.researchContributionAuthor.create({
@@ -1892,11 +2018,13 @@ exports.lookupByRegistration = async (req, res) => {
             email: true,
             phoneNumber: true,
             designation: true,
-            primarySchool: {
-              select: { facultyName: true }
-            },
             primaryDepartment: {
-              select: { departmentName: true }
+              select: { 
+                departmentName: true,
+                faculty: {
+                  select: { facultyName: true }
+                }
+              }
             }
           }
         },
