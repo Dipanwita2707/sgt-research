@@ -13,6 +13,7 @@ export default function ResearchApplyPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const type = searchParams.get('type');
+  const editId = searchParams.get('edit'); // Get edit parameter for editing existing drafts
   const { user } = useAuthStore();
   const [canFileResearch, setCanFileResearch] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,6 +109,7 @@ export default function ResearchApplyPage() {
 
         <ResearchContributionForm 
           publicationType={type as any}
+          contributionId={editId || undefined}
           onSuccess={() => router.push('/research/my-contributions')}
         />
       </div>

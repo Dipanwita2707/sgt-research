@@ -42,16 +42,140 @@ const generateApplicationNumber = async (publicationType) => {
 };
 
 // Calculate incentives based on publication type, author type, indexing, etc.
-// Note: Students get only incentives (no points), employees get both
-// Updated logic:
-// - First Author gets their percentage
-// - Corresponding Author gets their percentage  
-// - If same person is First + Corresponding, they get BOTH percentages combined
-// - Co-Authors share the remainder (100% - first - corresponding) equally
-// - Single author gets 100%
-const calculateIncentives = async (contributionData, publicationType, authorRole, isStudent = false, sjrValue = 0, coAuthorCount = 0, totalAuthors = 1) => {
+// Updated Rules:
+// - External authors get ZERO incentives and ZERO points
+// - Students get incentives but ZERO points (employees get both)
+// - First Author gets their percentage (lost if external)
+// - Corresponding Author gets their percentage (lost if external)
+// - If same person is First + Corresponding, they get BOTH percentages combined (lost if external)
+// - Co-Authors share the remainder (100% - first - corresponding) equally among INTERNAL co-authors only
+// - External co-author shares are redistributed to internal co-authors (not lost)
+// - Single internal author gets 100%
+//
+// Parameters:
+// - isInternal: Whether the current author is internal (true) or external (false)
+// - internalCoAuthorCount: Number of INTERNAL co-authors (for redistribution)
+// - externalFirstCorrespondingPct: Percentage lost due to external first/corresponding authors
+
+/**
+ * Analyze author composition for incentive calculation
+ * Returns counts and flags needed for proper distribution
+ */
+const analyzeAuthorComposition = (allAuthors, applicantAuthorType = null, applicantRole = null) => {
+  let internalCount = 0;
+  let externalCount = 0;
+  let internalCoAuthorCount = 0;
+  let externalCoAuthorCount = 0;
+  let internalEmployeeCoAuthorCount = 0; // NEW: Count only internal employee co-authors (excludes students)
+  let externalFirstCorrespondingPct = 0;
+  
+  // Default role percentages for calculating lost percentages
+  const firstAuthorPct = 35;
+  const correspondingAuthorPct = 30;
+
+  // Include applicant if provided
+  if (applicantAuthorType !== null) {
+    const isApplicantInternal = applicantAuthorType?.startsWith('internal_') || false;
+    const isApplicantStudent = applicantAuthorType === 'internal_student';
+    if (isApplicantInternal) {
+      internalCount++;
+      if (applicantRole === 'co_author' || applicantRole === 'co') {
+        internalCoAuthorCount++;
+        // Only count employees (non-students) for point distribution
+        if (!isApplicantStudent) {
+          internalEmployeeCoAuthorCount++;
+        }
+      }
+    } else {
+      externalCount++;
+      if (applicantRole === 'co_author' || applicantRole === 'co') {
+        externalCoAuthorCount++;
+      }
+      // Check if applicant is external first/corresponding - their share is LOST
+      if (applicantRole === 'first_and_corresponding_author' || applicantRole === 'first_and_corresponding') {
+        externalFirstCorrespondingPct += firstAuthorPct + correspondingAuthorPct;
+      } else if (applicantRole === 'first_author' || applicantRole === 'first') {
+        externalFirstCorrespondingPct += firstAuthorPct;
+      } else if (applicantRole === 'corresponding_author' || applicantRole === 'corresponding') {
+        externalFirstCorrespondingPct += correspondingAuthorPct;
+      }
+    }
+  }
+
+  // Process all authors
+  for (const author of allAuthors) {
+    const isInternal = author.authorType?.startsWith('internal_') || 
+                      author.isInternal === true ||
+                      false;
+    
+    const isStudent = author.authorType === 'internal_student';
+    const role = author.authorRole || author.authorType || 'co_author';
+    
+    if (isInternal) {
+      internalCount++;
+      if (role === 'co_author' || role === 'co') {
+        internalCoAuthorCount++;
+        // Only count employees (non-students) for point distribution
+        if (!isStudent) {
+          internalEmployeeCoAuthorCount++;
+        }
+      }
+    } else {
+      externalCount++;
+      if (role === 'co_author' || role === 'co') {
+        externalCoAuthorCount++;
+      }
+      // Check if external author is first/corresponding - their share is LOST
+      if (role === 'first_and_corresponding_author' || role === 'first_and_corresponding') {
+        externalFirstCorrespondingPct += firstAuthorPct + correspondingAuthorPct;
+      } else if (role === 'first_author' || role === 'first') {
+        externalFirstCorrespondingPct += firstAuthorPct;
+      } else if (role === 'corresponding_author' || role === 'corresponding') {
+        externalFirstCorrespondingPct += correspondingAuthorPct;
+      }
+    }
+  }
+
+  return {
+    internalCount,
+    externalCount,
+    internalCoAuthorCount,
+    externalCoAuthorCount,
+    internalEmployeeCoAuthorCount, // NEW: For point distribution (excludes students)
+    totalCount: internalCount + externalCount,
+    externalFirstCorrespondingPct, // Percentage lost due to external first/corresponding authors
+    hasExternalFirstOrCorresponding: externalFirstCorrespondingPct > 0
+  };
+};
+
+const calculateIncentives = async (
+  contributionData, 
+  publicationType, 
+  authorRole, 
+  isStudent = false, 
+  sjrValue = 0, 
+  coAuthorCount = 0, 
+  totalAuthors = 1,
+  isInternal = true,                    // NEW: Is this author internal?
+  internalCoAuthorCount = 0,            // NEW: Count of internal co-authors only (for incentive distribution)
+  externalFirstCorrespondingPct = 0,    // NEW: Percentage lost to external first/corresponding
+  internalEmployeeCoAuthorCount = 0     // NEW: Count of internal employee co-authors only (for point distribution, excludes students)
+) => {
+  // RULE 1: External authors get ZERO incentives and points
+  if (!isInternal) {
+    return {
+      incentiveAmount: 0,
+      points: 0
+    };
+  }
+
   // Get active policy for this publication type based on publication date
   const publicationDate = contributionData.publicationDate ? new Date(contributionData.publicationDate) : new Date();
+  
+  console.log('[Policy Query] Looking for policy:', {
+    publicationType,
+    publicationDate: publicationDate.toISOString(),
+  });
   
   const policy = await prisma.researchIncentivePolicy.findFirst({
     where: {
@@ -65,6 +189,15 @@ const calculateIncentives = async (contributionData, publicationType, authorRole
     },
     orderBy: { effectiveFrom: 'desc' }
   });
+  
+  console.log('[Policy Found]:', policy ? {
+    id: policy.id,
+    policyName: policy.policyName,
+    effectiveFrom: policy.effectiveFrom,
+    effectiveTo: policy.effectiveTo,
+    hasIndexingBonuses: !!policy.indexingBonuses,
+    indexingBonusesKeys: policy.indexingBonuses ? Object.keys(policy.indexingBonuses) : []
+  } : 'No policy found, using defaults');
 
   // Default quartile incentives
   const defaultQuartileIncentives = [
@@ -93,6 +226,15 @@ const calculateIncentives = async (contributionData, publicationType, authorRole
   const quartileIncentives = policy?.indexingBonuses?.quartileIncentives || defaultQuartileIncentives;
   const sjrRanges = policy?.indexingBonuses?.sjrRanges || [];
   const rolePercentages = policy?.indexingBonuses?.rolePercentages || defaultRolePercentages;
+  
+  console.log('[Policy Data]:', {
+    usingPolicy: !!policy,
+    quartileIncentivesCount: quartileIncentives.length,
+    sjrRangesCount: sjrRanges.length,
+    rolePercentagesCount: rolePercentages.length,
+    quartileIncentives: quartileIncentives,
+    rolePercentages: rolePercentages
+  });
   
   // Get the total pool based on quartile first, then check SJR override
   let totalAmount = 0;
@@ -134,9 +276,14 @@ const calculateIncentives = async (contributionData, publicationType, authorRole
   // Calculate percentage based on role
   let rolePercentage = 0;
   
-  // Single author gets 100%
+  // Single internal author gets 100% (minus any lost external first/corresponding share)
   if (totalAuthors === 1) {
-    rolePercentage = 100;
+    rolePercentage = 100 - externalFirstCorrespondingPct;
+  }
+  // Special case: Exactly 2 authors with NO co-authors (one first, one corresponding)
+  // They split 50-50 regardless of policy percentages
+  else if (totalAuthors === 2 && internalCoAuthorCount === 0 && coAuthorCount === 0) {
+    rolePercentage = 50;
   }
   // First and Corresponding author (same person) gets BOTH percentages combined
   else if (authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding') {
@@ -150,22 +297,34 @@ const calculateIncentives = async (contributionData, publicationType, authorRole
   else if (authorRole === 'corresponding_author') {
     rolePercentage = correspondingAuthorPct;
   }
-  // Co-authors split the remainder equally
+  // Co-authors split the remainder equally among INTERNAL co-authors only
   else if (authorRole === 'co_author') {
-    // Split co-author total percentage among all co-authors
-    const effectiveCoAuthorCount = Math.max(coAuthorCount, 1);
-    rolePercentage = coAuthorTotalPct / effectiveCoAuthorCount;
+    // Use internal co-author count for redistribution (external co-author shares go to internal)
+    const effectiveInternalCoAuthorCount = Math.max(internalCoAuthorCount, 1);
+    // Co-author pool is NOT reduced - external co-author shares are redistributed to internal co-authors
+    rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
   }
   // Default fallback
   else {
-    rolePercentage = coAuthorTotalPct / Math.max(coAuthorCount, 1);
+    const effectiveInternalCoAuthorCount = Math.max(internalCoAuthorCount, 1);
+    rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
   }
 
   // Calculate this author's share based on role percentage
   const authorIncentive = Math.round((totalAmount * rolePercentage) / 100);
-  const authorPoints = Math.round((totalPoints * rolePercentage) / 100);
+  
+  // POINTS CALCULATION: Separate logic to exclude students from denominator
+  // For co-authors: points are divided only among EMPLOYEES (not students)
+  let pointPercentage = rolePercentage;
+  if (authorRole === 'co_author') {
+    // Use employee co-author count for point distribution (excludes students)
+    const effectiveEmployeeCoAuthorCount = Math.max(internalEmployeeCoAuthorCount, 1);
+    pointPercentage = coAuthorTotalPct / effectiveEmployeeCoAuthorCount;
+  }
+  
+  const authorPoints = Math.round((totalPoints * pointPercentage) / 100);
 
-  // Students get only incentives, no points
+  // RULE 2: Students get only incentives, no points (employees get both)
   if (isStudent) {
     return {
       incentiveAmount: authorIncentive,
@@ -238,6 +397,7 @@ exports.createResearchContribution = async (req, res) => {
       manuscriptFilePath,
       supportingDocsFilePaths,
       indexingDetails,
+      sdgGoals,
       // Applicant details
       applicantDetails,
       // Authors
@@ -245,6 +405,9 @@ exports.createResearchContribution = async (req, res) => {
       // Author type of the applicant
       authorType
     } = req.body;
+    
+    // Ensure sdgGoals is an array, not null
+    const sanitizedSdgGoals = sdgGoals === null || sdgGoals === undefined ? [] : sdgGoals;
 
     // Determine applicant type
     let applicantType = 'internal_faculty';
@@ -261,21 +424,37 @@ exports.createResearchContribution = async (req, res) => {
     // Count total authors and co-authors for incentive calculation
     const authorsList = authors || [];
     const totalAuthorCount = authorsList.length || 1;
-    const coAuthorCount = authorsList.filter(a => 
-      a.authorRole === 'co_author' || a.authorRole === 'co'
-    ).length;
+    
+    // Get applicant's author role from the first author (which should be the applicant)
+    const applicantAuthorRole = authorsList.length > 0 ? authorsList[0].authorRole : 'co_author';
+    
+    // Analyze author composition for proper incentive distribution
+    // Includes applicant as part of the analysis
+    const authorComposition = analyzeAuthorComposition(
+      authorsList, 
+      applicantType, 
+      applicantAuthorRole || 'co_author'
+    );
+
+    // Determine if applicant is internal (always true for staff/student/faculty)
+    const isApplicantInternal = applicantType?.startsWith('internal_') || true;
 
     // Calculate pre-determined incentives based on quartile/SJR and author role percentage
     // Students get only incentives, no points
+    // External authors get nothing
     const sjrValue = Number(sjr) || 0;
     const incentiveCalculation = await calculateIncentives(
       { publicationDate, quartile },
       publicationType,
-      authorRole || 'co_author',
+      applicantAuthorRole || 'co_author',
       isStudent,
       sjrValue,
-      coAuthorCount,
-      totalAuthorCount
+      authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors for reference
+      totalAuthorCount,
+      isApplicantInternal,                           // NEW: is this author internal
+      authorComposition.internalCoAuthorCount,       // NEW: internal co-author count for redistribution
+      authorComposition.externalFirstCorrespondingPct, // NEW: percentage lost to external first/corresponding
+      authorComposition.internalEmployeeCoAuthorCount // NEW: employee co-authors for point division
     );
 
     // Resolve and validate school/department references to avoid FK violations
@@ -398,6 +577,7 @@ exports.createResearchContribution = async (req, res) => {
         manuscriptFilePath,
         supportingDocsFilePaths,
         indexingDetails,
+        sdgGoals: sanitizedSdgGoals,
         // Pre-calculated incentives
         calculatedIncentiveAmount: incentiveCalculation.incentiveAmount,
         calculatedPoints: incentiveCalculation.points
@@ -490,6 +670,7 @@ exports.createResearchContribution = async (req, res) => {
         }
 
         // Calculate author's incentive share based on quartile/SJR and role percentage
+        // External authors get ZERO incentives and points
         // Students get only incentives, no points
         const sjrValue = Number(sjr) || 0;
         const authorIncentive = await calculateIncentives(
@@ -498,8 +679,12 @@ exports.createResearchContribution = async (req, res) => {
           mappedAuthorType,
           authorIsStudent,
           sjrValue,
-          coAuthorCount,
-          totalAuthorCount
+          authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors
+          totalAuthorCount,
+          isInternalAuthor,                              // NEW: is this author internal
+          authorComposition.internalCoAuthorCount,       // NEW: internal co-author count
+          authorComposition.externalFirstCorrespondingPct, // NEW: percentage lost to external first/corresponding
+          authorComposition.internalEmployeeCoAuthorCount // NEW: employee co-authors for point division
         );
 
         await prisma.researchContributionAuthor.create({
@@ -513,6 +698,8 @@ exports.createResearchContribution = async (req, res) => {
             phone: author.phone,
             affiliation: author.affiliation,
             department: author.department,
+            designation: author.designation || null,
+            isInternational: author.isInternational || false,
             authorOrder: author.orderNumber || 1,
             isCorresponding: author.isCorresponding || false,
             authorType: mappedAuthorType,
@@ -1027,6 +1214,11 @@ exports.updateResearchContribution = async (req, res) => {
     // Also extract mentorUid and add it to applicantDetails if present
     const { authors, applicantDetails, mentorUid, ...contributionData } = updateData;
     
+    // Ensure sdgGoals is an array, not null
+    if (contributionData.sdgGoals === null || contributionData.sdgGoals === undefined) {
+      contributionData.sdgGoals = [];
+    }
+    
     // If mentorUid is provided, add it to applicantDetails
     const updatedApplicantDetails = applicantDetails || {};
     if (mentorUid !== undefined) {
@@ -1036,15 +1228,20 @@ exports.updateResearchContribution = async (req, res) => {
     // Recalculate incentives if relevant fields changed
     // Check if applicant is a student
     const applicantIsStudent = contribution.applicantType === 'internal_student';
+    const isApplicantInternal = contribution.applicantType?.startsWith('internal_') || true;
     const sjrValue = Number(contributionData.sjr) || Number(contribution.sjr) || 0;
     const quartileValue = contributionData.quartile || contribution.quartile;
     
     // Count co-authors for distribution
     const authorsList = authors || contribution.authors || [];
     const totalAuthorCount = authorsList.length || 1;
-    const coAuthorCount = authorsList.filter(a => 
-      a.authorRole === 'co_author' || a.authorRole === 'co' || a.authorType === 'co_author'
-    ).length;
+    
+    // Analyze author composition for proper incentive distribution
+    const authorComposition = analyzeAuthorComposition(
+      authorsList,
+      contribution.applicantType,
+      contributionData.authorRole || contribution.authorRole || 'co_author'
+    );
     
     let incentiveUpdate = {};
     if (contributionData.sjr || contributionData.quartile || contributionData.authorRole || contributionData.publicationDate) {
@@ -1057,8 +1254,12 @@ exports.updateResearchContribution = async (req, res) => {
         contributionData.authorRole || contribution.authorRole || 'co_author',
         applicantIsStudent,
         sjrValue,
-        coAuthorCount,
-        totalAuthorCount
+        authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors
+        totalAuthorCount,
+        isApplicantInternal,                           // NEW: is applicant internal
+        authorComposition.internalCoAuthorCount,       // NEW: internal co-author count
+        authorComposition.externalFirstCorrespondingPct, // NEW: percentage lost to external first/corresponding
+        authorComposition.internalEmployeeCoAuthorCount // NEW: employee co-authors for point division
       );
       incentiveUpdate = {
         calculatedIncentiveAmount: incentiveCalculation.incentiveAmount,
@@ -1202,6 +1403,7 @@ exports.updateResearchContribution = async (req, res) => {
         }
 
         // Calculate author's incentive share based on quartile/SJR and role percentage
+        // External authors get ZERO incentives and points
         // Students get only incentives, no points
         const authorIncentive = await calculateIncentives(
           { 
@@ -1212,8 +1414,12 @@ exports.updateResearchContribution = async (req, res) => {
           mappedAuthorType,
           authorIsStudent,
           sjrValue,
-          coAuthorCount,
-          totalAuthorCount
+          authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors
+          totalAuthorCount,
+          isInternalAuthor,                              // NEW: is this author internal
+          authorComposition.internalCoAuthorCount,       // NEW: internal co-author count
+          authorComposition.externalFirstCorrespondingPct, // NEW: percentage lost to external first/corresponding
+          authorComposition.internalEmployeeCoAuthorCount // NEW: employee co-authors for point division
         );
 
         await prisma.researchContributionAuthor.create({
@@ -1227,6 +1433,8 @@ exports.updateResearchContribution = async (req, res) => {
             phone: author.phone,
             affiliation: author.affiliation,
             department: author.department,
+            designation: author.designation || null,
+            isInternational: author.isInternational || false,
             authorOrder: author.orderNumber || 1,
             isCorresponding: author.isCorresponding || false,
             authorType: mappedAuthorType,
@@ -1788,13 +1996,38 @@ exports.addAuthor = async (req, res) => {
     // Count existing authors for incentive calculation
     const existingAuthors = await prisma.researchContributionAuthor.findMany({
       where: { researchContributionId: id },
-      select: { authorType: true }
+      select: { authorType: true, isInternal: true, authorRole: true }
     });
+    
+    // Include the new author in the composition analysis
+    const allAuthorsForAnalysis = [
+      ...existingAuthors.map(a => ({
+        authorType: a.isInternal ? 'internal_faculty' : 'external_academic',
+        authorRole: a.authorType, // authorType field stores the role
+        isInternal: a.isInternal
+      })),
+      {
+        authorType: authorData.authorType || 'internal_faculty',
+        authorRole: authorData.authorRole || 'co_author',
+        isInternal: authorData.authorType?.startsWith('internal_') || authorData.isInternal !== false
+      }
+    ];
+    
     const totalAuthorCount = existingAuthors.length + 2; // +1 for new author, +1 for applicant
-    const coAuthorCount = existingAuthors.filter(a => a.authorType === 'co_author').length 
-                        + (authorData.authorRole === 'co_author' || authorData.authorRole === 'co' ? 1 : 0);
+    
+    // Analyze author composition for proper incentive distribution
+    const authorComposition = analyzeAuthorComposition(
+      allAuthorsForAnalysis,
+      contribution.applicantType,
+      contribution.authorRole || 'co_author'
+    );
+
+    // Determine if new author is internal
+    const isInternalAuthor = authorData.authorType?.startsWith('internal_') || 
+                            authorData.isInternal !== false;
 
     // Calculate author's incentive share based on quartile/SJR and role percentage
+    // External authors get ZERO incentives and points
     // Check if author is a student based on authorData
     const authorIsStudent = authorData.authorType === 'internal_student' || 
                            (authorData.authorCategory && authorData.authorCategory.toLowerCase() === 'student');
@@ -1808,8 +2041,12 @@ exports.addAuthor = async (req, res) => {
       authorData.authorRole || 'co_author',
       authorIsStudent,
       sjrValueForAdd,
-      coAuthorCount,
-      totalAuthorCount
+      authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors
+      totalAuthorCount,
+      isInternalAuthor,                              // NEW: is this author internal
+      authorComposition.internalCoAuthorCount,       // NEW: internal co-author count
+      authorComposition.externalFirstCorrespondingPct, // NEW: percentage lost to external first/corresponding
+      authorComposition.internalEmployeeCoAuthorCount // NEW: employee co-authors for point division
     );
 
     const author = await prisma.researchContributionAuthor.create({

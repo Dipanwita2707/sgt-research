@@ -309,10 +309,21 @@ export default function ResearchPolicyManagement() {
             <li>Quartile incentives (Q1-Q4) are <strong>mandatory</strong> for all policies</li>
             <li>SJR range incentives are <strong>optional</strong> and override quartile amounts when defined</li>
             <li><strong>First Author</strong> and <strong>Corresponding Author</strong> percentages are defined in policy</li>
-            <li><strong>Co-Authors</strong> automatically share the remainder (100% - First - Corresponding), split equally</li>
+            <li><strong>Co-Authors</strong> automatically share the remainder (100% - First - Corresponding), split equally among <strong>internal</strong> co-authors</li>
             <li>If same person is <strong>First + Corresponding</strong>, they get both percentages combined</li>
             <li>If <strong>single author</strong>, they get 100% of the incentive</li>
-            <li>Points are distributed only among <strong>employees</strong> (students get 0 points)</li>
+            <li>If <strong>exactly 2 authors with NO co-authors</strong> (one first, one corresponding), they <strong>split 50-50</strong></li>
+          </ul>
+          <p className="font-semibold mt-2 mb-1">External Author Rules:</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li><strong>External authors</strong> receive <strong>₹0 incentives and 0 points</strong></li>
+            <li>If <strong>External First/Corresponding Author</strong>: their share is <strong>forfeited</strong> (not redistributed)</li>
+            <li>If <strong>External Co-Author</strong>: their share is <strong>redistributed to internal co-authors</strong></li>
+          </ul>
+          <p className="font-semibold mt-2 mb-1">Point Distribution:</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li>Points are distributed only among <strong>employees</strong> (internal faculty/staff)</li>
+            <li><strong>Students</strong> get incentives but <strong>0 points</strong></li>
           </ul>
         </div>
       </div>

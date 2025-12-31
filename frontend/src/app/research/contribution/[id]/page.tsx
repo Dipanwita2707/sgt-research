@@ -71,11 +71,12 @@ const TARGETED_RESEARCH_LABELS: Record<string, string> = {
 };
 
 const QUARTILE_LABELS: Record<string, { label: string; color: string }> = {
+  top1: { label: 'Top 1%', color: 'text-emerald-600 bg-emerald-50' },
+  top5: { label: 'Top 5%', color: 'text-green-600 bg-green-50' },
   q1: { label: 'Q1 - Top 25%', color: 'text-green-600 bg-green-50' },
   q2: { label: 'Q2 - Top 50%', color: 'text-blue-600 bg-blue-50' },
   q3: { label: 'Q3 - Top 75%', color: 'text-yellow-600 bg-yellow-50' },
   q4: { label: 'Q4 - Bottom 25%', color: 'text-orange-600 bg-orange-50' },
-  na: { label: 'Not Applicable', color: 'text-gray-600 bg-gray-50' },
 };
 
 interface EditSuggestion {
@@ -660,6 +661,27 @@ export default function ContributionDetailPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Authors ({contribution.authors?.length || 0})
               </h3>
+              
+              {/* Incentive Distribution Rules Banner */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-semibold mb-1">Incentive Distribution Rules:</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li><strong>Single Author:</strong> Gets 100%</li>
+                      <li><strong>Exactly 2 Authors (no co-authors):</strong> Split 50-50</li>
+                      <li><strong>Same Person = First + Corresponding:</strong> Gets both percentages combined</li>
+                      <li><strong>Internal Faculty/Employees:</strong> Receive Incentives (₹) and Points</li>
+                      <li><strong>Internal Students:</strong> Receive Incentives only (no Points)</li>
+                      <li><strong>External Authors:</strong> ₹0 / 0 pts (do not receive incentives or points)</li>
+                      <li><strong>External First/Corresponding:</strong> Their share is forfeited</li>
+                      <li><strong>External Co-Authors:</strong> Their share goes to Internal Co-Authors</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              
               {contribution.authors && contribution.authors.length > 0 ? (
                 <div className="space-y-3">
                   {contribution.authors.map((author: any, index: number) => (

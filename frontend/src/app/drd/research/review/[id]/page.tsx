@@ -48,7 +48,7 @@ const EDITABLE_FIELDS = [
   { key: 'publicationStatus', label: 'Publication Status', type: 'select', options: ['published', 'in_press', 'accepted', 'under_review'] },
   { key: 'impactFactor', label: 'Impact Factor', type: 'number' },
   { key: 'sjr', label: 'SJR', type: 'number' },
-  { key: 'quartile', label: 'Quartile', type: 'select', options: ['q1', 'q2', 'q3', 'q4', 'na'] },
+  { key: 'quartile', label: 'Quartile', type: 'select', options: ['top1', 'top5', 'q1', 'q2', 'q3', 'q4'] },
   { key: 'abstract', label: 'Abstract', type: 'textarea' },
   { key: 'conferenceName', label: 'Conference Name', type: 'text' },
   { key: 'conferenceLocation', label: 'Conference Location', type: 'text' },
@@ -596,7 +596,7 @@ export default function ResearchReviewPage() {
         {/* Publication Details */}
         <div className={`bg-white rounded-xl shadow-sm border ${isEditMode ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'} p-6`}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Publication Details</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Journal Details </h2>
             {isEditMode && (
               <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
                 Click edit icon on any field to suggest changes
@@ -896,9 +896,16 @@ export default function ResearchReviewPage() {
               </div>
             </div>
           </div>
-          <p className="text-sm text-gray-500 mt-3">
-            These incentives and points will be credited to all internal authors upon approval.
-          </p>
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-800">
+              <strong>Distribution Rules:</strong> Single author gets 100%. Exactly 2 authors (no co-authors) split 50-50. 
+              Same person = First + Corresponding gets both percentages combined. 
+              Internal Faculty/Employees receive both incentives and points. 
+              Internal Students receive incentives only (no points). 
+              External authors receive neither (their co-author share goes to internal co-authors, 
+              but first/corresponding author share is forfeited).
+            </p>
+          </div>
         </div>
 
         {/* Review History */}

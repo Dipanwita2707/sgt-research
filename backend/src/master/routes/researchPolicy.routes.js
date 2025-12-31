@@ -6,6 +6,9 @@ const { protect, restrictTo } = require('../../middleware/auth');
 // Get all research policies (admin only)
 router.get('/', protect, restrictTo('admin'), policyController.getAllPolicies);
 
+// Get active policy by publication type (any authenticated user - for form preview)
+router.get('/active/:publicationType', protect, policyController.getPolicyByType);
+
 // Get policy by publication type (any authenticated user)
 router.get('/type/:publicationType', protect, policyController.getPolicyByType);
 

@@ -127,16 +127,23 @@ export default function ResearchContributionForm({ publicationType, contribution
   const [showMentorSuggestions, setShowMentorSuggestions] = useState(false);
   const mentorSuggestionsRef = useRef<HTMLDivElement>(null);
   
+  // Policy state - fetch from backend
+  const [policyData, setPolicyData] = useState<{
+    quartileIncentives: Array<{ quartile: string; incentiveAmount: number; points: number }>;
+    sjrRanges: Array<{ minSJR: number; maxSJR: number; incentiveAmount: number; points: number }>;
+    rolePercentages: Array<{ role: string; percentage: number }>;
+  } | null>(null);
+  
   // Form data
   const [formData, setFormData] = useState({
     publicationType,
     title: '',
     targetedResearchType: 'scopus' as 'scopus' | 'wos' | 'both' | 'ugc',
     hasInternationalAuthor: 'yes' as 'yes' | 'no',
-    numForeignUniversities: '',
+    numForeignUniversities: 0,
     impactFactor: '',
     sjr: '',
-    quartile: '' as '' | 'q1' | 'q2' | 'q3' | 'q4' | 'na',
+    quartile: '' as '' | 'top1' | 'top5' | 'q1' | 'q2' | 'q3' | 'q4',
     isInterdisciplinary: 'yes' as 'yes' | 'no',
     hasLpuStudents: 'yes' as 'yes' | 'no',
     journalName: '',
@@ -177,58 +184,253 @@ export default function ResearchContributionForm({ publicationType, contribution
     email?: string;
     affiliation?: string;
     authorRole?: string;
+    designation?: string;
   }>>([]);
   
   // Check if any authors have been added (to lock author count fields)
   const hasAuthorsAdded = coAuthors.some(a => a.name);
   
+  // Helper function to analyze author composition for incentive calculation
+  const analyzeAuthorCompositionFrontend = () => {
+    let internalCoAuthorCount = 0;
+    let internalEmployeeCoAuthorCount = 0; // NEW: Track employee co-authors separately
+    let externalCoAuthorCount = 0;
+    let externalFirstCorrespondingPct = 0;
+    
+    // Role percentages from policy (default)
+    const firstAuthorPct = 35;
+    const correspondingAuthorPct = 30;
+
+    // Check if applicant (you) is a co-author - if so, count them
+    const applicantIsCoAuthor = userAuthorType === 'co_author';
+    const applicantIsStudent = user?.userType === 'student';
+    if (applicantIsCoAuthor) {
+      internalCoAuthorCount++;
+      if (!applicantIsStudent) {
+        internalEmployeeCoAuthorCount++;
+      }
+    }
+
+    // Analyze all OTHER co-authors (not including applicant)
+    for (const author of coAuthors) {
+      if (!author.name) continue;
+      
+      const isInternal = author.authorCategory === 'Internal';
+      const isStudent = author.authorType === 'Student';
+      const role = author.authorRole;
+      
+      if (isInternal) {
+        if (role === 'co_author' || role === 'co') {
+          internalCoAuthorCount++;
+          // Track employee co-authors separately (exclude students)
+          if (!isStudent) {
+            internalEmployeeCoAuthorCount++;
+          }
+        }
+      } else {
+        if (role === 'co_author' || role === 'co') {
+          externalCoAuthorCount++;
+        }
+        // Check if external author is first/corresponding - their share is LOST
+        if (role === 'first_and_corresponding_author' || role === 'first_and_corresponding') {
+          externalFirstCorrespondingPct += firstAuthorPct + correspondingAuthorPct;
+        } else if (role === 'first_author' || role === 'first') {
+          externalFirstCorrespondingPct += firstAuthorPct;
+        } else if (role === 'corresponding_author' || role === 'corresponding') {
+          externalFirstCorrespondingPct += correspondingAuthorPct;
+        }
+      }
+    }
+
+    return {
+      internalCoAuthorCount,
+      internalEmployeeCoAuthorCount, // NEW: Return employee co-author count
+      externalCoAuthorCount,
+      externalFirstCorrespondingPct
+    };
+  };
+  
   // Helper function to calculate incentive and points for an author
-  // Updated to use SJR-based percentage distribution
+  // Updated with NEW RULES:
+  // - External authors get ZERO incentives and points
+  // - Students get incentives but ZERO points
+  // - External first/corresponding author percentages are LOST (not redistributed)
+  // - External co-author percentages are redistributed to internal co-authors
   const calculateAuthorIncentivePoints = (authorType: string, authorCategory: string, authorRole: string) => {
-    // SJR-based incentives (default values)
+    // RULE 1: External authors get ZERO incentives and points
+    if (authorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+
+    // Default quartile-based incentives (fallback if policy not loaded)
+    // Top 1% and Top 5% get same benefits as Q1
+    const defaultQuartileIncentives: Record<string, { incentiveAmount: number; points: number }> = {
+      'TOP1': { incentiveAmount: 50000, points: 50 },
+      'TOP5': { incentiveAmount: 50000, points: 50 },
+      'Q1': { incentiveAmount: 50000, points: 50 },
+      'Q2': { incentiveAmount: 30000, points: 30 },
+      'Q3': { incentiveAmount: 15000, points: 15 },
+      'Q4': { incentiveAmount: 5000, points: 5 },
+    };
+
+    // Use policy data if available, otherwise use defaults
+    const quartileIncentives: Record<string, { incentiveAmount: number; points: number }> = {};
+    if (policyData?.quartileIncentives && policyData.quartileIncentives.length > 0) {
+      policyData.quartileIncentives.forEach(q => {
+        quartileIncentives[q.quartile.toUpperCase()] = {
+          incentiveAmount: q.incentiveAmount,
+          points: q.points
+        };
+      });
+      // TOP1 and TOP5 use same incentives as Q1 from policy
+      if (quartileIncentives['Q1']) {
+        quartileIncentives['TOP1'] = { ...quartileIncentives['Q1'] };
+        quartileIncentives['TOP5'] = { ...quartileIncentives['Q1'] };
+      }
+    } else {
+      Object.assign(quartileIncentives, defaultQuartileIncentives);
+    }
+
+    // SJR-based incentives from policy (or default)
     const defaultSJRRanges = [
       { minSJR: 2.0, maxSJR: 999, incentiveAmount: 50000, points: 50 },
       { minSJR: 1.0, maxSJR: 1.99, incentiveAmount: 30000, points: 30 },
       { minSJR: 0.5, maxSJR: 0.99, incentiveAmount: 15000, points: 15 },
       { minSJR: 0.0, maxSJR: 0.49, incentiveAmount: 5000, points: 5 },
     ];
+    const sjrRanges = policyData?.sjrRanges && policyData.sjrRanges.length > 0 
+      ? policyData.sjrRanges 
+      : defaultSJRRanges;
 
-    // Role percentages for distribution
-    const rolePercentages: Record<string, number> = {
-      'first_and_corresponding': 30,
-      'first_author': 25,
-      'corresponding_author': 20,
-      'co_author': 15,
-    };
+    // Role percentages for distribution from policy (or default)
+    const defaultFirstAuthorPct = 35;
+    const defaultCorrespondingAuthorPct = 30;
     
-    // Get SJR value from form data
-    const sjrValue = Number(formData.sjr) || 0;
+    let firstAuthorPct = defaultFirstAuthorPct;
+    let correspondingAuthorPct = defaultCorrespondingAuthorPct;
     
-    // Find matching SJR range
-    const matchingRange = defaultSJRRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR) 
-      || defaultSJRRanges[defaultSJRRanges.length - 1];
-    
-    const totalIncentive = matchingRange.incentiveAmount;
-    const totalPoints = matchingRange.points;
-    
-    // Get percentage for this author role
-    const rolePercentage = rolePercentages[authorRole] || 15;
-    
-    // Calculate this author's share based on role percentage
-    const authorIncentive = Math.round((totalIncentive * rolePercentage) / 100);
-    const authorPoints = Math.round((totalPoints * rolePercentage) / 100);
-    
-    // External authors get no incentive or points
-    if (authorCategory === 'External') {
-      return { incentive: 0, points: 0 };
+    if (policyData?.rolePercentages && policyData.rolePercentages.length > 0) {
+      const firstRole = policyData.rolePercentages.find(r => r.role === 'first_author');
+      const corrRole = policyData.rolePercentages.find(r => r.role === 'corresponding_author');
+      if (firstRole) firstAuthorPct = firstRole.percentage;
+      if (corrRole) correspondingAuthorPct = corrRole.percentage;
     }
     
-    // Students get only incentives, no points
+    const coAuthorTotalPct = 100 - firstAuthorPct - correspondingAuthorPct;
+    
+    // Get quartile and SJR values from form data
+    const quartile = formData.quartile?.toUpperCase() || '';
+    const sjrValue = Number(formData.sjr) || 0;
+    
+    // Determine base amounts - quartile first, then SJR override
+    let totalIncentive = 0;
+    let totalPoints = 0;
+    
+    // Check quartile first
+    if (quartile && quartileIncentives[quartile]) {
+      totalIncentive = quartileIncentives[quartile].incentiveAmount;
+      totalPoints = quartileIncentives[quartile].points;
+      console.log(`[Calculation] Quartile ${quartile}: Total Pool = ₹${totalIncentive}, ${totalPoints} pts`);
+    }
+    
+    // SJR can override if present
+    if (sjrValue > 0 && sjrRanges.length > 0) {
+      const matchingRange = sjrRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR);
+      if (matchingRange) {
+        totalIncentive = matchingRange.incentiveAmount;
+        totalPoints = matchingRange.points;
+      }
+    }
+    
+    // Fallback if no quartile and no SJR match
+    if (totalIncentive === 0 && sjrValue > 0 && sjrRanges.length > 0) {
+      const fallbackRange = sjrRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR) 
+        || sjrRanges[sjrRanges.length - 1];
+      totalIncentive = fallbackRange.incentiveAmount;
+      totalPoints = fallbackRange.points;
+    }
+    
+    // Analyze author composition
+    const composition = analyzeAuthorCompositionFrontend();
+    
+    // Calculate percentage based on role
+    let rolePercentage = 0;
+    
+    // Get total authors count (including applicant)
+    const otherAuthorsCount = coAuthors.filter(a => a.name).length;
+    const totalAuthorCount = otherAuthorsCount + 1; // +1 for applicant (you)
+    
+    // Check if we have exactly First + Corresponding (2 authors, no co-authors)
+    // Need to check both the current author, co-authors array, AND the applicant's role
+    const hasFirstAuthor = authorRole === 'first_author' || authorRole === 'first' || 
+                          userAuthorType === 'first_author' || userAuthorType === 'first' ||
+                          coAuthors.some(a => a.name && (a.authorRole === 'first_author' || a.authorRole === 'first'));
+    const hasCorrespondingAuthor = authorRole === 'corresponding_author' || authorRole === 'corresponding' || 
+                                   userAuthorType === 'corresponding_author' || userAuthorType === 'corresponding' ||
+                                   coAuthors.some(a => a.name && (a.authorRole === 'corresponding_author' || a.authorRole === 'corresponding'));
+    const hasCoAuthors = authorRole === 'co_author' || authorRole === 'co' ||
+                        userAuthorType === 'co_author' || userAuthorType === 'co' ||
+                        coAuthors.some(a => a.name && (a.authorRole === 'co_author' || a.authorRole === 'co'));
+    const hasFirstAndCorresponding = authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding' ||
+                                     userAuthorType === 'first_and_corresponding_author' || userAuthorType === 'first_and_corresponding' ||
+                                     coAuthors.some(a => a.name && (a.authorRole === 'first_and_corresponding_author' || a.authorRole === 'first_and_corresponding'));
+    
+    // Special case: exactly 2 authors (First + Corresponding, no co-authors) = 50-50 split
+    const isTwoAuthorFirstCorrSplit = totalAuthorCount === 2 && hasFirstAuthor && hasCorrespondingAuthor && !hasCoAuthors && !hasFirstAndCorresponding;
+    
+    // Single internal author gets 100% (minus any lost external first/corresponding share)
+    if (totalAuthorCount === 1) {
+      rolePercentage = 100 - composition.externalFirstCorrespondingPct;
+    }
+    // Special case: Two authors only (First + Corresponding) = 50-50 split
+    else if (isTwoAuthorFirstCorrSplit && (authorRole === 'first_author' || authorRole === 'first' || authorRole === 'corresponding_author' || authorRole === 'corresponding')) {
+      rolePercentage = 50;
+      console.log(`[Calculation] Two-author First+Corresponding split: 50-50`);
+    }
+    // First and Corresponding author (same person) gets BOTH percentages combined
+    else if (authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding') {
+      rolePercentage = firstAuthorPct + correspondingAuthorPct;
+    }
+    // First author gets their percentage (when co-authors exist)
+    else if (authorRole === 'first_author' || authorRole === 'first') {
+      rolePercentage = firstAuthorPct;
+    }
+    // Corresponding author gets their percentage (when co-authors exist)
+    else if (authorRole === 'corresponding_author' || authorRole === 'corresponding') {
+      rolePercentage = correspondingAuthorPct;
+    }
+    // Co-authors split the remainder equally among INTERNAL co-authors only
+    else if (authorRole === 'co_author' || authorRole === 'co') {
+      // External co-author shares are redistributed to internal co-authors
+      const effectiveInternalCoAuthorCount = Math.max(composition.internalCoAuthorCount, 1);
+      rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
+    }
+    // Default fallback
+    else {
+      const effectiveInternalCoAuthorCount = Math.max(composition.internalCoAuthorCount, 1);
+      rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
+    }
+    
+    // Calculate this author's share based on role percentage
+    // For incentives: use internalCoAuthorCount (includes students)
+    const authorIncentive = Math.round((totalIncentive * rolePercentage) / 100);
+    console.log(`[Calculation] ${authorRole}: ${rolePercentage}% of ₹${totalIncentive} = ₹${authorIncentive}`);
+    
+    // For points: use internalEmployeeCoAuthorCount (excludes students)
+    // This ensures students don't reduce employee point shares
+    let pointRolePercentage = rolePercentage;
+    if (authorRole === 'co_author' || authorRole === 'co') {
+      const effectiveEmployeeCoAuthorCount = Math.max(composition.internalEmployeeCoAuthorCount, 1);
+      pointRolePercentage = coAuthorTotalPct / effectiveEmployeeCoAuthorCount;
+    }
+    const authorPoints = Math.round((totalPoints * pointRolePercentage) / 100);
+    
+    // RULE 2: Students get only incentives, no points (employees get both)
     if (authorType === 'Student') {
       return { incentive: authorIncentive, points: 0 };
     }
     
-    // Faculty/Employees get both
+    // Faculty/Employees get both incentives and points
     return { incentive: authorIncentive, points: authorPoints };
   };
   
@@ -248,6 +450,7 @@ export default function ResearchContributionForm({ publicationType, contribution
     email: '',
     affiliation: 'SGT University',
     authorRole: 'co_author',
+    designation: '',
   });
   
   // Update newAuthor category when totalInternalAuthors/totalInternalCoAuthors changes
@@ -437,9 +640,9 @@ export default function ResearchContributionForm({ publicationType, contribution
       });
     }
     
-    // Special case: User selected First/Corresponding Author and there's only 1 internal co-author slot
-    // The other internal author MUST be the co-author
-    if (totalInternalCoAuthors === 1 && userAuthorType !== 'co_author' && newAuthor.authorCategory === 'Internal') {
+    // Special case: User selected First/Corresponding Author, there's only 1 internal co-author slot, AND only 2 total authors
+    // The other internal author MUST be a co-author
+    if (totalAuthors === 2 && totalInternalCoAuthors === 1 && userAuthorType !== 'co_author' && newAuthor.authorCategory === 'Internal') {
       return [
         { value: 'co_author', label: 'Co-Author' },
       ];
@@ -499,6 +702,7 @@ export default function ResearchContributionForm({ publicationType, contribution
 
   useEffect(() => {
     fetchSchools();
+    fetchPolicy(); // Fetch policy on component mount
     if (contributionId) {
       fetchContribution();
     } else {
@@ -580,6 +784,27 @@ export default function ResearchContributionForm({ publicationType, contribution
     }
   };
 
+  const fetchPolicy = async () => {
+    try {
+      // Fetch active policy for research_paper publication type
+      const response = await api.get('/research-policies/active/research_paper');
+      if (response.data.success && response.data.data) {
+        const policy = response.data.data;
+        if (policy.indexingBonuses) {
+          setPolicyData({
+            quartileIncentives: policy.indexingBonuses.quartileIncentives || [],
+            sjrRanges: policy.indexingBonuses.sjrRanges || [],
+            rolePercentages: policy.indexingBonuses.rolePercentages || []
+          });
+          console.log('Policy loaded:', policy.indexingBonuses);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching policy:', error);
+      // Keep defaults if policy fetch fails
+    }
+  };
+
   const fetchDepartments = async (schoolId: string) => {
     try {
       const response = await api.get(`/departments?schoolId=${schoolId}`);
@@ -603,15 +828,27 @@ export default function ResearchContributionForm({ publicationType, contribution
           title: contrib.title || '',
           targetedResearchType: contrib.targetedResearchType || 'scopus',
           hasInternationalAuthor: contrib.internationalAuthor ? 'yes' : 'no',
-          numForeignUniversities: contrib.foreignCollaborationsCount?.toString() || '',
+          numForeignUniversities: contrib.foreignCollaborationsCount || 0,
           impactFactor: contrib.impactFactor?.toString() || '',
           sjr: contrib.sjr?.toString() || '',
           quartile: contrib.quartile || '',
           isInterdisciplinary: contrib.interdisciplinaryFromSgt ? 'yes' : 'no',
           hasLpuStudents: contrib.studentsFromSgt ? 'yes' : 'no',
           journalName: contrib.journalName || '',
+          volume: contrib.volume || '',
+          issue: contrib.issue || '',
+          pageNumbers: contrib.pageNumbers || '',
+          doi: contrib.doi || '',
+          issn: contrib.issn || '',
+          publisherName: contrib.publisherName || '',
+          publisherLocation: contrib.publisherLocation || '',
+          publicationDate: contrib.publicationDate ? new Date(contrib.publicationDate).toISOString().split('T')[0] : '',
+          publicationStatus: contrib.publicationStatus || 'published',
+          sdgGoals: contrib.sdgGoals || [],
           schoolId: contrib.schoolId || '',
           departmentId: contrib.departmentId || '',
+          mentorUid: contrib.mentorUid || '',
+          mentorName: contrib.mentor?.displayName || '',
         });
         
         // Load author counts
@@ -738,7 +975,8 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorCategory: 'Internal',
         email: '',
         affiliation: 'SGT University',
-        authorRole: newAuthor.authorRole
+        authorRole: newAuthor.authorRole,
+        designation: '',
       });
       return;
     }
@@ -785,7 +1023,8 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorCategory: 'Internal',
         email: userEmail,
         affiliation: 'SGT University',
-        authorRole: newAuthor.authorRole
+        authorRole: newAuthor.authorRole,
+        designation: '',
       });
     } catch (error) {
       // Fallback if full lookup fails
@@ -796,7 +1035,8 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorCategory: 'Internal',
         email: '',
         affiliation: 'SGT University',
-        authorRole: newAuthor.authorRole
+        authorRole: newAuthor.authorRole,
+        designation: '',
       });
     }
     
@@ -817,7 +1057,8 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorCategory: 'Internal',
         email: '',
         affiliation: 'SGT University',
-        authorRole: newAuthor.authorRole
+        authorRole: newAuthor.authorRole,
+        designation: '',
       });
       setError('You cannot add yourself as a co-author. You are already the primary author.');
       return;
@@ -850,7 +1091,8 @@ export default function ResearchContributionForm({ publicationType, contribution
           authorCategory: 'Internal',
           email: userEmail,
           affiliation: 'SGT University',
-          authorRole: newAuthor.authorRole
+          authorRole: newAuthor.authorRole,
+          designation: '',
         });
         
         setSearchSuggestions([]);
@@ -866,7 +1108,8 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorCategory: 'Internal',
         email: '',
         affiliation: 'SGT University',
-        authorRole: newAuthor.authorRole
+        authorRole: newAuthor.authorRole,
+        designation: '',
       });
       setError(`User not found with that ${newAuthor.authorType === 'Student' ? 'Registration Number' : 'UID'}`);
       setSearchSuggestions([]);
@@ -875,6 +1118,17 @@ export default function ResearchContributionForm({ publicationType, contribution
   };
   
   const addOrUpdateAuthor = () => {
+    console.log('[addOrUpdateAuthor] Attempting to add/update:', newAuthor);
+    console.log('[addOrUpdateAuthor] Current state:', {
+      totalAuthors,
+      totalInternalAuthors,
+      totalInternalCoAuthors,
+      coAuthorsTotal: coAuthors.filter(a => a.name).length,
+      internalCoAuthorsAdded: coAuthors.filter(a => a.name && a.authorCategory === 'Internal' && a.authorRole === 'co_author').length,
+      internalTotal: coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length,
+      externalAdded: coAuthors.filter(a => a.name && a.authorCategory === 'External').length
+    });
+    
     if (!newAuthor.name) {
       setError('Author name is required');
       return;
@@ -893,6 +1147,10 @@ export default function ResearchContributionForm({ publicationType, contribution
       }
       if (!newAuthor.affiliation) {
         setError('Organization/Institute is required for external authors');
+        return;
+      }
+      if (!newAuthor.designation) {
+        setError('Designation is required for external authors');
         return;
       }
     }
@@ -918,8 +1176,8 @@ export default function ResearchContributionForm({ publicationType, contribution
       // Calculate max co-authors based on total authors (totalAuthors - 1 because applicant is already counted)
       const maxCoAuthors = totalAuthors - 1;
       
-      // Count internal and external authors already added
-      const internalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+      // Count internal CO-AUTHORS specifically (not all internal authors)
+      const internalCoAuthorsAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal' && a.authorRole === 'co_author').length;
       const externalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
       
       // Check if we've reached overall limit
@@ -930,15 +1188,29 @@ export default function ResearchContributionForm({ publicationType, contribution
       
       // Check specific limits based on author category being added
       if (newAuthor.authorCategory === 'Internal') {
-        // When all internal are co-authors (Internal = Co-Authors), you need to add (Co-Authors - 1) internal
-        // Otherwise, you need to add Co-Authors internal
-        const maxInternalToAdd = (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0)
-          ? totalInternalCoAuthors - 1  // Exclude yourself
-          : totalInternalCoAuthors;
-        
-        if (internalAdded >= maxInternalToAdd) {
-          setError(`You can only add ${maxInternalToAdd} internal co-author(s). You've already added ${internalAdded}.`);
-          return;
+        // If adding a co-author, check against co-author limit
+        if (newAuthor.authorRole === 'co_author') {
+          // Internal Co-Authors field specifies how many internal co-authors are allowed
+          const maxInternalCoAuthors = totalInternalCoAuthors;
+          
+          if (internalCoAuthorsAdded >= maxInternalCoAuthors) {
+            const remaining = totalAuthors - 1 - currentCount; // Total slots minus applicant minus all added
+            setError(`You can only add ${maxInternalCoAuthors} internal co-author(s). You've already added ${internalCoAuthorsAdded}. You can add ${remaining} more author(s) as External authors or Internal authors with other roles (First/Corresponding).`);
+            console.log('[addOrUpdateAuthor] Internal co-author limit reached:', { maxInternalCoAuthors, internalCoAuthorsAdded, remaining });
+            return;
+          }
+        }
+        // For other internal roles (First, Corresponding), just check total SGT authors
+        else {
+          const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+          // SGT Authors = total internal authors including applicant
+          const maxInternalAuthors = totalInternalAuthors - 1; // Minus applicant
+          
+          if (totalInternalAdded >= maxInternalAuthors) {
+            setError(`You can only add ${maxInternalAuthors} internal author(s) total (based on SGT Authors = ${totalInternalAuthors}). You've already added ${totalInternalAdded}.`);
+            console.log('[addOrUpdateAuthor] Total internal author limit reached:', { maxInternalAuthors, totalInternalAdded });
+            return;
+          }
         }
       } else {
         // External authors calculation:
@@ -984,6 +1256,7 @@ export default function ResearchContributionForm({ publicationType, contribution
       email: '',
       affiliation: defaultAffiliation,
       authorRole: defaultRole,
+      designation: '',
     });
     
     setError(null);
@@ -999,6 +1272,7 @@ export default function ResearchContributionForm({ publicationType, contribution
       email: author.email || '',
       affiliation: author.affiliation || 'SGT University',
       authorRole: author.authorRole || 'co_author',
+      designation: author.designation || '',
     });
     setEditingAuthorIndex(index);
   };
@@ -1014,6 +1288,7 @@ export default function ResearchContributionForm({ publicationType, contribution
         email: '',
         affiliation: 'SGT University',
         authorRole: 'co_author',
+        designation: '',
       };
       return updated;
     });
@@ -1043,6 +1318,7 @@ export default function ResearchContributionForm({ publicationType, contribution
             email: '',
             affiliation: 'SGT University',
             authorRole: defaultRole,
+            designation: '',
           }))
         ]);
       } else {
@@ -1051,6 +1327,32 @@ export default function ResearchContributionForm({ publicationType, contribution
       }
     }
   }, [totalInternalAuthors, totalInternalCoAuthors]);
+  
+  // Auto-switch to External when internal slots are full
+  useEffect(() => {
+    const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+    const maxInternalToAdd = totalInternalAuthors - 1; // Minus applicant
+    const internalSlotsFull = totalInternalAdded >= maxInternalToAdd;
+    
+    // If internal slots are full and currently set to Internal, switch to External
+    if (internalSlotsFull && newAuthor.authorCategory === 'Internal' && totalAuthors > totalInternalAuthors) {
+      console.log('[Auto-switch] Internal slots full, switching to External');
+      const availableRoles = getAvailableOtherAuthorRoles();
+      setNewAuthor(prev => ({
+        ...prev,
+        authorCategory: 'External',
+        authorType: 'Academic',
+        affiliation: '',
+        uid: '',
+        name: '',
+        email: '',
+        authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'co_author',
+        designation: '',
+        isInternational: false,
+      }));
+      setError(`Internal author limit reached (${maxInternalToAdd} of ${maxInternalToAdd}). Remaining authors must be External.`);
+    }
+  }, [coAuthors, totalInternalAuthors, totalAuthors, newAuthor.authorCategory]);
   
   // Auto-set user author type based on allowed roles
   useEffect(() => {
@@ -1117,10 +1419,10 @@ export default function ResearchContributionForm({ publicationType, contribution
         if (coAuthor.authorCategory === 'Internal') {
           authorType = coAuthor.authorType === 'Student' ? 'internal_student' : 'internal_faculty';
         } else {
-          // External authors - Academic, Industry, or Other
+          // External authors - Academic, Industry, or International Author
           if (coAuthor.authorType === 'Academic') authorType = 'external_academic';
           else if (coAuthor.authorType === 'Industry') authorType = 'external_industry';
-          else if (coAuthor.authorType === 'Other') authorType = 'external_other';
+          else if (coAuthor.authorType === 'International Author') authorType = 'external_international';
           else authorType = 'external_other'; // Fallback
         }
         
@@ -1133,6 +1435,7 @@ export default function ResearchContributionForm({ publicationType, contribution
           affiliation: coAuthor.affiliation || (coAuthor.authorCategory === 'Internal' ? 'SGT University' : null),
           isCorresponding: false,
           orderNumber: index + 2,
+          designation: coAuthor.designation || null,
         });
       }
     });
@@ -1246,8 +1549,24 @@ export default function ResearchContributionForm({ publicationType, contribution
       return;
     }
     
+    // Validate foreign universities vs external authors
+    const numForeignUnis = Number(formData.numForeignUniversities) || 0;
+    if (numForeignUnis > 0) {
+      const externalAuthorsAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
+      if (externalAuthorsAdded < numForeignUnis) {
+        setError(`You specified ${numForeignUnis} foreign universit${numForeignUnis > 1 ? 'ies' : 'y'} but only added ${externalAuthorsAdded} external author(s). Please add at least ${numForeignUnis} external author(s).`);
+        return;
+      }
+    }
+    
     if (!formData.journalName) {
       setError('Journal name is required');
+      return;
+    }
+    
+    // Validate weblink URL if provided
+    if (formData.publisherName && !formData.publisherName.startsWith('https://')) {
+      setError('Weblink URL must start with https://');
       return;
     }
     
@@ -1402,136 +1721,97 @@ export default function ResearchContributionForm({ publicationType, contribution
                 />
               </div>
 
-          {/* Row 1: Options Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-5 p-5 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-slate-200">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Targeted Research <span className="text-red-500">*</span>
-              </label>
-              <div className="flex flex-wrap gap-3">
-                {[{v:'scopus',l:'Scopus'},{v:'wos',l:'SCI/SCIE'},{v:'both',l:'Both'}].map(opt => (
-                  <label key={opt.v} className="inline-flex items-center text-sm cursor-pointer">
-                    <input type="radio" name="targetedResearchType" value={opt.v}
-                      checked={formData.targetedResearchType === opt.v}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-1.5 text-gray-700">{opt.l}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                International Author <span className="text-red-500">*</span>
-              </label>
-              <div className="flex gap-4">
-                {['yes','no'].map(v => (
-                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
-                    <input type="radio" name="hasInternationalAuthor" value={v}
-                      checked={formData.hasInternationalAuthor === v}
-                      onChange={(e) => { handleInputChange(e); setError(null); }}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Interdisciplinary(SGT) <span className="text-red-500">*</span>
-              </label>
-              <div className="flex gap-4">
-                {['yes','no'].map(v => (
-                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
-                    <input type="radio" name="isInterdisciplinary" value={v}
-                      checked={formData.isInterdisciplinary === v}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Student(s) from SGT <span className="text-red-500">*</span>
-              </label>
-              <div className="flex gap-4">
-                {['yes','no'].map(v => (
-                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
-                    <input type="radio" name="hasLpuStudents" value={v}
-                      checked={formData.hasLpuStudents === v}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Conditional: Foreign Universities count */}
-          {formData.hasInternationalAuthor === 'yes' && (
-            <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-              <label className="text-sm font-medium text-gray-700">
-                Foreign Universities Collaborated:
-              </label>
-              <input
-                type="number"
-                name="numForeignUniversities"
-                value={formData.numForeignUniversities}
-                onChange={handleInputChange}
-                min="0"
-                className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="0"
-              />
-            </div>
-          )}
-
-          {/* Conditional Fields: SJR + Quartile + Impact Factor */}
-          {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both' || formData.targetedResearchType === 'wos') && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both') && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">SJR</label>
-                    <input type="text" name="sjr" value={formData.sjr} onChange={handleInputChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-colors"
-                      placeholder="e.g. 0.5"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Quartile <span className="text-red-500">*</span></label>
-                    <div className="flex flex-wrap gap-3">
-                      {['q1','q2','q3','q4','na'].map(q => (
-                        <label key={q} className="inline-flex items-center text-sm cursor-pointer">
-                          <input type="radio" name="quartile" value={q}
-                            checked={formData.quartile === q}
-                            onChange={handleInputChange}
-                            className="w-4 h-4 text-blue-600"
-                          />
-                          <span className="ml-1 uppercase text-gray-700">{q === 'na' ? 'N/A' : q}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-              {(formData.targetedResearchType === 'wos' || formData.targetedResearchType === 'both') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Impact Factor <span className="text-red-500">*</span></label>
-                  <input type="text" name="impactFactor" value={formData.impactFactor} onChange={handleInputChange}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-colors"
-                    placeholder="e.g. 2.5"
-                  />
+          {/* Research Details - All in One Box */}
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-slate-200 space-y-5">
+            {/* Row 1: Targeted Research & Interdisciplinary */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Targeted Research <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  {[{v:'scopus',l:'Scopus'},{v:'wos',l:'SCI/SCIE'},{v:'both',l:'Both'}].map(opt => (
+                    <label key={opt.v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="targetedResearchType" value={opt.v}
+                        checked={formData.targetedResearchType === opt.v}
+                        onChange={handleInputChange}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="ml-1.5 text-gray-700">{opt.l}</span>
+                    </label>
+                  ))}
                 </div>
-              )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Interdisciplinary(SGT) <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-4">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="isInterdisciplinary" value={v}
+                        checked={formData.isInterdisciplinary === v}
+                        onChange={handleInputChange}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+
+            {/* Row 2: Conditional Fields (SJR, Quartile, Impact Factor) */}
+            {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both' || formData.targetedResearchType === 'wos') && (
+              <div className="pt-3 border-t border-slate-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {(formData.targetedResearchType === 'scopus' || formData.targetedResearchType === 'both') && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">SJR</label>
+                        <input type="text" name="sjr" value={formData.sjr} onChange={handleInputChange}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                          placeholder="e.g. 0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Quartile <span className="text-red-500">*</span></label>
+                        <div className="flex flex-wrap gap-3">
+                          {[
+                            { value: 'top1', label: 'Top 1%' },
+                            { value: 'top5', label: 'Top 5%' },
+                            { value: 'q1', label: 'Q1' },
+                            { value: 'q2', label: 'Q2' },
+                            { value: 'q3', label: 'Q3' },
+                            { value: 'q4', label: 'Q4' },
+                          ].map(q => (
+                            <label key={q.value} className="inline-flex items-center text-sm cursor-pointer">
+                              <input type="radio" name="quartile" value={q.value}
+                                checked={formData.quartile === q.value}
+                                onChange={handleInputChange}
+                                className="w-4 h-4 text-blue-600"
+                              />
+                              <span className="ml-1 text-gray-700">{q.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {(formData.targetedResearchType === 'wos' || formData.targetedResearchType === 'both') && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Impact Factor <span className="text-red-500">*</span></label>
+                      <input type="text" name="impactFactor" value={formData.impactFactor} onChange={handleInputChange}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                        placeholder="e.g. 2.5"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Journal Name */}
           <div>
@@ -1655,53 +1935,20 @@ export default function ResearchContributionForm({ publicationType, contribution
               </div>
             </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-600 mb-2">Publisher Name</label>
-              <input type="text" name="publisherName" value={formData.publisherName} onChange={handleInputChange}
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500" placeholder="Enter publisher name"
-              />
-            </div>
-          </div>
-
-          {/* Document Upload Section */}
-          <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 bg-amber-100 rounded-lg">
-                <FileText className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Upload Documents</h3>
-                <p className="text-sm text-gray-500">Upload all documents as a single ZIP file (Max 5 MB)</p>
-              </div>
-            </div>
-            <div className="relative">
-              <input
-                type="file"
-                accept=".zip"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    if (file.size > 5 * 1024 * 1024) {
-                      setError('File size must not exceed 5 MB');
-                      e.target.value = '';
-                      return;
-                    }
-                    handleResearchDocumentUpload(e);
+              <label className="block text-sm font-medium text-gray-600 mb-2">Weblink (Publication URL)</label>
+              <input type="url" name="publisherName" value={formData.publisherName} onChange={(e) => {
+                  const url = e.target.value;
+                  // Allow empty or valid https URLs
+                  if (url === '' || url.startsWith('https://') || url.startsWith('http://')) {
+                    handleInputChange(e);
                   }
                 }}
-                className="w-full file:mr-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:font-medium file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200 file:cursor-pointer cursor-pointer border border-dashed border-amber-300 rounded-xl p-3 bg-white"
+                pattern="https://.*"
+                className={`w-full px-3 py-2.5 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 ${formData.publisherName && !formData.publisherName.startsWith('https://') ? 'border-red-300' : 'border-gray-300'}`} 
+                placeholder="https://doi.org/10.xxxx/xxxxx"
               />
-              {researchDocument && (
-                <div className="mt-3 flex items-center justify-between p-3 bg-white rounded-lg border border-green-200">
-                  <span className="text-green-700 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    {researchDocument.name} ({(researchDocument.size / 1024 / 1024).toFixed(2)} MB)
-                  </span>
-                  <button type="button" onClick={removeResearchDocument}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+              {formData.publisherName && !formData.publisherName.startsWith('https://') && (
+                <p className="text-xs text-red-500 mt-1">URL must start with https://</p>
               )}
             </div>
           </div>
@@ -1769,91 +2016,209 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
         <div className="p-5">
         
-        {/* Author Counts */}
-        <div className="flex flex-wrap items-end gap-4 mb-4 p-4 bg-gradient-to-r from-gray-50 to-emerald-50 rounded-xl border border-gray-100">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Total Authors <span className="text-red-500">*</span></label>
-            <input type="number" min="1" value={totalAuthors}
-              onChange={(e) => {
-                if (hasAuthorsAdded) return;
-                const value = Number(e.target.value);
-                if (value < 1) { setError('Total authors must be at least 1'); return; }
-                setTotalAuthors(value);
-                if (totalInternalAuthors > value) { setTotalInternalAuthors(value); }
-              }}
-              disabled={hasAuthorsAdded}
-              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
-              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">SGT Authors <span className="text-red-500">*</span></label>
-            <input type="number" min="1" max={totalAuthors} value={totalInternalAuthors}
-              onChange={(e) => {
-                if (hasAuthorsAdded) return;
-                const value = Number(e.target.value);
-                if (value < 1) { setError('SGT affiliated authors must be at least 1 (you)'); return; }
-                if (value > totalAuthors) { setError('SGT affiliated authors cannot exceed total authors'); return; }
-                setTotalInternalAuthors(value);
-                const maxCoAuthors = totalAuthors === value ? value - 1 : value;
-                if (totalInternalCoAuthors > maxCoAuthors) { setTotalInternalCoAuthors(maxCoAuthors); }
-                setError(null);
-              }}
-              disabled={hasAuthorsAdded}
-              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
-              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-              Internal Co-Authors <span className="text-red-500">*</span>
-              <span className="text-gray-400 ml-1 font-normal">(Max: {totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors})</span>
-            </label>
-            <input type="number" min="0"
-              max={totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors}
-              value={totalInternalCoAuthors}
-              onChange={(e) => {
-                if (hasAuthorsAdded) return;
-                const value = Number(e.target.value);
-                const maxCoAuthors = totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors;
-                if (value < 0) { setError('Internal co-authors cannot be negative'); return; }
-                if (value > maxCoAuthors) { setError(`Internal co-authors cannot exceed ${maxCoAuthors}.`); return; }
-                setTotalInternalCoAuthors(value);
-                setError(null);
-              }}
-              disabled={hasAuthorsAdded}
-              className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="0"
-              title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Role <span className="text-red-500">*</span></label>
-            {getAllowedUserRoles().length === 1 || hasAuthorsAdded ? (
-              <div className={`px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700 ${hasAuthorsAdded ? 'cursor-not-allowed' : ''}`}
+        {/* Author Counts and Additional Info - All in One Box */}
+        <div className="p-5 bg-gradient-to-r from-gray-50 to-emerald-50 rounded-xl border border-gray-100 space-y-5">
+          {/* Row 1: Basic Author Counts */}
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Total Authors <span className="text-red-500">*</span></label>
+              <input type="number" min="1" value={totalAuthors}
+                onChange={(e) => {
+                  if (hasAuthorsAdded) return;
+                  const value = Number(e.target.value);
+                  if (value < 1) { setError('Total authors must be at least 1'); return; }
+                  setTotalAuthors(value);
+                  if (totalInternalAuthors > value) { setTotalInternalAuthors(value); }
+                }}
+                disabled={hasAuthorsAdded}
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
                 title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
-              >
-                {userAuthorType === 'first_and_corresponding' && 'First & Corresponding'}
-                {userAuthorType === 'corresponding' && 'Corresponding'}
-                {userAuthorType === 'first' && 'First Author'}
-                {userAuthorType === 'co_author' && 'Co-Author'}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">SGT Authors <span className="text-red-500">*</span></label>
+              <input type="number" min="1" max={totalAuthors} value={totalInternalAuthors}
+                onChange={(e) => {
+                  if (hasAuthorsAdded) return;
+                  const value = Number(e.target.value);
+                  if (value < 1) { setError('SGT affiliated authors must be at least 1 (you)'); return; }
+                  if (value > totalAuthors) { setError('SGT affiliated authors cannot exceed total authors'); return; }
+                  setTotalInternalAuthors(value);
+                  const maxCoAuthors = totalAuthors === value ? value - 1 : value;
+                  if (totalInternalCoAuthors > maxCoAuthors) { setTotalInternalCoAuthors(maxCoAuthors); }
+                  setError(null);
+                }}
+                disabled={hasAuthorsAdded}
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
+                title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Internal Co-Authors <span className="text-red-500">*</span>
+                <span className="text-gray-400 ml-1 font-normal">(Max: {totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors})</span>
+              </label>
+              <input type="number" min="0"
+                max={totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors}
+                value={totalInternalCoAuthors}
+                onChange={(e) => {
+                  if (hasAuthorsAdded) return;
+                  const value = Number(e.target.value);
+                  const maxCoAuthors = totalAuthors === totalInternalAuthors ? totalInternalAuthors - 1 : totalInternalAuthors;
+                  if (value < 0) { setError('Internal co-authors cannot be negative'); return; }
+                  if (value > maxCoAuthors) { setError(`Internal co-authors cannot exceed ${maxCoAuthors}.`); return; }
+                  
+                  // Validate based on user's role
+                  const remainingInternalAuthors = totalInternalAuthors - 1; // Exclude yourself
+                  if (userAuthorType === 'first_and_corresponding' || userAuthorType === 'first_and_corresponding_author') {
+                    // If you're First & Corresponding, all remaining internal authors MUST be co-authors
+                    if (value !== remainingInternalAuthors) {
+                      setError(`Since you're First & Corresponding Author, all ${remainingInternalAuthors} remaining internal author(s) must be co-authors.`);
+                      return;
+                    }
+                  } else if (userAuthorType === 'first_author' || userAuthorType === 'first') {
+                    // If you're First Author only, at least (remainingInternalAuthors - 1) must be co-authors
+                    // One can be Corresponding Author
+                    if (value < remainingInternalAuthors - 1) {
+                      setError(`With you as First Author, at least ${remainingInternalAuthors - 1} internal co-author(s) required (one can be Corresponding).`);
+                      return;
+                    }
+                  } else if (userAuthorType === 'corresponding_author' || userAuthorType === 'corresponding') {
+                    // If you're Corresponding Author only, at least (remainingInternalAuthors - 1) must be co-authors
+                    // One can be First Author
+                    if (value < remainingInternalAuthors - 1) {
+                      setError(`With you as Corresponding Author, at least ${remainingInternalAuthors - 1} internal co-author(s) required (one can be First).`);
+                      return;
+                    }
+                  }
+                  
+                  setTotalInternalCoAuthors(value);
+                  setError(null);
+                }}
+                disabled={hasAuthorsAdded}
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="0"
+                title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Role <span className="text-red-500">*</span></label>
+              {getAllowedUserRoles().length === 1 || hasAuthorsAdded ? (
+                <div className={`px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700 ${hasAuthorsAdded ? 'cursor-not-allowed' : ''}`}
+                  title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
+                >
+                  {userAuthorType === 'first_and_corresponding' && 'First & Corresponding'}
+                  {userAuthorType === 'corresponding' && 'Corresponding'}
+                  {userAuthorType === 'first' && 'First Author'}
+                  {userAuthorType === 'co_author' && 'Co-Author'}
+                </div>
+              ) : (
+                <select value={userAuthorType} onChange={(e) => {
+                  const newRole = e.target.value;
+                  setUserAuthorType(newRole);
+                  
+                  // Auto-adjust Internal Co-Authors based on role selection
+                  const remainingInternalAuthors = totalInternalAuthors - 1;
+                  if (newRole === 'first_and_corresponding' || newRole === 'first_and_corresponding_author') {
+                    // All remaining internal authors must be co-authors
+                    setTotalInternalCoAuthors(remainingInternalAuthors);
+                    setError(null);
+                  }
+                }}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                >
+                  {getAllowedUserRoles().includes('first_and_corresponding') && <option value="first_and_corresponding">First & Corresponding</option>}
+                  {getAllowedUserRoles().includes('corresponding') && <option value="corresponding">Corresponding</option>}
+                  {getAllowedUserRoles().includes('first') && <option value="first">First Author</option>}
+                  {getAllowedUserRoles().includes('co_author') && <option value="co_author">Co-Author</option>}
+                </select>
+              )}
+            </div>
+            {hasAuthorsAdded && (
+              <div className="flex items-center text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                <AlertCircle className="w-4 h-4 mr-2" />
+                Remove all added authors to modify these fields
               </div>
-            ) : (
-              <select value={userAuthorType} onChange={(e) => setUserAuthorType(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
-              >
-                {getAllowedUserRoles().includes('first_and_corresponding') && <option value="first_and_corresponding">First & Corresponding</option>}
-                {getAllowedUserRoles().includes('corresponding') && <option value="corresponding">Corresponding</option>}
-                {getAllowedUserRoles().includes('first') && <option value="first">First Author</option>}
-                {getAllowedUserRoles().includes('co_author') && <option value="co_author">Co-Author</option>}
-              </select>
             )}
           </div>
-          {hasAuthorsAdded && (
-            <div className="flex items-center text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
-              <AlertCircle className="w-4 h-4 mr-2" />
-              Remove all added authors to modify these fields
+          
+          {/* Divider */}
+          <div className="border-t border-gray-200"></div>
+          
+          {/* Row 2: Additional Author Information */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2">
+                International Author <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="hasInternationalAuthor" value={v}
+                      checked={formData.hasInternationalAuthor === v}
+                      onChange={(e) => { 
+                        handleInputChange(e); 
+                        setError(null);
+                        // Reset foreign universities if selecting No
+                        if (v === 'no') {
+                          setFormData(prev => ({ ...prev, numForeignUniversities: 0 }));
+                        }
+                      }}
+                      className="w-4 h-4 text-emerald-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          )}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2">
+                Student(s) from SGT <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="hasLpuStudents" value={v}
+                      checked={formData.hasLpuStudents === v}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-emerald-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {(formData.hasInternationalAuthor === 'yes' || totalAuthors > totalInternalAuthors) && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-2">
+                  Foreign Universities Collaborated:
+                  {formData.numForeignUniversities > 0 && (
+                    <span className="text-orange-600 text-xs ml-1">
+                      (Requires {formData.numForeignUniversities} external author{formData.numForeignUniversities > 1 ? 's' : ''})
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  name="numForeignUniversities"
+                  value={formData.numForeignUniversities}
+                  onChange={(e) => {
+                    const value = Number(e.target.value) || 0;
+                    const maxExternal = totalAuthors - totalInternalAuthors;
+                    if (value > maxExternal) {
+                      setError(`Foreign universities cannot exceed ${maxExternal} (your total external authors)`);
+                      return;
+                    }
+                    setFormData(prev => ({ ...prev, numForeignUniversities: value }));
+                    setError(null);
+                  }}
+                  min="0"
+                  max={totalAuthors - totalInternalAuthors}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="0"
+                />
+              </div>
+            )}
+          </div>
         </div>
         
         {/* Add Other Author's Detail - Compact */}
@@ -1869,28 +2234,20 @@ export default function ResearchContributionForm({ publicationType, contribution
                 const internalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
                 const externalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
                 
-                // When all internal are co-authors (Internal = Co-Authors)
-                if (totalInternalAuthors === totalInternalCoAuthors && totalInternalCoAuthors > 0) {
-                  const internalToAdd = totalInternalCoAuthors - 1; // Exclude yourself
-                  const externalToAdd = maxCoAuthors - internalToAdd;
-                  const parts = [];
-                  if (internalToAdd > 0) {
-                    parts.push(`${internalToAdd} internal co-author(s) [${internalAdded} added]`);
-                  }
-                  if (externalToAdd > 0) {
-                    parts.push(`${externalToAdd} external author(s) [${externalAdded} added]`);
-                  }
-                  return `All ${totalInternalCoAuthors} internal (including you) are co-authors. Add ${parts.join(' and ')}. Total: ${currentAdded}/${maxCoAuthors}.`;
-                }
-                
-                const maxExternal = maxCoAuthors - totalInternalCoAuthors;
+                // Calculate how many internal authors to add (excluding yourself)
+                const maxInternalToAdd = totalInternalAuthors - 1;
+                const maxExternalToAdd = totalAuthors - totalInternalAuthors;
                 
                 const parts = [];
-                if (totalInternalCoAuthors > 0) {
-                  parts.push(`${totalInternalCoAuthors} internal co-author(s) [${internalAdded} added]`);
+                if (maxInternalToAdd > 0) {
+                  parts.push(`${maxInternalToAdd} internal author(s) [${internalAdded} added]`);
                 }
-                if (maxExternal > 0) {
-                  parts.push(`${maxExternal} external author(s) [${externalAdded} added]`);
+                if (maxExternalToAdd > 0) {
+                  parts.push(`${maxExternalToAdd} external author(s) [${externalAdded} added]`);
+                }
+                
+                if (parts.length === 0) {
+                  return `You are the only author.`;
                 }
                 
                 return `You can add ${parts.join(' and ')}. Total: ${currentAdded}/${maxCoAuthors} co-author(s) added.`;
@@ -1904,62 +2261,81 @@ export default function ResearchContributionForm({ publicationType, contribution
                 Author Type: <span className="text-red-500">*</span>
               </label>
               <div className="flex gap-6">
-                {/* Show Internal option when: SGT > 1, OR when SGT=1 and Internal Co-Authors=1 */}
-                {(totalInternalAuthors > 1 || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1)) && (
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="Internal"
-                      checked={newAuthor.authorCategory === 'Internal' || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1) || totalAuthors === totalInternalAuthors}
-                      onChange={(e) => {
-                        const availableRoles = getAvailableOtherAuthorRoles();
-                        setNewAuthor(prev => ({ 
-                          ...prev, 
-                          authorCategory: e.target.value,
-                          authorType: 'Faculty', // Default to Faculty for internal authors
-                          affiliation: 'SGT University',
-                          uid: '',
-                          name: '',
-                          email: '',
-                          authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'first_and_corresponding'
-                        }));
-                        setSearchSuggestions([]);
-                        setShowSuggestions(false);
-                      }}
-                      className="w-4 h-4 text-blue-600"
-                      disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors}
-                    />
-                    <span className="ml-2">Internal {(totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors) && '(Required)'}</span>
-                  </label>
-                )}
-                {/* Show External option only when there are external authors (totalAuthors > totalInternalAuthors) */}
-                {totalAuthors > totalInternalAuthors && !(totalInternalAuthors === 1 && totalInternalCoAuthors === 1) && (
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="External"
-                      checked={newAuthor.authorCategory === 'External' || (totalInternalAuthors === 1 && totalInternalCoAuthors === 0)}
-                      onChange={(e) => {
-                        const availableRoles = getAvailableOtherAuthorRoles();
-                        setNewAuthor(prev => ({ 
-                          ...prev, 
-                          authorCategory: e.target.value,
-                          authorType: 'Academic', // Default to Academic for external authors
-                          affiliation: '',
-                          uid: '',
-                          name: '',
-                          email: '',
-                          authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'co_author'
-                        }));
-                        setSearchSuggestions([]);
-                        setShowSuggestions(false);
-                      }}
-                      className="w-4 h-4 text-blue-600"
-                      disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 0}
-                    />
-                    <span className="ml-2">External</span>
-                  </label>
-                )}
+                {(() => {
+                  // Check if internal slots are full
+                  const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+                  // SGT Authors includes applicant, so max internal to add = totalInternalAuthors - 1
+                  const maxInternalToAdd = totalInternalAuthors - 1;
+                  const internalSlotsFull = totalInternalAdded >= maxInternalToAdd;
+                  
+                  return (
+                    <>
+                      {/* Show Internal option when: SGT > 1, OR when SGT=1 and Internal Co-Authors=1 */}
+                      {(totalInternalAuthors > 1 || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1)) && (
+                        <label className="inline-flex items-center">
+                          <input
+                            type="radio"
+                            value="Internal"
+                            checked={newAuthor.authorCategory === 'Internal' && !internalSlotsFull}
+                            onChange={(e) => {
+                              const availableRoles = getAvailableOtherAuthorRoles();
+                              setNewAuthor(prev => ({ 
+                                ...prev, 
+                                authorCategory: e.target.value,
+                                authorType: 'Faculty',
+                                affiliation: 'SGT University',
+                                uid: '',
+                                name: '',
+                                email: '',
+                                authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'first_and_corresponding'
+                              }));
+                              setSearchSuggestions([]);
+                              setShowSuggestions(false);
+                            }}
+                            className="w-4 h-4 text-blue-600"
+                            disabled={internalSlotsFull || totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors}
+                          />
+                          <span className="ml-2">
+                            Internal 
+                            {internalSlotsFull && <span className="text-red-600 text-xs ml-1">(Limit reached: {totalInternalAdded}/{maxInternalToAdd})</span>}
+                            {(totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors) && !internalSlotsFull && '(Required)'}
+                          </span>
+                        </label>
+                      )}
+                      {/* Show External option only when there are external authors (totalAuthors > totalInternalAuthors) */}
+                      {totalAuthors > totalInternalAuthors && !(totalInternalAuthors === 1 && totalInternalCoAuthors === 1) && (
+                        <label className="inline-flex items-center">
+                          <input
+                            type="radio"
+                            value="External"
+                            checked={newAuthor.authorCategory === 'External' || internalSlotsFull || (totalInternalAuthors === 1 && totalInternalCoAuthors === 0)}
+                            onChange={(e) => {
+                              const availableRoles = getAvailableOtherAuthorRoles();
+                              setNewAuthor(prev => ({ 
+                                ...prev, 
+                                authorCategory: e.target.value,
+                                authorType: 'Academic',
+                                affiliation: '',
+                                uid: '',
+                                name: '',
+                                email: '',
+                                authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'co_author'
+                              }));
+                              setSearchSuggestions([]);
+                              setShowSuggestions(false);
+                            }}
+                            className="w-4 h-4 text-blue-600"
+                            disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 0}
+                          />
+                          <span className="ml-2">
+                            External
+                            {internalSlotsFull && <span className="text-green-600 text-xs ml-1">(Auto-selected)</span>}
+                          </span>
+                        </label>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               {totalInternalAuthors === 1 && totalInternalCoAuthors === 1 && (
                 <p className="text-xs text-orange-600 mt-1">
@@ -2053,21 +2429,23 @@ export default function ResearchContributionForm({ publicationType, contribution
                     />
                     <span className="ml-2">Industry</span>
                   </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="Other"
-                      checked={newAuthor.authorType === 'Other'}
-                      onChange={(e) => {
-                        setNewAuthor(prev => ({ 
-                          ...prev, 
-                          authorType: e.target.value
-                        }));
-                      }}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="ml-2">Other</span>
-                  </label>
+                  {formData.hasInternationalAuthor === 'yes' && (
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        value="International Author"
+                        checked={newAuthor.authorType === 'International Author'}
+                        onChange={(e) => {
+                          setNewAuthor(prev => ({ 
+                            ...prev, 
+                            authorType: e.target.value
+                          }));
+                        }}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="ml-2">International Author</span>
+                    </label>
+                  )}
                 </div>
               )}
             </div>
@@ -2120,7 +2498,8 @@ export default function ResearchContributionForm({ publicationType, contribution
                       authorCategory: 'Internal',
                       email: '',
                       affiliation: 'SGT University',
-                      authorRole: newAuthor.authorRole || currentRole
+                      authorRole: newAuthor.authorRole || currentRole,
+                      designation: '',
                     });
                     
                     // Start search if enough characters
@@ -2211,6 +2590,22 @@ export default function ResearchContributionForm({ publicationType, contribution
                 className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${newAuthor.authorCategory === 'Internal' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
               />
             </div>
+            
+            {/* Designation - Only for External Authors */}
+            {newAuthor.authorCategory === 'External' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Designation: <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newAuthor.designation}
+                  onChange={(e) => setNewAuthor(prev => ({ ...prev, designation: e.target.value }))}
+                  placeholder="e.g. Professor, Researcher, etc."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            )}
           </div>
           
           {/* Add Button */}
@@ -2233,6 +2628,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                     email: '',
                     affiliation: defaultAffiliation,
                     authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'co_author',
+                    designation: '',
                   });
                 }}
                 className="inline-flex items-center px-6 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors"
@@ -2253,10 +2649,13 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
         )}
         
-        {/* Added Contributors Table - Show when any co-authors are added */}
-        {coAuthors.some(a => a.name) && (
-          <div>
-            <h3 className="text-md font-semibold text-gray-900 mb-3">Added Contributors</h3>
+        {/* Incentive Preview Table - Show always with applicant details */}
+        {(formData.quartile || formData.sjr) && (
+          <div className="mt-6">
+            <h3 className="text-md font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <Award className="w-5 h-5 text-blue-600" />
+              Incentive & Points Preview
+            </h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                 <thead className="bg-gray-50">
@@ -2266,6 +2665,9 @@ export default function ResearchContributionForm({ publicationType, contribution
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
                       Type
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
+                      Role
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r">
                       UID/Name
@@ -2294,6 +2696,57 @@ export default function ResearchContributionForm({ publicationType, contribution
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
+                  {/* Applicant Row (Current User) - Always shown first */}
+                  {(() => {
+                    const applicantType = user?.userType === 'student' ? 'Student' : 'Faculty';
+                    const { incentive, points } = calculateAuthorIncentivePoints(
+                      applicantType,
+                      'Internal',
+                      userAuthorType
+                    );
+                    const roleLabel = 
+                      userAuthorType === 'first_and_corresponding' ? 'First & Corresponding' :
+                      userAuthorType === 'corresponding' ? 'Corresponding' :
+                      userAuthorType === 'first' ? 'First Author' : 'Co-Author';
+                    
+                    return (
+                      <tr className="bg-blue-50">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r">
+                          Internal
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r">
+                          {applicantType}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-blue-600 border-r">
+                          {roleLabel}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r">
+                          {user?.uid} - {user?.employee?.displayName || user?.student?.registrationNo || user?.firstName || 'You'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900 border-r">
+                          {user?.employeeDetails?.email || user?.email || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900 border-r">
+                          SGT University
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          <span className="text-green-600 font-bold">₹{incentive.toLocaleString()}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          {applicantType !== 'Student' ? (
+                            <span className="text-blue-600 font-bold">{points}</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs font-medium">No Points</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 italic">
+                          (You)
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  
+                  {/* Other Authors */}
                   {coAuthors.filter(a => a.name).map((coAuthor, index) => {
                     const actualIndex = coAuthors.findIndex(a => a === coAuthor);
                     const { incentive, points } = calculateAuthorIncentivePoints(
@@ -2301,6 +2754,11 @@ export default function ResearchContributionForm({ publicationType, contribution
                       coAuthor.authorCategory,
                       coAuthor.authorRole || 'co_author'
                     );
+                    const roleLabel = 
+                      (coAuthor.authorRole === 'first_and_corresponding' || coAuthor.authorRole === 'first_and_corresponding_author') ? 'First & Corresponding' :
+                      (coAuthor.authorRole === 'corresponding' || coAuthor.authorRole === 'corresponding_author') ? 'Corresponding' :
+                      (coAuthor.authorRole === 'first' || coAuthor.authorRole === 'first_author') ? 'First Author' : 'Co-Author';
+                    
                     return (
                       <tr key={actualIndex}>
                         <td className="px-4 py-3 text-sm text-gray-900 border-r">
@@ -2308,6 +2766,9 @@ export default function ResearchContributionForm({ publicationType, contribution
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 border-r">
                           {coAuthor.authorType}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 border-r">
+                          {roleLabel}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 border-r">
                           {coAuthor.uid ? `${coAuthor.uid} - ${coAuthor.name}` : coAuthor.name}
@@ -2322,16 +2783,16 @@ export default function ResearchContributionForm({ publicationType, contribution
                           {coAuthor.authorCategory === 'Internal' ? (
                             <span className="text-green-600 font-medium">₹{incentive.toLocaleString()}</span>
                           ) : (
-                            <span className="text-gray-400">N/A</span>
+                            <span className="text-gray-400">₹0</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm border-r">
                           {coAuthor.authorCategory === 'Internal' && coAuthor.authorType !== 'Student' ? (
                             <span className="text-blue-600 font-medium">{points}</span>
                           ) : coAuthor.authorCategory === 'Internal' && coAuthor.authorType === 'Student' ? (
-                            <span className="text-gray-400 text-xs">Students: No Points</span>
+                            <span className="text-gray-400 text-xs">No Points</span>
                           ) : (
-                            <span className="text-gray-400">N/A</span>
+                            <span className="text-gray-400">0</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
@@ -2356,15 +2817,102 @@ export default function ResearchContributionForm({ publicationType, contribution
                       </tr>
                     );
                   })}
+                  
+                  {/* Total Row */}
+                  {(() => {
+                    const applicantType = user?.userType === 'student' ? 'Student' : 'Faculty';
+                    const applicantCalc = calculateAuthorIncentivePoints(applicantType, 'Internal', userAuthorType);
+                    
+                    let totalIncentive = applicantCalc.incentive;
+                    let totalPoints = applicantCalc.points;
+                    
+                    coAuthors.filter(a => a.name).forEach(coAuthor => {
+                      const { incentive, points } = calculateAuthorIncentivePoints(
+                        coAuthor.authorType,
+                        coAuthor.authorCategory,
+                        coAuthor.authorRole || 'co_author'
+                      );
+                      totalIncentive += incentive;
+                      totalPoints += points;
+                    });
+                    
+                    return (
+                      <tr className="bg-gray-100 font-bold">
+                        <td colSpan={6} className="px-4 py-3 text-sm text-right border-r">
+                          TOTAL
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          <span className="text-green-700 font-bold">₹{totalIncentive.toLocaleString()}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm border-r">
+                          <span className="text-blue-700 font-bold">{totalPoints}</span>
+                        </td>
+                        <td className="px-4 py-3"></td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
             <p className="mt-2 text-xs text-gray-500">
-              <span className="font-medium">Note:</span> Internal Faculty/Employees receive both Incentives and Points. 
-              Internal Students receive only Incentives (no Points). External authors receive neither.
+              <span className="font-medium">Incentive Distribution Rules:</span><br/>
+              • <strong>Single Author:</strong> Gets 100%<br/>
+              • <strong>Exactly 2 Authors (no co-authors):</strong> Split 50-50<br/>
+              • <strong>Same Person = First + Corresponding:</strong> Gets both percentages combined<br/>
+              • <strong>Internal Faculty/Employees:</strong> Receive both Incentives (₹) and Points<br/>
+              • <strong>Internal Students:</strong> Receive Incentives only (no Points)<br/>
+              • <strong>External Authors:</strong> Receive neither Incentives nor Points<br/>
+              • <strong>External First/Corresponding Author:</strong> Their share is forfeited (not redistributed)<br/>
+              • <strong>External Co-Authors:</strong> Their share goes to Internal Co-Authors
             </p>
           </div>
         )}
+      </div>
+
+      {/* Document Upload Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2.5 bg-amber-100 rounded-lg">
+              <FileText className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">Upload Documents</h3>
+              <p className="text-sm text-gray-500">Upload all documents as a single ZIP file (Max 5 MB)</p>
+            </div>
+          </div>
+          <div className="relative">
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  if (file.size > 5 * 1024 * 1024) {
+                    setError('File size must not exceed 5 MB');
+                    e.target.value = '';
+                    return;
+                  }
+                  handleResearchDocumentUpload(e);
+                }
+              }}
+              className="w-full file:mr-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:font-medium file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200 file:cursor-pointer cursor-pointer border border-dashed border-amber-300 rounded-xl p-3 bg-white"
+            />
+            {researchDocument && (
+              <div className="mt-3 flex items-center justify-between p-3 bg-white rounded-lg border border-green-200">
+                <span className="text-green-700 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  {researchDocument.name} ({(researchDocument.size / 1024 / 1024).toFixed(2)} MB)
+                </span>
+                <button type="button" onClick={removeResearchDocument}
+                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
           {/* Submit Actions */}
