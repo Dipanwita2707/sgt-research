@@ -464,6 +464,9 @@ export default function ContributionDetailPage() {
                   {contribution.publicationType === 'research_paper' && (
                     <>
                       <DetailItem label="Targeted Research" value={TARGETED_RESEARCH_LABELS[contribution.targetedResearchType || '']} />
+                      {(contribution as any).interdisciplinaryFromSgt !== undefined && (
+                        <DetailItem label="Interdisciplinary (SGT)" value={(contribution as any).interdisciplinaryFromSgt ? 'Yes' : 'No'} />
+                      )}
                       {contribution.quartile && (
                         <DetailItem label="Quartile" value={QUARTILE_LABELS[contribution.quartile]?.label} />
                       )}
@@ -495,8 +498,15 @@ export default function ContributionDetailPage() {
                       {contribution.issn && (
                         <DetailItem label="ISSN" value={contribution.issn} />
                       )}
+                      {(contribution as any).publicationDate && (
+                        <DetailItem label="Publication Date" value={new Date((contribution as any).publicationDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} />
+                      )}
                       {contribution.publisherName && (
-                        <DetailItem label="Publisher" value={contribution.publisherName} />
+                        <DetailItem 
+                          label="Weblink (Publication URL)" 
+                          value={contribution.publisherName} 
+                          link={contribution.publisherName}
+                        />
                       )}
                     </>
                   )}
