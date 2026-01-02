@@ -67,6 +67,18 @@ const createEmployee = async (req, res) => {
       });
     }
 
+    // Check if empId already exists
+    const existingEmpId = await prisma.employeeDetails.findUnique({
+      where: { empId },
+    });
+
+    if (existingEmpId) {
+      return res.status(400).json({
+        success: false,
+        message: `Employee ID ${empId} already exists`,
+      });
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 

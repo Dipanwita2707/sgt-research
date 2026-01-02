@@ -13,11 +13,11 @@ export async function GET() {
     };
 
     return NextResponse.json(healthCheck, { status: 200 });
-  } catch (error) {
+  } catch (error: unknown) {
     const errorResponse = {
       status: 'error',
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
     };
 
     return NextResponse.json(errorResponse, { status: 500 });

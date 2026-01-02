@@ -7,6 +7,16 @@ const prisma = new PrismaClient();
  */
 exports.getAllPolicies = async (req, res) => {
   try {
+    // TODO: IncentivePolicy model not yet implemented in schema
+    // Return empty array until migration is complete
+    if (!prisma.incentivePolicy) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: 'IPR Incentive Policy feature not yet configured'
+      });
+    }
+    
     const { includeInactive } = req.query;
     
     const whereClause = includeInactive === 'true' ? {} : { isActive: true };

@@ -1494,3 +1494,902 @@ exports.getSchoolsWithResearchMembers = async (req, res) => {
   }
 };
 
+// ==========================================
+// BOOK SCHOOL ASSIGNMENT FUNCTIONS
+// ==========================================
+
+/**
+ * Assign schools to a DRD member for BOOK/BOOK CHAPTER review
+ * @body { userId, schoolIds: string[] }
+ * Accessible by: admin OR DRD Head (users with book_approve permission)
+ */
+exports.assignBookMemberSchools = async (req, res) => {
+  try {
+    const { userId, schoolIds } = req.body;
+
+    // Check if user is authorized (admin, DRD Head, or has book_assign_school permission)
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.book_approve === true || 
+             p.permissions?.book_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to assign book schools to DRD members',
+      });
+    }
+
+    if (!userId || !Array.isArray(schoolIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and schoolIds array are required',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.status(404).json({
+        success: false,
+        message: 'DRD department not found. Please create a Central Department with code or name containing "DRD".',
+      });
+    }
+
+    // Find or create the user's DRD permission record
+    let drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId,
+        centralDeptId: drdDept.id,
+      },
+    });
+
+    if (drdPermission) {
+      // Update existing permission with book school assignments
+      drdPermission = await prisma.centralDepartmentPermission.update({
+        where: { id: drdPermission.id },
+        data: {
+          assignedBookSchoolIds: schoolIds,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      // Create new permission record with book school assignments
+      drdPermission = await prisma.centralDepartmentPermission.create({
+        data: {
+          userId,
+          centralDeptId: drdDept.id,
+          permissions: { book_review: true },
+          assignedBookSchoolIds: schoolIds,
+          isPrimary: false,
+          isActive: true,
+          assignedBy: req.user.id,
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: 'ASSIGN_BOOK_MEMBER_SCHOOLS',
+        targetTable: 'central_department_permission',
+        targetId: drdPermission.id,
+        details: { userId, schoolIds },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Book schools assigned to DRD member successfully',
+      data: drdPermission,
+    });
+  } catch (error) {
+    console.error('Assign book member schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign book schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all DRD members with their assigned BOOK schools
+ * Accessible by: admin OR DRD Head (users with book_approve permission)
+ */
+exports.getDrdMembersWithBookSchools = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.book_approve === true || 
+             p.permissions?.book_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view book school assignments',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          members: [],
+          allSchools: [],
+        },
+        message: 'DRD department not found.',
+      });
+    }
+
+    // Get all users with DRD permissions
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            email: true,
+            role: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true,
+                designation: true,
+                primaryDepartment: {
+                  select: {
+                    departmentName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get all schools
+    const allSchools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Transform member data
+    const members = drdMembers.map((member) => ({
+      userId: member.userId,
+      uid: member.user.uid,
+      email: member.user.email,
+      user: member.user,
+      permissions: member.permissions || {},
+      assignedBookSchoolIds: member.assignedBookSchoolIds || [],
+      assignedBookSchools: allSchools.filter((s) =>
+        (member.assignedBookSchoolIds || []).includes(s.id)
+      ),
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        members,
+        allSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get DRD members with book schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch DRD members with book schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get schools with their assigned BOOK members
+ * Accessible by: admin OR DRD Head (users with book_approve permission)
+ */
+exports.getSchoolsWithBookMembers = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.book_approve === true || 
+             p.permissions?.book_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view book school assignments',
+      });
+    }
+
+    // Get all schools
+    const schools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: schools.map((school) => ({
+          ...school,
+          assignedMembers: [],
+          hasAssignedMember: false,
+        })),
+      });
+    }
+
+    // Get all DRD members with book schools
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Map schools with their assigned book members
+    const schoolsWithMembers = schools.map((school) => {
+      const assignedMembers = drdMembers
+        .filter((member) => {
+          const assignedBookSchoolIds = member.assignedBookSchoolIds || [];
+          return assignedBookSchoolIds.includes(school.id);
+        })
+        .map((member) => ({
+          userId: member.userId,
+          uid: member.user.uid,
+          displayName: member.user.employeeDetails?.displayName || member.user.uid,
+          permissions: member.permissions,
+        }));
+
+      return {
+        ...school,
+        assignedMembers,
+        hasAssignedMember: assignedMembers.length > 0,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: schoolsWithMembers,
+    });
+  } catch (error) {
+    console.error('Get schools with book members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch schools with book members',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get my assigned BOOK schools (for current user)
+ */
+exports.getMyAssignedBookSchools = async (req, res) => {
+  try {
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          assignedBookSchoolIds: [],
+          assignedBookSchools: [],
+        },
+      });
+    }
+
+    // Get user's DRD permission
+    const drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId: req.user.id,
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+    });
+
+    if (!drdPermission) {
+      return res.json({
+        success: true,
+        data: {
+          assignedBookSchoolIds: [],
+          assignedBookSchools: [],
+        },
+      });
+    }
+
+    const assignedBookSchoolIds = drdPermission.assignedBookSchoolIds || [];
+
+    // Get school details
+    const assignedBookSchools = await prisma.facultySchoolList.findMany({
+      where: {
+        id: { in: assignedBookSchoolIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignedBookSchoolIds,
+        assignedBookSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get my assigned book schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assigned book schools',
+      error: error.message,
+    });
+  }
+};
+
+// ========== CONFERENCE School Assignment Functions ==========
+
+/**
+ * Assign schools to a DRD member for CONFERENCE review
+ * @body { userId, schoolIds: string[] }
+ * Accessible by: admin OR DRD Head (users with conference_approve permission)
+ */
+exports.assignConferenceMemberSchools = async (req, res) => {
+  try {
+    const { userId, schoolIds } = req.body;
+
+    // Check if user is authorized (admin, DRD Head, or has conference_assign_school permission)
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.conference_approve === true || 
+             p.permissions?.conference_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to assign conference schools to DRD members',
+      });
+    }
+
+    if (!userId || !Array.isArray(schoolIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and schoolIds array are required',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.status(404).json({
+        success: false,
+        message: 'DRD department not found. Please create a Central Department with code or name containing "DRD".',
+      });
+    }
+
+    // Find or create the user's DRD permission record
+    let drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId,
+        centralDeptId: drdDept.id,
+      },
+    });
+
+    if (drdPermission) {
+      // Update existing permission with conference school assignments
+      drdPermission = await prisma.centralDepartmentPermission.update({
+        where: { id: drdPermission.id },
+        data: {
+          assignedConferenceSchoolIds: schoolIds,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      // Create new permission record with conference school assignments
+      drdPermission = await prisma.centralDepartmentPermission.create({
+        data: {
+          userId,
+          centralDeptId: drdDept.id,
+          permissions: { conference_review: true },
+          assignedConferenceSchoolIds: schoolIds,
+          isPrimary: false,
+          isActive: true,
+          assignedBy: req.user.id,
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: 'ASSIGN_CONFERENCE_MEMBER_SCHOOLS',
+        targetTable: 'central_department_permission',
+        targetId: drdPermission.id,
+        details: { userId, schoolIds },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Conference schools assigned to DRD member successfully',
+      data: drdPermission,
+    });
+  } catch (error) {
+    console.error('Assign conference member schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign conference schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all DRD members with their assigned CONFERENCE schools
+ * Accessible by: admin OR DRD Head (users with conference_approve permission)
+ */
+exports.getDrdMembersWithConferenceSchools = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.conference_approve === true || 
+             p.permissions?.conference_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view conference school assignments',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          members: [],
+          allSchools: [],
+        },
+        message: 'DRD department not found.',
+      });
+    }
+
+    // Get all users with DRD permissions
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            email: true,
+            role: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true,
+                designation: true,
+                primaryDepartment: {
+                  select: {
+                    departmentName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get all schools
+    const allSchools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Transform member data
+    const members = drdMembers.map((member) => ({
+      userId: member.userId,
+      uid: member.user.uid,
+      email: member.user.email,
+      user: member.user,
+      permissions: member.permissions || {},
+      assignedConferenceSchoolIds: member.assignedConferenceSchoolIds || [],
+      assignedConferenceSchools: allSchools.filter((s) =>
+        (member.assignedConferenceSchoolIds || []).includes(s.id)
+      ),
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        members,
+        allSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get DRD members with conference schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch DRD members with conference schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get schools with their assigned CONFERENCE members
+ * Accessible by: admin OR DRD Head (users with conference_approve permission)
+ */
+exports.getSchoolsWithConferenceMembers = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.conference_approve === true || 
+             p.permissions?.conference_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view conference school assignments',
+      });
+    }
+
+    // Get all schools
+    const schools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: schools.map((school) => ({
+          ...school,
+          assignedMembers: [],
+          hasAssignedMember: false,
+        })),
+      });
+    }
+
+    // Get all DRD members with conference schools
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Map schools with their assigned conference members
+    const schoolsWithMembers = schools.map((school) => {
+      const assignedMembers = drdMembers
+        .filter((member) => {
+          const assignedConferenceSchoolIds = member.assignedConferenceSchoolIds || [];
+          return assignedConferenceSchoolIds.includes(school.id);
+        })
+        .map((member) => ({
+          userId: member.userId,
+          uid: member.user.uid,
+          displayName: member.user.employeeDetails?.displayName || member.user.uid,
+          permissions: member.permissions,
+        }));
+
+      return {
+        ...school,
+        assignedMembers,
+        hasAssignedMember: assignedMembers.length > 0,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: schoolsWithMembers,
+    });
+  } catch (error) {
+    console.error('Get schools with conference members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch schools with conference members',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get my assigned CONFERENCE schools (for current user)
+ */
+exports.getMyAssignedConferenceSchools = async (req, res) => {
+  try {
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          assignedConferenceSchoolIds: [],
+          assignedConferenceSchools: [],
+        },
+      });
+    }
+
+    // Get user's DRD permission
+    const drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId: req.user.id,
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+    });
+
+    if (!drdPermission) {
+      return res.json({
+        success: true,
+        data: {
+          assignedConferenceSchoolIds: [],
+          assignedConferenceSchools: [],
+        },
+      });
+    }
+
+    const assignedConferenceSchoolIds = drdPermission.assignedConferenceSchoolIds || [];
+
+    // Get school details
+    const assignedConferenceSchools = await prisma.facultySchoolList.findMany({
+      where: {
+        id: { in: assignedConferenceSchoolIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignedConferenceSchoolIds,
+        assignedConferenceSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get my assigned conference schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assigned conference schools',
+      error: error.message,
+    });
+  }
+};

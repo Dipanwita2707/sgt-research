@@ -42,11 +42,23 @@ export default function PermissionManagement() {
         { key: 'ipr_approve', label: 'IPR Approve', category: 'IPR Permissions', description: 'DRD Head - Can give final approval/rejection on IPR applications' },
         { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members (IPR)', category: 'IPR Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for IPR' },
         
-        // Research Permissions - 4 checkboxes
-        { key: 'research_file_new', label: 'Research Filing', category: 'Research Permissions', description: 'Can file new research contributions (Faculty/Student have this by default)' },
-        { key: 'research_review', label: 'Research Review', category: 'Research Permissions', description: 'DRD Member - Can review research contributions from assigned schools' },
-        { key: 'research_approve', label: 'Research Approve', category: 'Research Permissions', description: 'DRD Head - Can give final approval/rejection on research contributions' },
+        // Research Paper Permissions - 4 checkboxes
+        { key: 'research_file_new', label: 'Research Paper Filing', category: 'Research Permissions', description: 'Can file new research paper contributions (Faculty/Student have this by default)' },
+        { key: 'research_review', label: 'Research Paper Review', category: 'Research Permissions', description: 'DRD Member - Can review research paper contributions from assigned schools' },
+        { key: 'research_approve', label: 'Research Paper Approve', category: 'Research Permissions', description: 'DRD Head - Can give final approval/rejection on research paper contributions' },
         { key: 'research_assign_school', label: 'Assign Schools to DRD Members (Research)', category: 'Research Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Research' },
+        
+        // Book/Book Chapter Permissions - 4 checkboxes
+        { key: 'book_file_new', label: 'Book/Chapter Filing', category: 'Book Permissions', description: 'Can file new book/book chapter contributions (Faculty/Student have this by default)' },
+        { key: 'book_review', label: 'Book/Chapter Review', category: 'Book Permissions', description: 'DRD Member - Can review book/book chapter contributions from assigned schools' },
+        { key: 'book_approve', label: 'Book/Chapter Approve', category: 'Book Permissions', description: 'DRD Head - Can give final approval/rejection on book/book chapter contributions' },
+        { key: 'book_assign_school', label: 'Assign Schools to DRD Members (Book)', category: 'Book Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Book/Chapter' },
+        
+        // Conference Paper Permissions - 4 checkboxes
+        { key: 'conference_file_new', label: 'Conference Paper Filing', category: 'Conference Permissions', description: 'Can file new conference paper contributions (Faculty/Student have this by default)' },
+        { key: 'conference_review', label: 'Conference Paper Review', category: 'Conference Permissions', description: 'DRD Member - Can review conference paper contributions from assigned schools' },
+        { key: 'conference_approve', label: 'Conference Paper Approve', category: 'Conference Permissions', description: 'DRD Head - Can give final approval/rejection on conference paper contributions' },
+        { key: 'conference_assign_school', label: 'Assign Schools to DRD Members (Conference)', category: 'Conference Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Conference' },
       ],
       HR: [
         { key: 'hr_view_employees', label: 'View Employees', category: 'HR' },

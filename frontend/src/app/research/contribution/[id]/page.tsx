@@ -450,51 +450,227 @@ export default function ContributionDetailPage() {
                 </div>
               </div>
               
-              {/* Research Details Grid */}
+              {/* Research/Book Details Grid */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <FileText className="w-5 h-5 mr-2 text-blue-500" />
-                  Research Information
+                  {contribution.publicationType === 'book' ? 'Book Information' :
+                   contribution.publicationType === 'book_chapter' ? 'Book Chapter Information' :
+                   'Research Information'}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <DetailItem label="Publication Type" value={pubTypeConfig?.label} />
-                  <DetailItem label="Targeted Research" value={TARGETED_RESEARCH_LABELS[contribution.targetedResearchType || '']} />
-                  {contribution.quartile && (
-                    <DetailItem label="Quartile" value={QUARTILE_LABELS[contribution.quartile]?.label} />
+                  {/* Research Paper Specific Fields */}
+                  {contribution.publicationType === 'research_paper' && (
+                    <>
+                      <DetailItem label="Targeted Research" value={TARGETED_RESEARCH_LABELS[contribution.targetedResearchType || '']} />
+                      {contribution.quartile && (
+                        <DetailItem label="Quartile" value={QUARTILE_LABELS[contribution.quartile]?.label} />
+                      )}
+                      {contribution.impactFactor && (
+                        <DetailItem label="Impact Factor" value={contribution.impactFactor} />
+                      )}
+                      {contribution.sjr && (
+                        <DetailItem label="SJR" value={contribution.sjr} />
+                      )}
+                      {contribution.journalName && (
+                        <DetailItem label="Journal Name" value={contribution.journalName} />
+                      )}
+                      {contribution.volume && (
+                        <DetailItem label="Volume" value={contribution.volume} />
+                      )}
+                      {contribution.issue && (
+                        <DetailItem label="Issue" value={contribution.issue} />
+                      )}
+                      {contribution.pageNumbers && (
+                        <DetailItem label="Pages" value={contribution.pageNumbers} />
+                      )}
+                      {contribution.doi && (
+                        <DetailItem 
+                          label="DOI" 
+                          value={contribution.doi} 
+                          link={`https://doi.org/${contribution.doi}`}
+                        />
+                      )}
+                      {contribution.issn && (
+                        <DetailItem label="ISSN" value={contribution.issn} />
+                      )}
+                      {contribution.publisherName && (
+                        <DetailItem label="Publisher" value={contribution.publisherName} />
+                      )}
+                    </>
                   )}
-                  {contribution.impactFactor && (
-                    <DetailItem label="Impact Factor" value={contribution.impactFactor} />
-                  )}
-                  {contribution.sjr && (
-                    <DetailItem label="SJR" value={contribution.sjr} />
-                  )}
-                  {contribution.journalName && (
-                    <DetailItem label="Journal Name" value={contribution.journalName} />
-                  )}
-                  {contribution.volume && (
-                    <DetailItem label="Volume" value={contribution.volume} />
-                  )}
-                  {contribution.issue && (
-                    <DetailItem label="Issue" value={contribution.issue} />
-                  )}
-                  {contribution.pageNumbers && (
-                    <DetailItem label="Pages" value={contribution.pageNumbers} />
-                  )}
-                  {contribution.doi && (
-                    <DetailItem 
-                      label="DOI" 
-                      value={contribution.doi} 
-                      link={`https://doi.org/${contribution.doi}`}
-                    />
-                  )}
-                  {contribution.issn && (
-                    <DetailItem label="ISSN" value={contribution.issn} />
-                  )}
-                  {contribution.publisherName && (
-                    <DetailItem label="Publisher" value={contribution.publisherName} />
+                  
+                  {/* Book/Book Chapter Fields */}
+                  {(contribution.publicationType === 'book' || contribution.publicationType === 'book_chapter') && (
+                    <>
+                      {(contribution as any).bookIndexingType && (
+                        <DetailItem label="Publication Type" value={(contribution as any).bookIndexingType?.replace(/_/g, ' ')?.replace(/\b\w/g, (l: string) => l.toUpperCase())} />
+                      )}
+                      {(contribution as any).bookPublicationType && contribution.publicationType === 'book' && (
+                        <DetailItem label="Book Type" value={(contribution as any).bookPublicationType === 'authored' ? 'Authored' : 'Edited'} />
+                      )}
+                      {(contribution as any).communicatedWithOfficialId !== undefined && (
+                        <DetailItem label="Communicated with Official ID" value={(contribution as any).communicatedWithOfficialId ? 'Yes' : 'No'} />
+                      )}
+                      {(contribution as any).personalEmail && (
+                        <DetailItem label="Personal Email" value={(contribution as any).personalEmail} />
+                      )}
+                      {contribution.publicationType === 'book_chapter' && (
+                        <>
+                          {(contribution as any).bookTitle && (
+                            <DetailItem label="Book Title" value={(contribution as any).bookTitle} />
+                          )}
+                          {(contribution as any).chapterNumber && (
+                            <DetailItem label="Chapter Number" value={(contribution as any).chapterNumber} />
+                          )}
+                          {(contribution as any).pageNumbers && (
+                            <DetailItem label="Page Numbers" value={(contribution as any).pageNumbers} />
+                          )}
+                          {(contribution as any).editors && (
+                            <DetailItem label="Editors" value={(contribution as any).editors} />
+                          )}
+                        </>
+                      )}
+                      {(contribution as any).publisherName && (
+                        <DetailItem label="Publisher" value={(contribution as any).publisherName} />
+                      )}
+                      {(contribution as any).nationalInternational && (
+                        <DetailItem label="National/International" value={(contribution as any).nationalInternational?.toUpperCase()} />
+                      )}
+                      {(contribution as any).isbn && (
+                        <DetailItem label="ISBN" value={(contribution as any).isbn} />
+                      )}
+                      {(contribution as any).publicationDate && (
+                        <DetailItem label="Publication Date" value={new Date((contribution as any).publicationDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} />
+                      )}
+                      {(contribution as any).totalAuthors && (
+                        <DetailItem label="Total Authors" value={(contribution as any).totalAuthors?.toString()} />
+                      )}
+                      {(contribution as any).sgtAffiliatedAuthors && (
+                        <DetailItem label="SGT Authors" value={(contribution as any).sgtAffiliatedAuthors?.toString()} />
+                      )}
+                      {(contribution as any).bookLetter && (
+                        <DetailItem label="Our Authorized Publications" value={(contribution as any).bookLetter === 'yes' ? 'Yes' : 'No'} />
+                      )}
+                    </>
                   )}
                 </div>
               </div>
+              
+              {/* SDG Goals */}
+              {(contribution as any).sdg_goals && (contribution as any).sdg_goals.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Target className="w-5 h-5 mr-2 text-green-500" />
+                    UN Sustainable Development Goals (SDGs)
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(contribution as any).sdg_goals.map((sdg: string) => (
+                      <span key={sdg} className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                        SDG {sdg}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Faculty Remarks */}
+              {(contribution as any).facultyRemarks && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <MessageSquare className="w-5 h-5 mr-2 text-gray-500" />
+                    Faculty Remarks
+                  </h3>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-gray-700">{(contribution as any).facultyRemarks}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Conference Specific Details */}
+              {contribution.publicationType === 'conference_paper' && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <Presentation className="w-5 h-5 mr-2 text-purple-500" />
+                  Conference Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(contribution as any).conferenceSubType && (
+                    <DetailItem label="Conference Type" value={(contribution as any).conferenceSubType?.replace(/_/g, ' ')} />
+                  )}
+                  {contribution.conferenceName && (
+                    <DetailItem label="Conference Name" value={contribution.conferenceName} />
+                  )}
+                  {contribution.conferenceType && (
+                    <DetailItem label="National/International" value={contribution.conferenceType} />
+                  )}
+                  {contribution.conferenceLocation && (
+                    <DetailItem label="Location" value={contribution.conferenceLocation} />
+                  )}
+                  {(contribution as any).proceedingsTitle && (
+                    <DetailItem label="Proceedings Title" value={(contribution as any).proceedingsTitle} />
+                  )}
+                  {(contribution as any).proceedingsQuartile && (
+                    <DetailItem label="Proceedings Quartile" value={(contribution as any).proceedingsQuartile?.toUpperCase()} />
+                  )}
+                  {(contribution as any).conferenceRole && (
+                    <DetailItem label="Role" value={(contribution as any).conferenceRole?.replace(/_/g, ' ')} />
+                  )}
+                  {(contribution as any).indexedIn && (
+                    <DetailItem label="Indexed In" value={(contribution as any).indexedIn?.toUpperCase()?.replace(/_/g, ' ')} />
+                  )}
+                  {(contribution as any).conferenceHeldLocation && (
+                    <DetailItem label="Conference Held" value={(contribution as any).conferenceHeldLocation} />
+                  )}
+                  {(contribution as any).venue && (
+                    <DetailItem label="Venue" value={(contribution as any).venue} />
+                  )}
+                  {(contribution as any).topic && (
+                    <DetailItem label="Topic" value={(contribution as any).topic} />
+                  )}
+                  {(contribution as any).eventCategory && (
+                    <DetailItem label="Event Category" value={(contribution as any).eventCategory?.replace(/_/g, ' ')} />
+                  )}
+                  {(contribution as any).organizerRole && (
+                    <DetailItem label="Organizer Role" value={(contribution as any).organizerRole?.replace(/_/g, ' ')} />
+                  )}
+                  {(contribution as any).virtualConference && (
+                    <DetailItem label="Virtual Conference" value={(contribution as any).virtualConference} />
+                  )}
+                  {(contribution as any).conferenceHeldAtSgt && (
+                    <DetailItem label="Held at SGT" value={(contribution as any).conferenceHeldAtSgt} />
+                  )}
+                  {(contribution as any).conferenceBestPaperAward && (
+                    <DetailItem label="Best Paper Award" value={(contribution as any).conferenceBestPaperAward} />
+                  )}
+                  {(contribution as any).totalPresenters && (
+                    <DetailItem label="Total Presenters" value={(contribution as any).totalPresenters?.toString()} />
+                  )}
+                  {(contribution as any).isPresenter && (
+                    <DetailItem label="Is Presenter" value={(contribution as any).isPresenter} />
+                  )}
+                  {(contribution as any).fullPaper && (
+                    <DetailItem label="Full Paper" value={(contribution as any).fullPaper} />
+                  )}
+                  {(contribution as any).paperDoi && (
+                    <DetailItem label="Paper DOI" value={(contribution as any).paperDoi} />
+                  )}
+                  {(contribution as any).weblink && (
+                    <DetailItem label="Weblink" value={(contribution as any).weblink} link={(contribution as any).weblink} />
+                  )}
+                  {(contribution as any).issnIsbnIssueNo && (
+                    <DetailItem label="ISSN/ISBN/Issue No" value={(contribution as any).issnIsbnIssueNo} />
+                  )}
+                  {(contribution as any).priorityFundingArea && (
+                    <DetailItem label="Priority Funding Area" value={(contribution as any).priorityFundingArea} />
+                  )}
+                  {contribution.conferenceDate && (
+                    <DetailItem label="Conference Date" value={new Date(contribution.conferenceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} />
+                  )}
+                </div>
+              </div>
+              )}
 
               {/* Research Characteristics */}
               <div>

@@ -21,7 +21,8 @@ import {
   Upload,
   BarChart3,
   BookOpen,
-  FileText
+  FileText,
+  Presentation
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
@@ -54,6 +55,8 @@ const hasDrdPermissions = (permissions: DepartmentPermission[]): boolean => {
   // Check for any DRD-related permission
   const drdKeys = [
     'ipr_review', 'ipr_approve', 'ipr_assign_school', 'ipr_recommend',
+    'research_review', 'research_approve', 'research_assign_school',
+    'book_review', 'book_approve', 'book_assign_school',
     'drd_review', 'drd_approve', 'drd_recommend', 'drd_view_all',
     'view_all_ipr', 'review_ipr', 'approve_ipr', 'ipr'
   ];
@@ -61,7 +64,7 @@ const hasDrdPermissions = (permissions: DepartmentPermission[]): boolean => {
   for (const dept of permissions) {
     const category = dept.category?.toLowerCase() || '';
     // Check if category is DRD related
-    if (category.includes('drd') || category.includes('research') || category.includes('development')) {
+    if (category.includes('drd') || category.includes('research') || category.includes('development') || category.includes('book')) {
       console.log('DRD Permission found via category:', category);
       return true;
     }
@@ -100,10 +103,11 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
   // Check permissions
   const canFileIpr = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'ipr_file_new');
   const canFileResearch = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'research_file_new');
+  const canFileBook = isFaculty || isStudent || isAdmin || hasPermission(permissions, 'book_file_new');
   const hasDrdAccess = hasDrdPermissions(permissions) || isAdmin;
   const hasFinanceAccess = hasFinancePermissions(permissions);
   
-  console.log('getNavItems - canFileIpr:', canFileIpr, 'canFileResearch:', canFileResearch, 'hasDrdAccess:', hasDrdAccess);
+  console.log('getNavItems - canFileIpr:', canFileIpr, 'canFileResearch:', canFileResearch, 'canFileBook:', canFileBook, 'hasDrdAccess:', hasDrdAccess);
   
   // DRD Dashboard - Show for users with DRD permissions OR admins
   if (hasDrdAccess) {
@@ -116,7 +120,7 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
   }
   
   // Research & IPR - Show unified menu for faculty and students
-  if (canFileResearch || canFileIpr) {
+  if (canFileResearch || canFileIpr || canFileBook) {
     const researchIprSubItems: NavItem[] = [
       { name: 'My Work', href: '/my-work', icon: LayoutDashboard },
     ];
@@ -165,6 +169,8 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
         { name: 'Permissions', href: '/admin/permissions', icon: Settings },
         { name: 'IPR School Assignment', href: '/admin/drd-school-assignment', icon: MapPin },
         { name: 'Research School Assignment', href: '/admin/research-school-assignment', icon: BookOpen },
+        { name: 'Book School Assignment', href: '/admin/book-school-assignment', icon: BookOpen },
+        { name: 'Conference School Assignment', href: '/admin/conference-school-assignment', icon: Presentation },
         { name: 'IPR Policies', href: '/admin/incentive-policies', icon: Settings },
         { name: 'Research Policies', href: '/admin/research-policies', icon: FileText },
       ]

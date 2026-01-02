@@ -596,7 +596,14 @@ export default function ResearchReviewPage() {
         {/* Publication Details */}
         <div className={`bg-white rounded-xl shadow-sm border ${isEditMode ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'} p-6`}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Journal Details </h2>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {contribution.publicationType === 'research_paper' ? 'Journal Details' :
+               contribution.publicationType === 'book' ? 'Book Details' :
+               contribution.publicationType === 'book_chapter' ? 'Book Chapter Details' :
+               contribution.publicationType === 'conference_paper' ? 'Conference Details' :
+               contribution.publicationType === 'grant' ? 'Grant Details' :
+               'Publication Details'}
+            </h2>
             {isEditMode && (
               <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
                 Click edit icon on any field to suggest changes
@@ -633,6 +640,139 @@ export default function ResearchReviewPage() {
               </div>
             )}
             
+            {/* Book and Book Chapter specific */}
+            {(contribution.publicationType === 'book' || contribution.publicationType === 'book_chapter') && (
+              <>
+                {((contribution as any).publisherName || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Publisher Name</div>
+                    {renderEditableField('publisherName', (contribution as any).publisherName || '', 'text')}
+                  </div>
+                )}
+                {((contribution as any).isbn || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">ISBN</div>
+                    {renderEditableField('isbn', (contribution as any).isbn || '', 'text')}
+                  </div>
+                )}
+                {((contribution as any).edition || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Edition</div>
+                    {renderEditableField('edition', (contribution as any).edition || '', 'text')}
+                  </div>
+                )}
+                {((contribution as any).publisherLocation || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Publisher Location</div>
+                    {renderEditableField('publisherLocation', (contribution as any).publisherLocation || '', 'text')}
+                  </div>
+                )}
+                {((contribution as any).publicationDate || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Publication Date</div>
+                    {renderEditableField('publicationDate', (contribution as any).publicationDate ? new Date((contribution as any).publicationDate).toISOString().split('T')[0] : '', 'date')}
+                  </div>
+                )}
+                {((contribution as any).nationalInternational || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">National/International</div>
+                    {renderEditableField('nationalInternational', (contribution as any).nationalInternational || '', 'select', ['national', 'international'])}
+                  </div>
+                )}
+                {((contribution as any).bookPublicationType || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Book Publication Type</div>
+                    {renderEditableField('bookPublicationType', (contribution as any).bookPublicationType || '', 'select', ['authored', 'edited'])}
+                  </div>
+                )}
+                {((contribution as any).bookIndexingType || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Indexing Type</div>
+                    {renderEditableField('bookIndexingType', (contribution as any).bookIndexingType || '', 'select', ['scopus', 'web_of_science', 'other'])}
+                  </div>
+                )}
+                {((contribution as any).bookLetter || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Book Letter</div>
+                    {renderEditableField('bookLetter', (contribution as any).bookLetter || '', 'text')}
+                  </div>
+                )}
+                {contribution.publicationType === 'book_chapter' && (
+                  <>
+                    {((contribution as any).bookTitle || isEditMode) && (
+                      <div>
+                        <div className="text-sm text-gray-500">Book Title</div>
+                        {renderEditableField('bookTitle', (contribution as any).bookTitle || '', 'text')}
+                      </div>
+                    )}
+                    {((contribution as any).chapterNumber || isEditMode) && (
+                      <div>
+                        <div className="text-sm text-gray-500">Chapter Number</div>
+                        {renderEditableField('chapterNumber', (contribution as any).chapterNumber || '', 'text')}
+                      </div>
+                    )}
+                    {((contribution as any).editors || isEditMode) && (
+                      <div>
+                        <div className="text-sm text-gray-500">Editors</div>
+                        {renderEditableField('editors', (contribution as any).editors || '', 'text')}
+                      </div>
+                    )}
+                    {((contribution as any).pageNumbers || isEditMode) && (
+                      <div>
+                        <div className="text-sm text-gray-500">Page Numbers</div>
+                        {renderEditableField('pageNumbers', (contribution as any).pageNumbers || '', 'text')}
+                      </div>
+                    )}
+                  </>
+                )}
+                {((contribution as any).targetedResearchType || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Targeted Research Type</div>
+                    <div className="font-medium capitalize">{(contribution as any).targetedResearchType?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
+                {((contribution as any).totalAuthors || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Total Authors</div>
+                    <div className="font-medium">{(contribution as any).totalAuthors}</div>
+                  </div>
+                )}
+                {((contribution as any).sgtAffiliatedAuthors || isEditMode) && (
+                  <div>
+                    <div className="text-sm text-gray-500">SGT Affiliated Authors</div>
+                    <div className="font-medium">{(contribution as any).sgtAffiliatedAuthors}</div>
+                  </div>
+                )}
+                {((contribution as any).internationalAuthor !== undefined) && (
+                  <div>
+                    <div className="text-sm text-gray-500">International Author</div>
+                    <div className="font-medium flex items-center">
+                      {(contribution as any).internationalAuthor ? (
+                        <>
+                          <Globe className="w-4 h-4 mr-1 text-green-600" />
+                          Yes
+                        </>
+                      ) : (
+                        'No'
+                      )}
+                    </div>
+                  </div>
+                )}
+                {((contribution as any).interdisciplinaryFromSgt !== undefined) && (
+                  <div>
+                    <div className="text-sm text-gray-500">Interdisciplinary</div>
+                    <div className="font-medium">{(contribution as any).interdisciplinaryFromSgt ? 'Yes' : 'No'}</div>
+                  </div>
+                )}
+                {((contribution as any).studentsFromSgt !== undefined) && (
+                  <div>
+                    <div className="text-sm text-gray-500">SGT Students Involved</div>
+                    <div className="font-medium">{(contribution as any).studentsFromSgt ? 'Yes' : 'No'}</div>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Research Paper specific */}
             {contribution.publicationType === 'research_paper' && (
               <>
@@ -708,10 +848,10 @@ export default function ResearchReviewPage() {
                     {renderEditableField('quartile', (contribution as any).quartile?.toUpperCase() || '', 'select', ['q1', 'q2', 'q3', 'q4', 'na'])}
                   </div>
                 )}
-                {contribution.indexedIn && contribution.indexedIn.length > 0 && (
+                {contribution.indexedIn && (
                   <div>
                     <div className="text-sm text-gray-500">Indexed In</div>
-                    <div className="font-medium">{contribution.indexedIn.join(', ')}</div>
+                    <div className="font-medium">{Array.isArray(contribution.indexedIn) ? contribution.indexedIn.join(', ') : contribution.indexedIn}</div>
                   </div>
                 )}
                 {(contribution.hasInternationalAuthor !== undefined) && (
@@ -735,6 +875,12 @@ export default function ResearchReviewPage() {
             {/* Conference specific */}
             {contribution.publicationType === 'conference_paper' && (
               <>
+                {(contribution as any).conferenceSubType && (
+                  <div>
+                    <div className="text-sm text-gray-500">Conference Sub Type</div>
+                    <div className="font-medium capitalize">{(contribution as any).conferenceSubType?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
                 {(contribution.conferenceName || isEditMode) && (
                   <div>
                     <div className="text-sm text-gray-500">Conference Name</div>
@@ -751,6 +897,120 @@ export default function ResearchReviewPage() {
                   <div>
                     <div className="text-sm text-gray-500">Location</div>
                     {renderEditableField('conferenceLocation', contribution.conferenceLocation || '', 'text')}
+                  </div>
+                )}
+                {(contribution as any).proceedingsTitle && (
+                  <div>
+                    <div className="text-sm text-gray-500">Proceedings Title</div>
+                    <div className="font-medium">{(contribution as any).proceedingsTitle}</div>
+                  </div>
+                )}
+                {(contribution as any).proceedingsQuartile && (
+                  <div>
+                    <div className="text-sm text-gray-500">Proceedings Quartile</div>
+                    <div className="font-medium uppercase">{(contribution as any).proceedingsQuartile}</div>
+                  </div>
+                )}
+                {(contribution as any).conferenceRole && (
+                  <div>
+                    <div className="text-sm text-gray-500">Conference Role</div>
+                    <div className="font-medium capitalize">{(contribution as any).conferenceRole?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
+                {(contribution as any).indexedIn && (
+                  <div>
+                    <div className="text-sm text-gray-500">Indexed In</div>
+                    <div className="font-medium uppercase">{(contribution as any).indexedIn?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
+                {(contribution as any).conferenceHeldLocation && (
+                  <div>
+                    <div className="text-sm text-gray-500">Conference Held</div>
+                    <div className="font-medium capitalize">{(contribution as any).conferenceHeldLocation}</div>
+                  </div>
+                )}
+                {(contribution as any).venue && (
+                  <div>
+                    <div className="text-sm text-gray-500">Venue</div>
+                    <div className="font-medium">{(contribution as any).venue}</div>
+                  </div>
+                )}
+                {(contribution as any).topic && (
+                  <div>
+                    <div className="text-sm text-gray-500">Topic</div>
+                    <div className="font-medium">{(contribution as any).topic}</div>
+                  </div>
+                )}
+                {(contribution as any).eventCategory && (
+                  <div>
+                    <div className="text-sm text-gray-500">Event Category</div>
+                    <div className="font-medium capitalize">{(contribution as any).eventCategory?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
+                {(contribution as any).organizerRole && (
+                  <div>
+                    <div className="text-sm text-gray-500">Organizer Role</div>
+                    <div className="font-medium capitalize">{(contribution as any).organizerRole?.replace(/_/g, ' ')}</div>
+                  </div>
+                )}
+                {(contribution as any).virtualConference && (
+                  <div>
+                    <div className="text-sm text-gray-500">Virtual Conference</div>
+                    <div className="font-medium capitalize">{(contribution as any).virtualConference}</div>
+                  </div>
+                )}
+                {(contribution as any).conferenceHeldAtSgt !== undefined && (
+                  <div>
+                    <div className="text-sm text-gray-500">Held at SGT</div>
+                    <div className="font-medium capitalize">{(contribution as any).conferenceHeldAtSgt}</div>
+                  </div>
+                )}
+                {(contribution as any).conferenceBestPaperAward !== undefined && (
+                  <div>
+                    <div className="text-sm text-gray-500">Best Paper Award</div>
+                    <div className="font-medium capitalize">{(contribution as any).conferenceBestPaperAward}</div>
+                  </div>
+                )}
+                {(contribution as any).totalPresenters && (
+                  <div>
+                    <div className="text-sm text-gray-500">Total Presenters</div>
+                    <div className="font-medium">{(contribution as any).totalPresenters}</div>
+                  </div>
+                )}
+                {(contribution as any).isPresenter !== undefined && (
+                  <div>
+                    <div className="text-sm text-gray-500">Is Presenter</div>
+                    <div className="font-medium capitalize">{(contribution as any).isPresenter}</div>
+                  </div>
+                )}
+                {(contribution as any).fullPaper !== undefined && (
+                  <div>
+                    <div className="text-sm text-gray-500">Full Paper</div>
+                    <div className="font-medium capitalize">{(contribution as any).fullPaper}</div>
+                  </div>
+                )}
+                {(contribution as any).paperDoi && (
+                  <div>
+                    <div className="text-sm text-gray-500">Paper DOI</div>
+                    <div className="font-medium">{(contribution as any).paperDoi}</div>
+                  </div>
+                )}
+                {(contribution as any).weblink && (
+                  <div>
+                    <div className="text-sm text-gray-500">Weblink</div>
+                    <a href={(contribution as any).weblink} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">{(contribution as any).weblink}</a>
+                  </div>
+                )}
+                {(contribution as any).issnIsbnIssueNo && (
+                  <div>
+                    <div className="text-sm text-gray-500">ISSN/ISBN/Issue No</div>
+                    <div className="font-medium">{(contribution as any).issnIsbnIssueNo}</div>
+                  </div>
+                )}
+                {(contribution as any).priorityFundingArea && (
+                  <div>
+                    <div className="text-sm text-gray-500">Priority Funding Area</div>
+                    <div className="font-medium">{(contribution as any).priorityFundingArea}</div>
                   </div>
                 )}
               </>
@@ -795,8 +1055,15 @@ export default function ResearchReviewPage() {
                   <div>
                     <div className="font-medium text-gray-900">{author.name}</div>
                     <div className="text-sm text-gray-500">
-                      {author.authorType?.replace('_', ' ')} • {author.authorRole?.replace('_', ' ')}
-                      {author.isCorresponding && ' • Corresponding'}
+                      {/* For books/book chapters, don't show author role - all authors are equal */}
+                      {contribution.publicationType === 'book' || contribution.publicationType === 'book_chapter' ? (
+                        <span>{author.affiliation || (author.userId ? 'SGT University' : 'External')}</span>
+                      ) : (
+                        <>
+                          {author.authorType?.replace('_', ' ')} • {author.authorRole?.replace('_', ' ')}
+                          {author.isCorresponding && ' • Corresponding'}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -807,6 +1074,36 @@ export default function ResearchReviewPage() {
             ))}
           </div>
         </div>
+
+        {/* SDG Goals */}
+        {(contribution as any).sdg_goals && (contribution as any).sdg_goals.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+              <Award className="w-5 h-5 mr-2 text-green-600" />
+              UN Sustainable Development Goals (SDGs)
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {(contribution as any).sdg_goals.map((sdg: string) => (
+                <span key={sdg} className="px-4 py-2 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                  SDG {sdg}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Faculty Remarks */}
+        {(contribution as any).facultyRemarks && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+              <MessageSquare className="w-5 h-5 mr-2 text-gray-600" />
+              Faculty Remarks
+            </h2>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-gray-700 whitespace-pre-wrap">{(contribution as any).facultyRemarks}</p>
+            </div>
+          </div>
+        )}
 
         {/* Documents */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

@@ -29,6 +29,18 @@ router.get('/drd-members/with-research-schools', permissionMgmt.getDrdMembersWit
 router.get('/schools/with-research-members', permissionMgmt.getSchoolsWithResearchMembers);
 router.post('/research-member/assign-schools', permissionMgmt.assignResearchMemberSchools);
 
+// Book school assignments (requires book_approve/book_assign_school permission)
+router.get('/drd-members/with-book-schools', permissionMgmt.getDrdMembersWithBookSchools);
+router.get('/schools/with-book-members', permissionMgmt.getSchoolsWithBookMembers);
+router.post('/book-member/assign-schools', permissionMgmt.assignBookMemberSchools);
+router.get('/my-assigned-book-schools', permissionMgmt.getMyAssignedBookSchools);
+
+// Conference school assignments (requires conference_approve/conference_assign_school permission)
+router.get('/drd-members/with-conference-schools', permissionMgmt.getDrdMembersWithConferenceSchools);
+router.get('/schools/with-conference-members', permissionMgmt.getSchoolsWithConferenceMembers);
+router.post('/conference-member/assign-schools', permissionMgmt.assignConferenceMemberSchools);
+router.get('/my-assigned-conference-schools', permissionMgmt.getMyAssignedConferenceSchools);
+
 // Admin only routes
 router.use(restrictTo('admin'));
 

@@ -241,9 +241,15 @@ const calculateIncentives = async (
   let totalPoints = 0;
   
   // First try quartile-based incentives (primary/mandatory)
-  const quartile = contributionData.quartile;
+  let quartile = contributionData.quartile;
   if (quartile) {
-    const quartileMatch = quartileIncentives.find(q => q.quartile === quartile);
+    // Normalize quartile: top1%, top5%, top10% should use Q1 incentives
+    let normalizedQuartile = quartile.toUpperCase();
+    if (normalizedQuartile === 'TOP1' || normalizedQuartile === 'TOP5' || normalizedQuartile === 'TOP10') {
+      normalizedQuartile = 'Q1';
+    }
+    
+    const quartileMatch = quartileIncentives.find(q => q.quartile.toUpperCase() === normalizedQuartile);
     if (quartileMatch) {
       totalAmount = Number(quartileMatch.incentiveAmount) || 0;
       totalPoints = Number(quartileMatch.points) || 0;
@@ -378,11 +384,42 @@ exports.createResearchContribution = async (req, res) => {
       bookTitle,
       editors,
       publisherLocation,
+      nationalInternational,
+      bookPublicationType,
+      bookIndexingType,
+      bookLetter,
+      communicatedWithOfficialId,
+      personalEmail,
+      facultyRemarks,
       // Conference fields
       conferenceName,
       conferenceLocation,
       conferenceDate,
       proceedingsTitle,
+      // Conference Extended fields
+      conferenceSubType,
+      proceedingsQuartile,
+      totalPresenters,
+      isPresenter,
+      virtualConference,
+      fullPaper,
+      conferenceHeldAtSgt,
+      conferenceBestPaperAward,
+      industryCollaboration,
+      centralFacilityUsed,
+      issnIsbnIssueNo,
+      paperDoi,
+      weblink,
+      priorityFundingArea,
+      conferenceRole,
+      indexedIn,
+      conferenceHeldLocation,
+      venue,
+      topic,
+      attendedVirtual,
+      eventCategory,
+      organizerRole,
+      conferenceType,
       // Grant fields
       fundingAgency,
       proposalType,
@@ -519,18 +556,34 @@ exports.createResearchContribution = async (req, res) => {
       }
     }
 
+    // Truncate string fields to match database column limits
+    const truncateField = (value, maxLength) => {
+      if (!value) return value;
+      return String(value).substring(0, maxLength);
+    };
+
     // Create the research contribution
     const contribution = await prisma.researchContribution.create({
       data: {
         applicationNumber,
-        applicantUserId: userId,
+        applicantUser: {
+          connect: { id: userId }
+        },
         applicantType,
         publicationType,
-        title,
+        title: truncateField(title, 512),
         abstract,
-        keywords,
-        schoolId: resolvedSchoolId,
-        departmentId: resolvedDepartmentId,
+        keywords: truncateField(keywords, 512),
+        ...(resolvedSchoolId && {
+          school: {
+            connect: { id: resolvedSchoolId }
+          }
+        }),
+        ...(resolvedDepartmentId && {
+          department: {
+            connect: { id: resolvedDepartmentId }
+          }
+        }),
         status: 'draft',
         // Research paper fields
         targetedResearchType,
@@ -541,31 +594,62 @@ exports.createResearchContribution = async (req, res) => {
         sjr: sjr ? Number(sjr) : null,
         interdisciplinaryFromSgt: interdisciplinaryFromSgt || false,
         studentsFromSgt: studentsFromSgt || false,
-        journalName,
+        journalName: truncateField(journalName, 512),
         totalAuthors: totalAuthors || 1,
         sgtAffiliatedAuthors: sgtAffiliatedAuthors || 1,
         internalCoAuthors: internalCoAuthors || 0,
-        volume,
-        issue,
-        pageNumbers,
-        doi,
-        issn,
-        publisherName,
+        volume: truncateField(volume, 64),
+        issue: truncateField(issue, 64),
+        pageNumbers: truncateField(pageNumbers, 64),
+        doi: truncateField(doi, 256),
+        issn: truncateField(issn, 32),
+        publisherName: truncateField(publisherName, 256),
         // Book/Chapter fields
-        isbn,
-        edition,
-        chapterNumber,
-        bookTitle,
-        editors,
-        publisherLocation,
+        isbn: truncateField(isbn, 32),
+        edition: truncateField(edition, 64),
+        chapterNumber: truncateField(chapterNumber, 32),
+        bookTitle: truncateField(bookTitle, 512),
+        editors: truncateField(editors, 512),
+        publisherLocation: truncateField(publisherLocation, 256),
+        nationalInternational: truncateField(nationalInternational, 32),
+        bookPublicationType: truncateField(bookPublicationType, 32),
+        bookIndexingType: truncateField(bookIndexingType, 32),
+        bookLetter: truncateField(bookLetter, 8),
+        communicatedWithOfficialId: communicatedWithOfficialId === 'yes' || communicatedWithOfficialId === true,
+        personalEmail: truncateField(personalEmail, 256),
+        facultyRemarks,
         // Conference fields
-        conferenceName,
-        conferenceLocation,
+        conferenceName: truncateField(conferenceName, 512),
+        conferenceLocation: truncateField(conferenceLocation, 256),
         conferenceDate: conferenceDate ? new Date(conferenceDate) : null,
-        proceedingsTitle,
+        proceedingsTitle: truncateField(proceedingsTitle, 512),
+        // Conference Extended fields
+        conferenceSubType: truncateField(conferenceSubType, 64),
+        proceedingsQuartile: truncateField(proceedingsQuartile, 16),
+        totalPresenters: totalPresenters ? Number(totalPresenters) : 1,
+        isPresenter: isPresenter === 'yes' || isPresenter === true,
+        virtualConference: virtualConference === 'yes' || virtualConference === true,
+        fullPaper: fullPaper === 'yes' || fullPaper === true,
+        conferenceHeldAtSgt: conferenceHeldAtSgt === 'yes' || conferenceHeldAtSgt === true,
+        conferenceBestPaperAward: conferenceBestPaperAward === 'yes' || conferenceBestPaperAward === true,
+        industryCollaboration: industryCollaboration === 'yes' || industryCollaboration === true,
+        centralFacilityUsed: centralFacilityUsed === 'yes' || centralFacilityUsed === true,
+        issnIsbnIssueNo: truncateField(issnIsbnIssueNo, 64),
+        paperDoi: truncateField(paperDoi, 256),
+        weblink: truncateField(weblink, 512),
+        priorityFundingArea: truncateField(priorityFundingArea, 256),
+        conferenceRole: truncateField(conferenceRole, 64),
+        indexedIn: truncateField(indexedIn, 32),
+        conferenceHeldLocation: truncateField(conferenceHeldLocation, 32),
+        venue: truncateField(venue, 512),
+        topic: truncateField(topic, 512),
+        attendedVirtual: attendedVirtual === 'yes' || attendedVirtual === true,
+        eventCategory: truncateField(eventCategory, 32),
+        organizerRole: truncateField(organizerRole, 64),
+        conferenceType: truncateField(conferenceType, 32),
         // Grant fields
-        fundingAgency,
-        proposalType,
+        fundingAgency: truncateField(fundingAgency, 256),
+        proposalType: truncateField(proposalType, 64),
         requestedAmount: requestedAmount ? Number(requestedAmount) : null,
         sanctionedAmount: sanctionedAmount ? Number(sanctionedAmount) : null,
         projectDurationMonths,
@@ -573,11 +657,11 @@ exports.createResearchContribution = async (req, res) => {
         projectEndDate: projectEndDate ? new Date(projectEndDate) : null,
         // Common fields
         publicationDate: publicationDate ? new Date(publicationDate) : null,
-        publicationStatus,
-        manuscriptFilePath,
+        publicationStatus: truncateField(publicationStatus, 64),
+        manuscriptFilePath: truncateField(manuscriptFilePath, 512),
         supportingDocsFilePaths,
         indexingDetails,
-        sdgGoals: sanitizedSdgGoals,
+        sdg_goals: sanitizedSdgGoals,
         // Pre-calculated incentives
         calculatedIncentiveAmount: incentiveCalculation.incentiveAmount,
         calculatedPoints: incentiveCalculation.points
@@ -589,18 +673,18 @@ exports.createResearchContribution = async (req, res) => {
       await prisma.researchContributionApplicantDetails.create({
         data: {
           researchContributionId: contribution.id,
-          employeeCategory: applicantDetails.employeeCategory,
-          employeeType: applicantDetails.employeeType,
-          uid: applicantDetails.uid,
-          email: applicantDetails.email,
-          phone: applicantDetails.phone,
-          universityDeptName: applicantDetails.universityDeptName,
-          mentorName: applicantDetails.mentorName,
-          mentorUid: applicantDetails.mentorUid,
+          employeeCategory: truncateField(applicantDetails.employeeCategory, 64),
+          employeeType: truncateField(applicantDetails.employeeType, 64),
+          uid: truncateField(applicantDetails.uid, 64),
+          email: truncateField(applicantDetails.email, 256),
+          phone: truncateField(applicantDetails.phone, 20),
+          universityDeptName: truncateField(applicantDetails.universityDeptName, 256),
+          mentorName: truncateField(applicantDetails.mentorName, 256),
+          mentorUid: truncateField(applicantDetails.mentorUid, 64),
           isPhdWork: applicantDetails.isPhdWork || false,
-          phdTitle: applicantDetails.phdTitle,
+          phdTitle: truncateField(applicantDetails.phdTitle, 512),
           phdObjectives: applicantDetails.phdObjectives,
-          coveredObjectives: applicantDetails.coveredObjectives,
+          coveredObjectives: truncateField(applicantDetails.coveredObjectives, 256),
           addressesSocietal: applicantDetails.addressesSocietal || false,
           addressesGovernment: applicantDetails.addressesGovernment || false,
           addressesEnvironmental: applicantDetails.addressesEnvironmental || false,
@@ -691,24 +775,24 @@ exports.createResearchContribution = async (req, res) => {
           data: {
             researchContributionId: contribution.id,
             userId: authorUserId,
-            uid: author.uid,
-            registrationNo: author.registrationNumber,
-            name: author.name,
-            email: author.email,
-            phone: author.phone,
-            affiliation: author.affiliation,
-            department: author.department,
-            designation: author.designation || null,
+            uid: truncateField(author.uid, 64),
+            registrationNo: truncateField(author.registrationNumber, 64),
+            name: truncateField(author.name, 256),
+            email: truncateField(author.email, 256),
+            phone: truncateField(author.phone, 20),
+            affiliation: truncateField(author.affiliation, 256),
+            department: truncateField(author.department, 256),
+            designation: truncateField(author.designation, 256),
             isInternational: author.isInternational || false,
             authorOrder: author.orderNumber || 1,
             isCorresponding: author.isCorresponding || false,
             authorType: mappedAuthorType,
             isInternal: isInternalAuthor,
-            authorCategory: authorCategory,
+            authorCategory: truncateField(authorCategory, 64),
             isPhdWork: author.isPhdWork || false,
-            phdTitle: author.phdTitle,
+            phdTitle: truncateField(author.phdTitle, 512),
             phdObjectives: author.phdObjectives,
-            coveredObjectives: author.coveredObjectives,
+            coveredObjectives: truncateField(author.coveredObjectives, 256),
             addressesSocietal: author.addressesSocietal || false,
             addressesGovernment: author.addressesGovernment || false,
             addressesEnvironmental: author.addressesEnvironmental || false,
@@ -1214,9 +1298,25 @@ exports.updateResearchContribution = async (req, res) => {
     // Also extract mentorUid and add it to applicantDetails if present
     const { authors, applicantDetails, mentorUid, ...contributionData } = updateData;
     
-    // Ensure sdgGoals is an array, not null
-    if (contributionData.sdgGoals === null || contributionData.sdgGoals === undefined) {
-      contributionData.sdgGoals = [];
+    // Convert string boolean fields to actual booleans
+    const booleanFields = [
+      'communicatedWithOfficialId', 'isPresenter', 'virtualConference', 'fullPaper',
+      'conferenceHeldAtSgt', 'conferenceBestPaperAward', 'industryCollaboration',
+      'centralFacilityUsed', 'attendedVirtual', 'internationalAuthor',
+      'interdisciplinaryFromSgt', 'studentsFromSgt'
+    ];
+    
+    booleanFields.forEach(field => {
+      if (contributionData[field] !== undefined) {
+        contributionData[field] = contributionData[field] === 'yes' || contributionData[field] === true;
+      }
+    });
+    
+    // Ensure sdgGoals is handled correctly and mapped to sdg_goals
+    if (contributionData.sdgGoals !== undefined) {
+      // Map sdgGoals to sdg_goals (database field name)
+      contributionData.sdg_goals = contributionData.sdgGoals || [];
+      delete contributionData.sdgGoals;
     }
     
     // If mentorUid is provided, add it to applicantDetails

@@ -39,23 +39,81 @@ const RESEARCH_PERMISSIONS = {
     permissions: {
       research_file_new: {
         key: 'research_file_new',
-        label: 'Research Filing',
-        description: 'Can file new research contributions (Faculty/Student have this by default)'
+        label: 'Research Paper Filing',
+        description: 'Can file new research paper contributions (Faculty/Student have this by default)'
       },
       research_review: {
         key: 'research_review',
-        label: 'Research Review',
-        description: 'DRD Member - Can review research contributions from assigned schools'
+        label: 'Research Paper Review',
+        description: 'DRD Member - Can review research paper contributions from assigned schools'
       },
       research_approve: {
         key: 'research_approve',
-        label: 'Research Approve',
-        description: 'DRD Head - Can give final approval/rejection on research contributions'
+        label: 'Research Paper Approve',
+        description: 'DRD Head - Can give final approval/rejection on research paper contributions'
       },
       research_assign_school: {
         key: 'research_assign_school',
         label: 'Assign Schools to DRD Members (Research)',
         description: 'DRD Head - Can assign schools to DRD member reviewers for Research'
+      }
+    }
+  }
+};
+
+// Book/Book Chapter Permissions - 4 checkboxes (parallel to IPR and Research)
+const BOOK_PERMISSIONS = {
+  BOOK_CORE: {
+    category: 'Book Permissions',
+    permissions: {
+      book_file_new: {
+        key: 'book_file_new',
+        label: 'Book/Chapter Filing',
+        description: 'Can file new book/book chapter contributions (Faculty/Student have this by default)'
+      },
+      book_review: {
+        key: 'book_review',
+        label: 'Book/Chapter Review',
+        description: 'DRD Member - Can review book/book chapter contributions from assigned schools'
+      },
+      book_approve: {
+        key: 'book_approve',
+        label: 'Book/Chapter Approve',
+        description: 'DRD Head - Can give final approval/rejection on book/book chapter contributions'
+      },
+      book_assign_school: {
+        key: 'book_assign_school',
+        label: 'Assign Schools to DRD Members (Book)',
+        description: 'DRD Head - Can assign schools to DRD member reviewers for Book/Chapter'
+      }
+    }
+  }
+};
+
+// Conference Paper Permissions - 4 checkboxes (parallel to IPR, Research, and Book)
+const CONFERENCE_PERMISSIONS = {
+  CONFERENCE_CORE: {
+    category: 'Conference Permissions',
+    permissions: {
+      conference_file_new: {
+        key: 'conference_file_new',
+        label: 'Conference Paper Filing',
+        description: 'Can file new conference paper contributions (Faculty/Student have this by default)'
+      },
+      conference_review: {
+        key: 'conference_review',
+        label: 'Conference Paper Review',
+        description: 'DRD Member - Can review conference paper contributions from assigned schools'
+      },
+      conference_approve: {
+        key: 'conference_approve',
+        label: 'Conference Paper Approve',
+        description: 'DRD Head - Can give final approval/rejection on conference paper contributions'
+      },
+      conference_assign_school: {
+        key: 'conference_assign_school',
+        label: 'Assign Schools to DRD Members (Conference)',
+        description: 'DRD Head - Can assign schools to DRD member reviewers for Conference'
       }
     }
   }
@@ -68,7 +126,13 @@ const ALL_IPR_PERMISSION_KEYS = Object.values(IPR_PERMISSIONS)
 const ALL_RESEARCH_PERMISSION_KEYS = Object.values(RESEARCH_PERMISSIONS)
   .flatMap(category => Object.keys(category.permissions));
 
-const ALL_PERMISSION_KEYS = [...ALL_IPR_PERMISSION_KEYS, ...ALL_RESEARCH_PERMISSION_KEYS];
+const ALL_BOOK_PERMISSION_KEYS = Object.values(BOOK_PERMISSIONS)
+  .flatMap(category => Object.keys(category.permissions));
+
+const ALL_CONFERENCE_PERMISSION_KEYS = Object.values(CONFERENCE_PERMISSIONS)
+  .flatMap(category => Object.keys(category.permissions));
+
+const ALL_PERMISSION_KEYS = [...ALL_IPR_PERMISSION_KEYS, ...ALL_RESEARCH_PERMISSION_KEYS, ...ALL_BOOK_PERMISSION_KEYS, ...ALL_CONFERENCE_PERMISSION_KEYS];
 
 // Get all permissions as flat array for API response
 const getPermissionsForUI = () => {
@@ -84,7 +148,19 @@ const getPermissionsForUI = () => {
     permissions: Object.values(group.permissions)
   }));
   
-  return [...iprPerms, ...researchPerms];
+  const bookPerms = Object.entries(BOOK_PERMISSIONS).map(([groupKey, group]) => ({
+    groupKey,
+    category: group.category,
+    permissions: Object.values(group.permissions)
+  }));
+  
+  const conferencePerms = Object.entries(CONFERENCE_PERMISSIONS).map(([groupKey, group]) => ({
+    groupKey,
+    category: group.category,
+    permissions: Object.values(group.permissions)
+  }));
+  
+  return [...iprPerms, ...researchPerms, ...bookPerms, ...conferencePerms];
 };
 
 // Validate permission keys
@@ -97,20 +173,24 @@ const isValidPermission = (key) => ALL_PERMISSION_KEYS.includes(key);
 const getDefaultPermissions = (role) => {
   const defaults = {
     student: {
-      ipr_file_new: true,      // Students can file IPR by default
-      research_file_new: true  // Students can file Research by default
+      ipr_file_new: true,         // Students can file IPR by default
+      research_file_new: true,    // Students can file Research by default
+      book_file_new: true,        // Students can file Book/Chapter by default
+      conference_file_new: true   // Students can file Conference by default
     },
     faculty: {
-      ipr_file_new: true,      // Faculty can file IPR by default
-      research_file_new: true  // Faculty can file Research by default
+      ipr_file_new: true,         // Faculty can file IPR by default
+      research_file_new: true,    // Faculty can file Research by default
+      book_file_new: true,        // Faculty can file Book/Chapter by default
+      conference_file_new: true   // Faculty can file Conference by default
     },
     staff: {
-      // Staff do NOT get any IPR/Research permissions by default
+      // Staff do NOT get any IPR/Research/Book/Conference permissions by default
       // They need explicit permission from admin checkbox
     },
     admin: {
       // Admin is IT head - manages users/permissions/analytics
-      // Does NOT get IPR/Research operational permissions by default
+      // Does NOT get IPR/Research/Book/Conference operational permissions by default
       // Can assign permissions to others, but cannot file/review/approve
     }
   };
@@ -153,15 +233,53 @@ const ROUTE_PERMISSION_MAP = {
   
   // Research School Assignment Routes (DRD Head)
   'POST /api/v1/research-member/assign-schools': ['research_assign_school'],
-  'PUT /api/v1/research-member/assign-schools/:userId': ['research_assign_school']
+  'PUT /api/v1/research-member/assign-schools/:userId': ['research_assign_school'],
+  
+  // Book/Chapter Filing Routes
+  'POST /api/v1/book/create': ['book_file_new'],
+  'GET /api/v1/book/my-books': ['book_file_new'],
+  
+  // Book Review Routes (DRD Member)
+  'GET /api/v1/book-review/pending': ['book_review', 'book_approve'],
+  'POST /api/v1/book-review/review/:id': ['book_review'],
+  'POST /api/v1/book-review/request-changes/:id': ['book_review'],
+  
+  // Book Approval Routes (DRD Head)
+  'POST /api/v1/book-review/approve/:id': ['book_approve'],
+  'POST /api/v1/book-review/reject/:id': ['book_approve'],
+  
+  // Book School Assignment Routes (DRD Head)
+  'POST /api/v1/book-member/assign-schools': ['book_assign_school'],
+  'PUT /api/v1/book-member/assign-schools/:userId': ['book_assign_school'],
+  
+  // Conference Paper Filing Routes
+  'POST /api/v1/conference/create': ['conference_file_new'],
+  'GET /api/v1/conference/my-papers': ['conference_file_new'],
+  
+  // Conference Review Routes (DRD Member)
+  'GET /api/v1/conference-review/pending': ['conference_review', 'conference_approve'],
+  'POST /api/v1/conference-review/review/:id': ['conference_review'],
+  'POST /api/v1/conference-review/request-changes/:id': ['conference_review'],
+  
+  // Conference Approval Routes (DRD Head)
+  'POST /api/v1/conference-review/approve/:id': ['conference_approve'],
+  'POST /api/v1/conference-review/reject/:id': ['conference_approve'],
+  
+  // Conference School Assignment Routes (DRD Head)
+  'POST /api/v1/conference-member/assign-schools': ['conference_assign_school'],
+  'PUT /api/v1/conference-member/assign-schools/:userId': ['conference_assign_school']
 };
 
 module.exports = {
   IPR_PERMISSIONS,
   RESEARCH_PERMISSIONS,
+  BOOK_PERMISSIONS,
+  CONFERENCE_PERMISSIONS,
   ALL_PERMISSION_KEYS,
   ALL_IPR_PERMISSION_KEYS,
   ALL_RESEARCH_PERMISSION_KEYS,
+  ALL_BOOK_PERMISSION_KEYS,
+  ALL_CONFERENCE_PERMISSION_KEYS,
   getPermissionsForUI,
   isValidPermission,
   getDefaultPermissions,

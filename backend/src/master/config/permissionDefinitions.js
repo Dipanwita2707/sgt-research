@@ -107,18 +107,44 @@ const CENTRAL_DEPARTMENT_PERMISSIONS = {
     // Assign Schools - DRD Head can assign schools to DRD member reviewers
     { key: 'ipr_assign_school', label: 'Assign Schools to DRD Members (IPR)', category: 'IPR Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for IPR' },
     
-    // ========== Research Contribution Permissions ==========
+    // ========== Research Paper Permissions ==========
     // Research Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
-    { key: 'research_file_new', label: 'Research Filing', category: 'Research Permissions', type: 'action', description: 'Can file new research contributions (Faculty/Student have this by default)' },
+    { key: 'research_file_new', label: 'Research Paper Filing', category: 'Research Permissions', type: 'action', description: 'Can file new research paper contributions (Faculty/Student have this by default)' },
     
     // Research Review - DRD Member can review applications from assigned schools
-    { key: 'research_review', label: 'Research Review', category: 'Research Permissions', type: 'action', description: 'DRD Member - Can review research contributions from assigned schools' },
+    { key: 'research_review', label: 'Research Paper Review', category: 'Research Permissions', type: 'action', description: 'DRD Member - Can review research paper contributions from assigned schools' },
     
     // Research Approve - DRD Head can give final approval/rejection
-    { key: 'research_approve', label: 'Research Approve', category: 'Research Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on research contributions' },
+    { key: 'research_approve', label: 'Research Paper Approve', category: 'Research Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on research paper contributions' },
     
     // Assign Schools for Research - DRD Head can assign schools to DRD member reviewers
     { key: 'research_assign_school', label: 'Assign Schools to DRD Members (Research)', category: 'Research Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Research' },
+    
+    // ========== Book/Book Chapter Permissions ==========
+    // Book Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
+    { key: 'book_file_new', label: 'Book/Chapter Filing', category: 'Book Permissions', type: 'action', description: 'Can file new book/book chapter contributions (Faculty/Student have this by default)' },
+    
+    // Book Review - DRD Member can review book applications from assigned schools
+    { key: 'book_review', label: 'Book/Chapter Review', category: 'Book Permissions', type: 'action', description: 'DRD Member - Can review book/book chapter contributions from assigned schools' },
+    
+    // Book Approve - DRD Head can give final approval/rejection
+    { key: 'book_approve', label: 'Book/Chapter Approve', category: 'Book Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on book/book chapter contributions' },
+    
+    // Assign Schools for Book - DRD Head can assign schools to DRD member reviewers
+    { key: 'book_assign_school', label: 'Assign Schools to DRD Members (Book)', category: 'Book Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Book/Chapter' },
+    
+    // ========== Conference Permissions ==========
+    // Conference Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
+    { key: 'conference_file_new', label: 'Conference Paper Filing', category: 'Conference Permissions', type: 'action', description: 'Can file new conference paper contributions (Faculty/Student have this by default)' },
+    
+    // Conference Review - DRD Member can review conference applications from assigned schools
+    { key: 'conference_review', label: 'Conference Paper Review', category: 'Conference Permissions', type: 'action', description: 'DRD Member - Can review conference paper contributions from assigned schools' },
+    
+    // Conference Approve - DRD Head can give final approval/rejection
+    { key: 'conference_approve', label: 'Conference Paper Approve', category: 'Conference Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on conference paper contributions' },
+    
+    // Assign Schools for Conference - DRD Head can assign schools to DRD member reviewers
+    { key: 'conference_assign_school', label: 'Assign Schools to DRD Members (Conference)', category: 'Conference Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Conference' },
   ],
   
   // Finance Department

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { 
   FileText, 
   BookOpen, 
+  BookMarked,
   Presentation, 
   DollarSign,
   ChevronRight 
@@ -23,13 +24,23 @@ const PUBLICATION_TYPES = [
   },
   {
     type: 'book',
-    label: 'Book / Book Chapter',
+    label: 'Book Publication',
     icon: BookOpen,
     color: 'bg-green-500',
     hoverColor: 'group-hover:bg-green-600',
-    description: 'Authored books and book chapters with ISBN',
-    features: ['Full book authorship', 'Chapter contributions', 'Publisher recognition'],
+    description: 'Full authored books with ISBN',
+    features: ['Full book authorship', 'Publisher recognition', 'National & International'],
     href: '/research/apply?type=book'
+  },
+  {
+    type: 'book_chapter',
+    label: 'Book Chapter',
+    icon: BookMarked,
+    color: 'bg-teal-500',
+    hoverColor: 'group-hover:bg-teal-600',
+    description: 'Chapter contributions in edited books with ISBN',
+    features: ['Chapter contributions', 'Edited volume recognition', 'Publisher recognition'],
+    href: '/research/apply?type=book_chapter'
   },
   {
     type: 'conference_paper',
@@ -100,7 +111,7 @@ export default function ResearchTypeSelector() {
           <h3 className="font-medium text-blue-900 mb-2">📋 How it works</h3>
           <ol className="text-sm text-blue-800 space-y-1">
             <li>1. Select the type of publication above</li>
-            <li>2. Fill in the publication details and add co-authors</li>
+            <li>2. Fill in the Journal Details and add co-authors</li>
             <li>3. Submit for DRD review</li>
             <li>4. Upon approval, incentives are automatically credited to all authors</li>
           </ol>

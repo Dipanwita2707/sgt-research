@@ -155,16 +155,19 @@ export default function DrdMainDashboard() {
     }
   };
 
-  // Simplified 4-permission system for IPR and Research
+  // Simplified 4-permission system for IPR, Research, and Books
   const hasViewPermission = (category: string) => {
     // Based on permissions: ipr_file_new, ipr_review, ipr_approve, ipr_assign_school
     // and research_file_new, research_review, research_approve, research_assign_school
+    // and book_file_new, book_review, book_approve, book_assign_school
     const viewPermissionKeys: Record<string, string[]> = {
       'IPR Review & Management': ['ipr_review', 'ipr_approve'],
       'Research Review & Management': ['research_review', 'research_approve'],
+      'Book Review & Management': ['book_review', 'book_approve'],
       'IPR School Assignment': ['ipr_assign_school'],
       'Research School Assignment': ['research_assign_school'],
-      'Analytics & Reports': ['ipr_approve', 'research_approve'],
+      'Book School Assignment': ['book_assign_school'],
+      'Analytics & Reports': ['ipr_approve', 'research_approve', 'book_approve'],
     };
     
     const requiredPerms = viewPermissionKeys[category] || [];
@@ -172,13 +175,15 @@ export default function DrdMainDashboard() {
   };
 
   const getActionPermissions = (category: string) => {
-    // Permission action map for both IPR and Research
+    // Permission action map for IPR, Research, and Books
     const actionPermissionMap: Record<string, string[]> = {
       'IPR Review & Management': ['ipr_review', 'ipr_approve'],
       'Research Review & Management': ['research_review', 'research_approve'],
+      'Book Review & Management': ['book_review', 'book_approve'],
       'IPR School Assignment': ['ipr_assign_school'],
       'Research School Assignment': ['research_assign_school'],
-      'Analytics & Reports': ['ipr_approve', 'research_approve'],
+      'Book School Assignment': ['book_assign_school'],
+      'Analytics & Reports': ['ipr_approve', 'research_approve', 'book_approve'],
     };
 
     return (actionPermissionMap[category] || []).filter(
@@ -274,7 +279,7 @@ export default function DrdMainDashboard() {
       </div>
 
       {/* Quick Actions - Based on Permissions or user type */}
-      {(userPermissions.ipr_file_new || userPermissions.research_file_new || userPermissions.ipr_review || userPermissions.research_review || userPermissions.ipr_assign_school || userPermissions.research_assign_school || user?.userType === 'faculty' || user?.userType === 'student') && (
+      {(userPermissions.ipr_file_new || userPermissions.research_file_new || userPermissions.book_file_new || userPermissions.ipr_review || userPermissions.research_review || userPermissions.book_review || userPermissions.ipr_assign_school || userPermissions.research_assign_school || userPermissions.book_assign_school || user?.userType === 'faculty' || user?.userType === 'student') && (
         <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5 text-[#005b96]" />
@@ -351,6 +356,25 @@ export default function DrdMainDashboard() {
               >
                 <Users className="w-4 h-4" />
                 Assign Research Schools
+              </Link>
+            )}
+            {/* Book/Book Chapter Section */}
+            {userPermissions.book_review && (
+              <Link
+                href="/drd/book"
+                className="flex items-center gap-2 px-5 py-3 bg-green-50 text-green-600 border border-green-200 rounded-xl hover:bg-green-100 transition-all font-medium"
+              >
+                <BookOpen className="w-4 h-4" />
+                Review Book/Chapter Contributions
+              </Link>
+            )}
+            {userPermissions.book_assign_school && (
+              <Link
+                href="/admin/book-school-assignment"
+                className="flex items-center gap-2 px-5 py-3 bg-green-50 text-green-600 border border-green-200 rounded-xl hover:bg-green-100 transition-all font-medium"
+              >
+                <Users className="w-4 h-4" />
+                Assign Book Schools
               </Link>
             )}
           </div>
@@ -554,17 +578,21 @@ export default function DrdMainDashboard() {
   );
 }
 
-// Helper function to get readable permission labels - Simplified 4 permissions
+// Helper function to get readable permission labels - Simplified 4 permissions for IPR, Research, and Books
 function getPermissionLabel(permissionKey: string): string {
   const labels: Record<string, string> = {
     'ipr_file_new': 'File New IPR Applications',
     'ipr_review': 'Review IPR Applications',
     'ipr_approve': 'Final Approve/Reject IPR',
-    'ipr_assign_school': 'Assign Schools to DRD Members',
+    'ipr_assign_school': 'Assign Schools to DRD Members (IPR)',
     'research_file_new': 'File New Research Contributions',
     'research_review': 'Review Research Contributions',
     'research_approve': 'Final Approve/Reject Research',
-    'research_assign_school': 'Assign Schools to Research Reviewers'
+    'research_assign_school': 'Assign Schools to Research Reviewers',
+    'book_file_new': 'File New Book/Chapter Contributions',
+    'book_review': 'Review Book/Chapter Contributions',
+    'book_approve': 'Final Approve/Reject Books',
+    'book_assign_school': 'Assign Schools to Book Reviewers'
   };
   
   return labels[permissionKey] || permissionKey;

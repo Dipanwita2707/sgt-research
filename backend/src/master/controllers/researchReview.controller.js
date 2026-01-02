@@ -38,7 +38,9 @@ exports.getPendingReviews = async (req, res) => {
           },
           select: {
             permissions: true,
-            assignedResearchSchoolIds: true
+            assignedResearchSchoolIds: true,
+            assignedBookSchoolIds: true,
+            assignedConferenceSchoolIds: true
           }
         });
       }
@@ -47,10 +49,25 @@ exports.getPendingReviews = async (req, res) => {
     }
 
     const permissions = userDrdPermission?.permissions || {};
-    const assignedSchoolIds = userDrdPermission?.assignedResearchSchoolIds || [];
+    const assignedResearchSchoolIds = userDrdPermission?.assignedResearchSchoolIds || [];
+    const assignedBookSchoolIds = userDrdPermission?.assignedBookSchoolIds || [];
+    const assignedConferenceSchoolIds = userDrdPermission?.assignedConferenceSchoolIds || [];
 
-    const hasApprovePermission = permissions.research_approve === true;
-    const hasReviewPermission = permissions.research_review === true;
+    // Check research/book/conference permissions
+    const hasApprovePermission = permissions.research_approve === true || 
+                                  permissions.book_approve === true || 
+                                  permissions.conference_approve === true;
+    const hasReviewPermission = permissions.research_review === true || 
+                                 permissions.book_review === true || 
+                                 permissions.conference_review === true;
+    
+    // Specific permissions
+    const hasResearchReview = permissions.research_review === true;
+    const hasResearchApprove = permissions.research_approve === true;
+    const hasBookReview = permissions.book_review === true;
+    const hasBookApprove = permissions.book_approve === true;
+    const hasConferenceReview = permissions.conference_review === true;
+    const hasConferenceApprove = permissions.conference_approve === true;
 
     if (!hasApprovePermission && !hasReviewPermission) {
       return res.status(403).json({
@@ -108,8 +125,59 @@ exports.getPendingReviews = async (req, res) => {
         ]
       };
     } else if (hasReviewPermission && !hasApprovePermission) {
-      // ONLY review permission: Show based on assigned schools
-      if (assignedSchoolIds.length > 0) {
+      // ONLY review permission: Show based on assigned schools for different publication types
+      const allAssignedSchools = [
+        ...assignedResearchSchoolIds,
+        ...assignedBookSchoolIds,
+        ...assignedConferenceSchoolIds
+      ];
+      
+      if (allAssignedSchools.length > 0) {
+        // Build OR conditions for each publication type with their respective assigned schools
+        const schoolOrConditions = [];
+        
+        if (assignedResearchSchoolIds.length > 0 && hasResearchReview) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: 'research_paper' },
+              {
+                OR: [
+                  { schoolId: { in: assignedResearchSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
+        if (assignedBookSchoolIds.length > 0 && hasBookReview) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: { in: ['book', 'book_chapter'] } },
+              {
+                OR: [
+                  { schoolId: { in: assignedBookSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
+        if (assignedConferenceSchoolIds.length > 0 && hasConferenceReview) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: 'conference_paper' },
+              {
+                OR: [
+                  { schoolId: { in: assignedConferenceSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
         whereClause = {
           AND: [
             {
@@ -118,10 +186,7 @@ exports.getPendingReviews = async (req, res) => {
               }
             },
             {
-              OR: [
-                { schoolId: { in: assignedSchoolIds } },
-                { schoolId: null }
-              ]
+              OR: schoolOrConditions.length > 0 ? schoolOrConditions : [{ id: 'none' }]
             }
           ]
         };
@@ -146,8 +211,64 @@ exports.getPendingReviews = async (req, res) => {
       });
 
       const recommendedIds = recommendedContributions.map(r => r.researchContributionId);
+      
+      const allAssignedSchools = [
+        ...assignedResearchSchoolIds,
+        ...assignedBookSchoolIds,
+        ...assignedConferenceSchoolIds
+      ];
 
-      if (assignedSchoolIds.length > 0) {
+      if (allAssignedSchools.length > 0) {
+        // Build OR conditions for each publication type with their respective assigned schools
+        const schoolOrConditions = [];
+        
+        if (assignedResearchSchoolIds.length > 0 && (hasResearchReview || hasResearchApprove)) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: 'research_paper' },
+              {
+                OR: [
+                  { schoolId: { in: assignedResearchSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
+        if (assignedBookSchoolIds.length > 0 && (hasBookReview || hasBookApprove)) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: { in: ['book', 'book_chapter'] } },
+              {
+                OR: [
+                  { schoolId: { in: assignedBookSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
+        if (assignedConferenceSchoolIds.length > 0 && (hasConferenceReview || hasConferenceApprove)) {
+          schoolOrConditions.push({
+            AND: [
+              { publicationType: 'conference_paper' },
+              {
+                OR: [
+                  { schoolId: { in: assignedConferenceSchoolIds } },
+                  { schoolId: null }
+                ]
+              }
+            ]
+          });
+        }
+        
+        // Add recommended contributions
+        if (recommendedIds.length > 0) {
+          schoolOrConditions.push({ id: { in: recommendedIds } });
+        }
+        
         // Show: assigned schools + all recommended
         whereClause = {
           AND: [
@@ -157,11 +278,7 @@ exports.getPendingReviews = async (req, res) => {
               }
             },
             {
-              OR: [
-                { schoolId: { in: assignedSchoolIds } },
-                { schoolId: null },
-                { id: { in: recommendedIds.length > 0 ? recommendedIds : [] } }
-              ]
+              OR: schoolOrConditions.length > 0 ? schoolOrConditions : [{ id: 'none' }]
             }
           ]
         };
@@ -285,9 +402,18 @@ exports.getPendingReviews = async (req, res) => {
         userPermissions: {
           hasApprovePermission,
           hasReviewPermission,
-          assignedSchoolIds,
+          assignedResearchSchoolIds,
+          assignedBookSchoolIds,
+          assignedConferenceSchoolIds,
+          assignedSchoolIds: assignedResearchSchoolIds, // Backward compatibility
           canReview: hasReviewPermission,
-          canApprove: hasApprovePermission
+          canApprove: hasApprovePermission,
+          hasResearchReview,
+          hasResearchApprove,
+          hasBookReview,
+          hasBookApprove,
+          hasConferenceReview,
+          hasConferenceApprove
         }
       }
     });

@@ -160,6 +160,56 @@ export default function ResearchContributionForm({ publicationType, contribution
     publicationDate: '',
     publicationStatus: 'published' as 'published' | 'in_press' | 'accepted' | 'under_review',
     
+    // Book/Book Chapter Specific Fields
+    bookTitle: '',       // For book_chapter: name of the parent book
+    isbn: '',
+    edition: '',
+    chapterName: '',     // For book_chapter: name of the chapter
+    chapterNumber: '',   // For book_chapter
+    editors: '',         // For book_chapter: editors of the book
+    nationalInternational: 'national' as 'national' | 'international',
+    bookPublicationType: 'authored' as 'authored' | 'edited',  // Authored Book, Edited Book
+    bookIndexingType: 'scopus_indexed' as 'scopus_indexed' | 'non_indexed' | 'sgt_publication_house',  // Scopus-indexed, Non-indexed, or SGT Publication House
+    bookLetter: 'yes' as 'yes' | 'no',  // Letter - Yes by default (for non-indexed)
+    communicatedWithOfficialId: 'yes' as 'yes' | 'no',   // Have you communicated with official ID
+    personalEmail: '',   // Personal email if not communicated with official ID
+    facultyRemarks: '',  // Faculty remarks/comments
+    
+    // Conference Specific Fields
+    conferenceSubType: '' as '' | 'paper_not_indexed' | 'paper_indexed_scopus' | 'keynote_speaker_invited_talks' | 'organizer_coordinator_member',
+    conferenceName: '',
+    conferenceLocation: '',
+    conferenceDate: '',
+    proceedingsTitle: '',
+    proceedingsQuartile: 'na' as 'na' | 'q1' | 'q2' | 'q3' | 'q4',
+    totalPresenters: 1,
+    isPresenter: 'no' as 'yes' | 'no',
+    virtualConference: 'no' as 'yes' | 'no',
+    fullPaper: 'yes' as 'yes' | 'no',
+    conferenceHeldAtSgt: 'no' as 'yes' | 'no',
+    conferenceBestPaperAward: 'no' as 'yes' | 'no',
+    industryCollaboration: 'no' as 'yes' | 'no',
+    centralFacilityUsed: 'no' as 'yes' | 'no',
+    issnIsbnIssueNo: '',
+    paperDoi: '',
+    weblink: '',
+    priorityFundingArea: '',
+    conferenceRole: '' as '' | 'keynote_speaker' | 'session_chair' | 'invited_speaker' | 'invited_panel_member',
+    indexedIn: 'scopus' as 'wos' | 'scopus' | 'both' | 'non_index',
+    conferenceHeldLocation: 'india' as 'india' | 'abroad',
+    venue: '',
+    topic: '',
+    attendedVirtual: 'no' as 'yes' | 'no',
+    eventCategory: 'conference' as 'conference' | 'seminar_symposia',
+    organizerRole: '' as '' | 'chairman_chairperson' | 'joint_secretary' | 'committee_coordinators' | 'committee_members' | 'session_chair' | 'seminar_organizing_secretary' | 'seminar_joint_organizing_secretary' | 'seminar_committee_coordinator' | 'seminar_committee_member',
+    conferenceType: 'national' as 'national' | 'international',
+    
+    // Additional Conference Requirements (Scopus Indexed)
+    takeholderContents: 'no' as 'yes' | 'no',
+    frontPageWithAuthorAffiliation: 'no' as 'yes' | 'no',
+    nameContainsSpecialCharacters: 'no' as 'yes' | 'no',
+    confDatesVenue: 'no' as 'yes' | 'no',
+    
     // School/Department (auto-filled)
     schoolId: '',
     departmentId: '',
@@ -282,10 +332,11 @@ export default function ResearchContributionForm({ publicationType, contribution
           points: q.points
         };
       });
-      // TOP1 and TOP5 use same incentives as Q1 from policy
+      // TOP1, TOP5, and TOP10 use same incentives as Q1 from policy
       if (quartileIncentives['Q1']) {
         quartileIncentives['TOP1'] = { ...quartileIncentives['Q1'] };
         quartileIncentives['TOP5'] = { ...quartileIncentives['Q1'] };
+        quartileIncentives['TOP10'] = { ...quartileIncentives['Q1'] };
       }
     } else {
       Object.assign(quartileIncentives, defaultQuartileIncentives);
@@ -322,27 +373,27 @@ export default function ResearchContributionForm({ publicationType, contribution
     const quartile = formData.quartile?.toUpperCase() || '';
     const sjrValue = Number(formData.sjr) || 0;
     
-    // Determine base amounts - quartile first, then SJR override
+    // Determine base amounts - quartile is PRIMARY, SJR is FALLBACK
     let totalIncentive = 0;
     let totalPoints = 0;
     
-    // Check quartile first
+    // Check quartile first (PRIMARY)
     if (quartile && quartileIncentives[quartile]) {
       totalIncentive = quartileIncentives[quartile].incentiveAmount;
       totalPoints = quartileIncentives[quartile].points;
       console.log(`[Calculation] Quartile ${quartile}: Total Pool = ₹${totalIncentive}, ${totalPoints} pts`);
     }
-    
-    // SJR can override if present
-    if (sjrValue > 0 && sjrRanges.length > 0) {
+    // SJR is FALLBACK - only use if NO quartile provided
+    else if (sjrValue > 0 && sjrRanges.length > 0) {
       const matchingRange = sjrRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR);
       if (matchingRange) {
         totalIncentive = matchingRange.incentiveAmount;
         totalPoints = matchingRange.points;
+        console.log(`[Calculation] SJR ${sjrValue}: Total Pool = ₹${totalIncentive}, ${totalPoints} pts`);
       }
     }
     
-    // Fallback if no quartile and no SJR match
+    // Final fallback if no quartile and no SJR match
     if (totalIncentive === 0 && sjrValue > 0 && sjrRanges.length > 0) {
       const fallbackRange = sjrRanges.find(range => sjrValue >= range.minSJR && sjrValue <= range.maxSJR) 
         || sjrRanges[sjrRanges.length - 1];
@@ -481,7 +532,20 @@ export default function ResearchContributionForm({ publicationType, contribution
         authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'first_and_corresponding'
       }));
     }
-  }, [totalInternalAuthors, totalInternalCoAuthors]);
+    // NEW: When Internal Co-Authors = 0 but there are internal authors to add (totalInternalAuthors > 1)
+    // Reset authorRole to available role (should be First/Corresponding based on what user selected)
+    else if (totalInternalCoAuthors === 0 && totalInternalAuthors > 1) {
+      const availableRoles = getAvailableOtherAuthorRoles();
+      setNewAuthor(prev => ({
+        ...prev,
+        authorCategory: 'Internal',
+        authorType: 'Faculty',
+        affiliation: 'SGT University',
+        uid: '',
+        authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'corresponding_author'
+      }));
+    }
+  }, [totalInternalAuthors, totalInternalCoAuthors, userAuthorType]);
   
   // Ensure authorCategory is set to Internal when all authors are internal
   useEffect(() => {
@@ -578,6 +642,22 @@ export default function ResearchContributionForm({ publicationType, contribution
       return ['first', 'corresponding'];
     }
     
+    // Rule 3.5: 1 SGT author, 0 co-authors, and only 1 total author - must be First & Corresponding
+    // For multiple authors: allow First, Corresponding, or both
+    if (totalInternalAuthors === 1 && totalInternalCoAuthors === 0) {
+      if (totalAuthors === 1) {
+        return ['first_and_corresponding'];
+      }
+      // Multiple authors: user can be First, Corresponding, or Both
+      return ['first_and_corresponding', 'first', 'corresponding'];
+    }
+    
+    // Rule 3.6: Only 2 total authors AND both from SGT - one must be First & Corresponding, one must be Co-Author
+    // This enforces proper role distribution for 2-author papers with both authors from SGT
+    if (totalAuthors === 2 && totalInternalAuthors === 2) {
+      return ['first_and_corresponding', 'co_author'];
+    }
+    
     // Rule 4: Flexible scenarios - user can choose their role
     // All other cases: all roles available
     return ['first_and_corresponding', 'corresponding', 'first', 'co_author'];
@@ -638,6 +718,29 @@ export default function ResearchContributionForm({ publicationType, contribution
         }
         return !usedRoles.includes(role.value);
       });
+    }
+    
+    // Special case: Internal Co-Authors = 0, meaning NO co-authors allowed
+    // The other internal author must be First or Corresponding (whichever the user didn't take)
+    if (totalInternalCoAuthors === 0 && newAuthor.authorCategory === 'Internal') {
+      const roles = [];
+      
+      // If user is First Author only, other must be Corresponding
+      if (userAuthorType === 'first' || userAuthorType === 'first_author') {
+        if (!usedRoles.includes('corresponding_author')) {
+          roles.push({ value: 'corresponding_author', label: 'Corresponding Author' });
+        }
+      }
+      // If user is Corresponding Author only, other must be First
+      else if (userAuthorType === 'corresponding' || userAuthorType === 'corresponding_author') {
+        if (!usedRoles.includes('first_author')) {
+          roles.push({ value: 'first_author', label: 'First Author' });
+        }
+      }
+      // If user is First & Corresponding, no more internal authors should be added
+      // (This shouldn't happen since Internal Co-Authors should be 0)
+      
+      return roles;
     }
     
     // Special case: User selected First/Corresponding Author, there's only 1 internal co-author slot, AND only 2 total authors
@@ -944,25 +1047,59 @@ export default function ResearchContributionForm({ publicationType, contribution
     }
     
     try {
-      // Search based on author type (student or faculty)
-      const role = newAuthor.authorType === 'Student' ? 'student' : 'faculty';
-      const response = await researchService.searchUsers(searchTerm, role);
-      
-      if (response.success && response.data && response.data.length > 0) {
-        setSearchSuggestions(response.data);
-        setShowSuggestions(true);
+      // For books/book chapters with 'Author' type, search both faculty and students
+      let role: string;
+      if (newAuthor.authorType === 'Author') {
+        // Search all (will return both faculty and students)
+        role = 'all';
+      } else if (newAuthor.authorType === 'Student') {
+        role = 'student';
       } else {
+        role = 'faculty';
+      }
+      
+      console.log('[searchAuthors] Searching for:', searchTerm, 'role:', role);
+      const response = await researchService.searchUsers(searchTerm, role);
+      console.log('[searchAuthors] Response received:', response);
+      
+      // Handle different response formats
+      let userData = [];
+      if (response && typeof response === 'object') {
+        // Check if response has data property
+        if (response.data && Array.isArray(response.data)) {
+          userData = response.data;
+        } 
+        // Check if response has users property
+        else if (response.users && Array.isArray(response.users)) {
+          userData = response.users;
+        }
+        // Check if response itself is an array
+        else if (Array.isArray(response)) {
+          userData = response;
+        }
+      }
+      
+      console.log('[searchAuthors] Parsed user data:', userData);
+      
+      if (userData.length > 0) {
+        setSearchSuggestions(userData);
+        setShowSuggestions(true);
+        console.log('[searchAuthors] Suggestions set, showing dropdown');
+      } else {
+        console.log('[searchAuthors] No users found');
         setSearchSuggestions([]);
         setShowSuggestions(false);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error('[searchAuthors] Search error:', error);
       setSearchSuggestions([]);
       setShowSuggestions(false);
     }
   };
   
   const selectAuthorFromSuggestion = async (userData: any) => {
+    console.log('[selectAuthorFromSuggestion] Selected user:', userData);
+    
     // Validate that user is not adding their own account
     if (userData.uid === user?.uid) {
       setSearchSuggestions([]);
@@ -982,7 +1119,11 @@ export default function ResearchContributionForm({ publicationType, contribution
     }
     
     // userData from search has: uid, name, role, department, designation
+    // Handle different property names (name vs displayName)
+    const userName = userData.name || userData.displayName || `${userData.firstName || ''} ${userData.lastName || ''}`.trim();
     const authorType = userData.role === 'student' ? 'Student' : 'Faculty';
+    
+    console.log('[selectAuthorFromSuggestion] Extracted name:', userName, 'authorType:', authorType);
     
     // Check if interdisciplinary is no and user is from different school
     if (formData.isInterdisciplinary === 'no' && user?.employeeDetails?.department?.school?.id) {
@@ -998,8 +1139,11 @@ export default function ResearchContributionForm({ publicationType, contribution
     
     // Fetch full details using lookup for email
     try {
+      console.log('[selectAuthorFromSuggestion] Fetching full details for:', userData.uid);
       const fullData = await researchService.lookupByRegistration(userData.uid);
-      const fullUser = fullData.data;
+      console.log('[selectAuthorFromSuggestion] Full data response:', fullData);
+      
+      const fullUser = fullData.data || fullData; // Handle both wrapped and unwrapped responses
       
       // Extract email from the correct location based on user type
       let userEmail = '';
@@ -1016,24 +1160,27 @@ export default function ResearchContributionForm({ publicationType, contribution
         }
       }
       
+      console.log('[selectAuthorFromSuggestion] Setting author with email:', userEmail);
+      
       setNewAuthor({
         uid: userData.uid,
-        name: userData.name || fullUser?.displayName || '',
+        name: userName || fullUser?.displayName || '',
         authorType: authorType,
         authorCategory: 'Internal',
         email: userEmail,
         affiliation: 'SGT University',
         authorRole: newAuthor.authorRole,
-        designation: '',
+        designation: userData.designation || '',
       });
     } catch (error) {
-      // Fallback if full lookup fails
+      console.error('[selectAuthorFromSuggestion] Error fetching full details:', error);
+      // Fallback if full lookup fails - use data from search
       setNewAuthor({
         uid: userData.uid,
-        name: userData.name,
+        name: userName,
         authorType: authorType,
         authorCategory: 'Internal',
-        email: '',
+        email: userData.email || '', // Try to use email from search if available
         affiliation: 'SGT University',
         authorRole: newAuthor.authorRole,
         designation: '',
@@ -1186,30 +1333,47 @@ export default function ResearchContributionForm({ publicationType, contribution
         return;
       }
       
+      // For books and book chapters, skip role-based validation - all authors are equal
+      const isBook = publicationType === 'book' || publicationType === 'book_chapter';
+      
       // Check specific limits based on author category being added
       if (newAuthor.authorCategory === 'Internal') {
-        // If adding a co-author, check against co-author limit
-        if (newAuthor.authorRole === 'co_author') {
-          // Internal Co-Authors field specifies how many internal co-authors are allowed
-          const maxInternalCoAuthors = totalInternalCoAuthors;
-          
-          if (internalCoAuthorsAdded >= maxInternalCoAuthors) {
-            const remaining = totalAuthors - 1 - currentCount; // Total slots minus applicant minus all added
-            setError(`You can only add ${maxInternalCoAuthors} internal co-author(s). You've already added ${internalCoAuthorsAdded}. You can add ${remaining} more author(s) as External authors or Internal authors with other roles (First/Corresponding).`);
-            console.log('[addOrUpdateAuthor] Internal co-author limit reached:', { maxInternalCoAuthors, internalCoAuthorsAdded, remaining });
-            return;
-          }
-        }
-        // For other internal roles (First, Corresponding), just check total SGT authors
-        else {
+        // For books: simple check - just verify total internal authors don't exceed limit
+        if (isBook) {
           const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
-          // SGT Authors = total internal authors including applicant
           const maxInternalAuthors = totalInternalAuthors - 1; // Minus applicant
           
           if (totalInternalAdded >= maxInternalAuthors) {
-            setError(`You can only add ${maxInternalAuthors} internal author(s) total (based on SGT Authors = ${totalInternalAuthors}). You've already added ${totalInternalAdded}.`);
+            setError(`You can only add ${maxInternalAuthors} SGT author(s) total (based on SGT Authors = ${totalInternalAuthors}). You've already added ${totalInternalAdded}.`);
             console.log('[addOrUpdateAuthor] Total internal author limit reached:', { maxInternalAuthors, totalInternalAdded });
             return;
+          }
+        }
+        // For research/conference papers: role-based validation
+        else {
+          // If adding a co-author, check against co-author limit
+          if (newAuthor.authorRole === 'co_author') {
+            // Internal Co-Authors field specifies how many internal co-authors are allowed
+            const maxInternalCoAuthors = totalInternalCoAuthors;
+            
+            if (internalCoAuthorsAdded >= maxInternalCoAuthors) {
+              const remaining = totalAuthors - 1 - currentCount; // Total slots minus applicant minus all added
+              setError(`You can only add ${maxInternalCoAuthors} internal co-author(s). You've already added ${internalCoAuthorsAdded}. You can add ${remaining} more author(s) as External authors or Internal authors with other roles (First/Corresponding).`);
+              console.log('[addOrUpdateAuthor] Internal co-author limit reached:', { maxInternalCoAuthors, internalCoAuthorsAdded, remaining });
+              return;
+            }
+          }
+          // For other internal roles (First, Corresponding), just check total SGT authors
+          else {
+            const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+            // SGT Authors = total internal authors including applicant
+            const maxInternalAuthors = totalInternalAuthors - 1; // Minus applicant
+            
+            if (totalInternalAdded >= maxInternalAuthors) {
+              setError(`You can only add ${maxInternalAuthors} internal author(s) total (based on SGT Authors = ${totalInternalAuthors}). You've already added ${totalInternalAdded}.`);
+              console.log('[addOrUpdateAuthor] Total internal author limit reached:', { maxInternalAuthors, totalInternalAdded });
+              return;
+            }
           }
         }
       } else {
@@ -1476,6 +1640,47 @@ export default function ResearchContributionForm({ publicationType, contribution
       publisherLocation: formData.publisherLocation || null,
       publicationDate: formData.publicationDate ? new Date(formData.publicationDate).toISOString() : null,
       publicationStatus: formData.publicationStatus || null,
+      // Book/Book Chapter specific fields
+      isbn: formData.isbn || null,
+      edition: formData.edition || null,
+      bookTitle: formData.bookTitle || null,
+      chapterNumber: formData.chapterNumber || null,
+      editors: formData.editors || null,
+      nationalInternational: formData.nationalInternational || null,
+      bookPublicationType: formData.bookPublicationType || null,
+      bookIndexingType: formData.bookIndexingType || null,
+      bookLetter: formData.bookLetter || null,
+      communicatedWithOfficialId: formData.communicatedWithOfficialId,
+      personalEmail: formData.personalEmail || null,
+      facultyRemarks: formData.facultyRemarks || null,
+      // Conference specific fields
+      conferenceSubType: formData.conferenceSubType || null,
+      conferenceName: formData.conferenceName || null,
+      conferenceLocation: formData.conferenceLocation || null,
+      conferenceDate: formData.conferenceDate ? new Date(formData.conferenceDate).toISOString() : null,
+      proceedingsTitle: formData.proceedingsTitle || null,
+      proceedingsQuartile: formData.proceedingsQuartile || null,
+      totalPresenters: formData.totalPresenters ? Number(formData.totalPresenters) : null,
+      isPresenter: formData.isPresenter,
+      virtualConference: formData.virtualConference,
+      fullPaper: formData.fullPaper,
+      conferenceHeldAtSgt: formData.conferenceHeldAtSgt,
+      conferenceBestPaperAward: formData.conferenceBestPaperAward,
+      industryCollaboration: formData.industryCollaboration,
+      centralFacilityUsed: formData.centralFacilityUsed,
+      issnIsbnIssueNo: formData.issnIsbnIssueNo || null,
+      paperDoi: formData.paperDoi || null,
+      weblink: formData.weblink || null,
+      priorityFundingArea: formData.priorityFundingArea || null,
+      conferenceRole: formData.conferenceRole || null,
+      indexedIn: formData.indexedIn || null,
+      conferenceHeldLocation: formData.conferenceHeldLocation || null,
+      venue: formData.venue || null,
+      topic: formData.topic || null,
+      attendedVirtual: formData.attendedVirtual,
+      eventCategory: formData.eventCategory || null,
+      organizerRole: formData.organizerRole || null,
+      conferenceType: formData.conferenceType || null,
       // SDG Goals
       sdgGoals: formData.sdgGoals.length > 0 ? formData.sdgGoals : null,
     };
@@ -1549,25 +1754,52 @@ export default function ResearchContributionForm({ publicationType, contribution
       return;
     }
     
-    // Validate foreign universities vs external authors
-    const numForeignUnis = Number(formData.numForeignUniversities) || 0;
-    if (numForeignUnis > 0) {
-      const externalAuthorsAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
-      if (externalAuthorsAdded < numForeignUnis) {
-        setError(`You specified ${numForeignUnis} foreign universit${numForeignUnis > 1 ? 'ies' : 'y'} but only added ${externalAuthorsAdded} external author(s). Please add at least ${numForeignUnis} external author(s).`);
+    // Research paper specific validations
+    if (publicationType === 'research_paper') {
+      // Validate foreign universities vs external authors
+      const numForeignUnis = Number(formData.numForeignUniversities) || 0;
+      if (numForeignUnis > 0) {
+        const externalAuthorsAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
+        if (externalAuthorsAdded < numForeignUnis) {
+          setError(`You specified ${numForeignUnis} foreign universit${numForeignUnis > 1 ? 'ies' : 'y'} but only added ${externalAuthorsAdded} external author(s). Please add at least ${numForeignUnis} external author(s).`);
+          return;
+        }
+      }
+      
+      if (!formData.journalName) {
+        setError('Journal name is required');
+        return;
+      }
+      
+      // Validate weblink URL if provided (for research papers, publisherName is used for URL)
+      if (formData.publisherName && !formData.publisherName.startsWith('https://')) {
+        setError('Weblink URL must start with https://');
         return;
       }
     }
     
-    if (!formData.journalName) {
-      setError('Journal name is required');
-      return;
-    }
-    
-    // Validate weblink URL if provided
-    if (formData.publisherName && !formData.publisherName.startsWith('https://')) {
-      setError('Weblink URL must start with https://');
-      return;
+    // Book/Book Chapter specific validations
+    if (publicationType === 'book' || publicationType === 'book_chapter') {
+      if (!formData.isbn) {
+        setError('ISBN is required for books');
+        return;
+      }
+      
+      if (!formData.publisherName) {
+        setError('Publisher is required');
+        return;
+      }
+      
+      if (!formData.publicationDate) {
+        setError('Publication date is required');
+        return;
+      }
+      
+      // Book chapter specific: require bookTitle
+      if (publicationType === 'book_chapter' && !formData.bookTitle) {
+        setError('Book title is required for book chapters');
+        return;
+      }
     }
     
     // Validate research document is uploaded
@@ -1629,7 +1861,7 @@ export default function ResearchContributionForm({ publicationType, contribution
   const getPublicationTypeLabel = () => {
     const labels: Record<ResearchPublicationType, string> = {
       research_paper: 'Research Paper Publication',
-      book: 'Book / Book Chapter',
+      book: 'Book Publication',
       book_chapter: 'Book Chapter',
       conference_paper: 'Conference Paper',
       grant: 'Grant / Funding',
@@ -1699,16 +1931,17 @@ export default function ResearchContributionForm({ publicationType, contribution
 
       {activeTab === 'entry' && (
         <>
-          {/* Research Paper Form - Professional */}
+          {/* Publication Form - Professional */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
               <h2 className="text-lg font-semibold text-white">Publication Details</h2>
             </div>
             <div className="p-6 space-y-5">
-              {/* Title of Paper */}
+              {/* Title - Changes based on publication type */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Title of Paper <span className="text-red-500">*</span>
+                  {publicationType === 'book' ? 'Title of Book' : 
+                   publicationType === 'book_chapter' ? 'Title of Chapter' : 'Title of Paper'} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -1717,10 +1950,15 @@ export default function ResearchContributionForm({ publicationType, contribution
                   onChange={handleInputChange}
                   required
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 hover:bg-white transition-colors"
-                  placeholder="Enter the complete title of your research paper"
+                  placeholder={publicationType === 'book' ? 'Enter the complete title of your book' : 
+                               publicationType === 'book_chapter' ? 'Enter the complete title of your chapter' : 
+                               'Enter the complete title of your research paper'}
                 />
               </div>
 
+          {/* Research Paper Specific Fields */}
+          {publicationType === 'research_paper' && (
+          <>
           {/* Research Details - All in One Box */}
           <div className="p-5 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-slate-200 space-y-5">
             {/* Row 1: Targeted Research & Interdisciplinary */}
@@ -1781,6 +2019,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                           {[
                             { value: 'top1', label: 'Top 1%' },
                             { value: 'top5', label: 'Top 5%' },
+                            { value: 'top10', label: 'Top 10%' },
                             { value: 'q1', label: 'Q1' },
                             { value: 'q2', label: 'Q2' },
                             { value: 'q3', label: 'Q3' },
@@ -1828,8 +2067,899 @@ export default function ResearchContributionForm({ publicationType, contribution
               placeholder="Enter the journal name"
             />
           </div>
+          </>
+          )}
 
-          {/* SDG Goals */}
+          {/* Book / Book Chapter Specific Fields */}
+          {(publicationType === 'book' || publicationType === 'book_chapter') && (
+          <>
+          {/* Book Details - All in One Box */}
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-green-50 rounded-xl border border-slate-200 space-y-5">
+            {/* Row 1: Publication Type (Scopus/Non-indexed/SGT Publication House) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Publication Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="bookIndexingType"
+                  value={formData.bookIndexingType}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                  required
+                >
+                  <option value="scopus_indexed">Scopus Indexed</option>
+                  <option value="non_indexed">Non-Indexed</option>
+                  <option value="sgt_publication_house">SGT Publication House</option>
+                </select>
+              </div>
+
+              {/* Show Our Authorized Publications only for non_indexed */}
+              {formData.bookIndexingType === 'non_indexed' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Our Authorized Publications <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-4">
+                  <label className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="bookLetter" value="yes"
+                      checked={formData.bookLetter === 'yes'}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-green-600"
+                      readOnly
+                    />
+                    <span className="ml-1.5 text-gray-700">Yes</span>
+                  </label>
+                  <label className="inline-flex items-center text-sm cursor-not-allowed opacity-50">
+                    <input type="radio" name="bookLetter" value="no"
+                      disabled
+                      className="w-4 h-4 text-gray-400"
+                    />
+                    <span className="ml-1.5 text-gray-400">No</span>
+                  </label>
+                </div>
+              </div>
+              )}
+
+              {/* Author Type - Not Applicable for book_chapter */}
+              {publicationType === 'book' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Author Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="bookPublicationType"
+                  value={formData.bookPublicationType}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                  required
+                >
+                  <option value="authored">Authored</option>
+                  <option value="edited">Edited</option>
+                </select>
+              </div>
+              )}
+            </div>
+
+            {/* Row 2: Interdisciplinary & Official ID Communication */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Interdisciplinary(SGT) <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-4">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="isInterdisciplinary" value={v}
+                        checked={formData.isInterdisciplinary === v}
+                        onChange={handleInputChange}
+                        className="w-4 h-4 text-green-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Have you communicated the publication with official ID? <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-4">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="communicatedWithOfficialId" value={v}
+                        checked={formData.communicatedWithOfficialId === v}
+                        onChange={handleInputChange}
+                        className="w-4 h-4 text-green-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Personal Email - Show only if not communicated with official ID */}
+            {formData.communicatedWithOfficialId === 'no' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Your Personal Email ID <span className="text-red-500">*</span>
+                </label>
+                <input type="email" name="personalEmail" value={formData.personalEmail} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                  placeholder="Enter your personal email address"
+                  required
+                />
+                <p className="text-xs text-orange-600 mt-1">Since you haven't communicated with official ID, please provide your personal email.</p>
+              </div>
+            )}
+
+            {/* Book Chapter Specific: Book Title and Chapter Details */}
+            {publicationType === 'book_chapter' && (
+              <div className="pt-3 border-t border-slate-200 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Book Title <span className="text-red-500">*</span>
+                  </label>
+                  <input type="text" name="bookTitle" value={formData.bookTitle} onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                    placeholder="Enter the title of the book containing your chapter"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Chapter Number</label>
+                    <input type="text" name="chapterNumber" value={formData.chapterNumber} onChange={handleInputChange}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                      placeholder="e.g. Chapter 5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Page Numbers</label>
+                    <input type="text" name="pageNumbers" value={formData.pageNumbers} onChange={handleInputChange}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                      placeholder="e.g. 100-125"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Editors</label>
+                  <input type="text" name="editors" value={formData.editors} onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                    placeholder="Enter editor names (comma separated)"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Publisher Details & National/International */}
+            <div className="pt-3 border-t border-slate-200 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Publisher <span className="text-red-500">*</span>
+                  </label>
+                  <input type="text" name="publisherName" value={formData.publisherName} onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                    placeholder="Enter publisher name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    National / International <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="nationalInternational"
+                    value={formData.nationalInternational}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                    required
+                  >
+                    <option value="">-- Select --</option>
+                    <option value="national">National</option>
+                    <option value="international">International</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* ISBN and Publication Date (removed Edition) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ISBN <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="isbn" value={formData.isbn} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                  placeholder="978-xxx-xxx-xxxx-x"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Publication Date <span className="text-red-500">*</span>
+                </label>
+                <input type="date" name="publicationDate" value={formData.publicationDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
+                  required
+                />
+                
+              </div>
+            </div>
+
+            {/* Faculty Remarks */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Faculty Remarks</label>
+              <textarea 
+                name="facultyRemarks" 
+                value={formData.facultyRemarks} 
+                onChange={handleInputChange}
+                rows={3}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white resize-none"
+                placeholder="Any additional remarks or comments about the publication..."
+              />
+            </div>
+          </div>
+          </>
+          )}
+
+          {/* Conference Paper Specific Fields */}
+          {publicationType === 'conference_paper' && (
+          <>
+          {/* Conference Type Selection */}
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-purple-50 rounded-xl border border-slate-200 space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Please Select Conference Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="conferenceSubType"
+                value={formData.conferenceSubType}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                required
+              >
+                <option value="">-- Please Select --</option>
+                <option value="paper_not_indexed">Papers in Conferences (not Indexed) / Seminars / Workshops</option>
+                <option value="paper_indexed_scopus">Paper in conference proceeding indexed in Scopus</option>
+                <option value="keynote_speaker_invited_talks">Keynote Speaker / Session chair / Invited Talks (Outside SGT)</option>
+                <option value="organizer_coordinator_member">Organizer / Coordinator / Member of conference held at SGT</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Type 1 & 2: Paper in Conference (Not Indexed or Indexed in Scopus) */}
+          {(formData.conferenceSubType === 'paper_not_indexed' || formData.conferenceSubType === 'paper_indexed_scopus') && (
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-purple-50 rounded-xl border border-slate-200 space-y-5">
+            {/* Title of Paper - Already covered by main title field */}
+            
+            {/* Conference Name & Proceedings Title */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name of Conference <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="conferenceName" value={formData.conferenceName} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter conference name"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Title of the Proceedings of Conference
+                </label>
+                <input type="text" name="proceedingsTitle" value={formData.proceedingsTitle} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter proceedings title"
+                />
+              </div>
+            </div>
+
+            {/* Priority Funding Area & Quartile (only for indexed) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Priority Areas of Funding</label>
+                <input type="text" name="priorityFundingArea" value={formData.priorityFundingArea} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter priority funding area"
+                />
+              </div>
+              {formData.conferenceSubType === 'paper_indexed_scopus' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Please Mention the Proceedings Quartile <span className="text-red-500">*</span>
+                </label>
+                <select name="proceedingsQuartile" value={formData.proceedingsQuartile} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  required
+                >
+                  <option value="na">NA</option>
+                  <option value="q1">Q1</option>
+                  <option value="q2">Q2</option>
+                  <option value="q3">Q3</option>
+                  <option value="q4">Q4</option>
+                </select>
+              </div>
+              )}
+            </div>
+
+            {/* Presenters & Role */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Total No. of Presenter's</label>
+                <input 
+                  type="number" 
+                  name="totalPresenters" 
+                  value={formData.totalPresenters} 
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (value > 2) {
+                      setError('Maximum 2 presenters allowed');
+                      return;
+                    }
+                    setError(null);
+                    // If presenters = 1, auto-set isPresenter to 'yes'
+                    if (value === 1) {
+                      setFormData(prev => ({ ...prev, totalPresenters: value, isPresenter: 'yes' }));
+                    } else {
+                      handleInputChange(e);
+                    }
+                  }}
+                  min="1" 
+                  max="2"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Whether you are a Presenter?
+                  {formData.totalPresenters === 1 && <span className="text-xs text-green-600 ml-1">(Auto-set to Yes)</span>}
+                </label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className={`inline-flex items-center text-sm ${formData.totalPresenters === 1 ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                      <input 
+                        type="radio" 
+                        name="isPresenter" 
+                        value={v}
+                        checked={formData.isPresenter === v} 
+                        onChange={handleInputChange}
+                        disabled={formData.totalPresenters === 1}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Virtual Conference?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="virtualConference" value={v}
+                        checked={formData.virtualConference === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Full Paper & National/International */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Full Paper</label>
+                <div className="flex gap-4 mt-1">
+                  <label className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="fullPaper" value="yes"
+                      checked={formData.fullPaper === 'yes'} onChange={handleInputChange}
+                      className="w-4 h-4 text-purple-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">Full Paper</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">National / International <span className="text-red-500">*</span></label>
+                <div className="flex gap-4 mt-1">
+                  {['national','international'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="conferenceType" value={v}
+                        checked={formData.conferenceType === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Conference Location & Award */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Whether conference held at SGT?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="conferenceHeldAtSgt" value={v}
+                        checked={formData.conferenceHeldAtSgt === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Conference best paper Award?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="conferenceBestPaperAward" value={v}
+                        checked={formData.conferenceBestPaperAward === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Interdisciplinary, Students, Industry */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Interdisciplinary (from SGT)?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="isInterdisciplinary" value={v}
+                        checked={formData.isInterdisciplinary === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Student(s) (from SGT)?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="hasLpuStudents" value={v}
+                        checked={formData.hasLpuStudents === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Industry?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="industryCollaboration" value={v}
+                        checked={formData.industryCollaboration === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+
+
+            {/* Official ID & Central Facility */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Have you communicated the publication with official ID?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="communicatedWithOfficialId" value={v}
+                        checked={formData.communicatedWithOfficialId === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Have you used the facility of Central Instrumentation Facility of SGT?</label>
+                <div className="flex gap-4 mt-1">
+                  {['yes','no'].map(v => (
+                    <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="centralFacilityUsed" value={v}
+                        checked={formData.centralFacilityUsed === v} onChange={handleInputChange}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Dates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Conference Date</label>
+                <input type="date" name="conferenceDate" value={formData.conferenceDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Publication Date <span className="text-red-500">*</span>
+                </label>
+                <input type="date" name="publicationDate" value={formData.publicationDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  required
+                />
+              
+              </div>
+            </div>
+
+            {/* Publication Details */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Volume No</label>
+                <input type="text" name="volume" value={formData.volume} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="e.g. Vol 5"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">ISSN/ISBN/Issue No</label>
+                <input type="text" name="issnIsbnIssueNo" value={formData.issnIsbnIssueNo} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter ISSN/ISBN/Issue No"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Page No</label>
+                <input type="text" name="pageNumbers" value={formData.pageNumbers} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="e.g. 100-125"
+                />
+              </div>
+            </div>
+
+            {/* DOI & Weblink */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">DOIs of Paper</label>
+                <input type="text" name="paperDoi" value={formData.paperDoi} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter DOI"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">WebLink</label>
+                <input type="url" name="weblink" value={formData.weblink} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+
+            {/* Faculty Remarks */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Faculty Remarks</label>
+              <textarea name="facultyRemarks" value={formData.facultyRemarks} onChange={handleInputChange}
+                rows={3} className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white resize-none"
+                placeholder="Please mention the date and venue of conference..."
+              />
+            </div>
+          </div>
+          )}
+
+          {/* Type 3: Keynote Speaker / Session Chair / Invited Talks */}
+          {formData.conferenceSubType === 'keynote_speaker_invited_talks' && (
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-orange-50 rounded-xl border border-slate-200 space-y-5">
+            {/* Role Selection */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Role <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: 'keynote_speaker', label: 'Keynote Speaker' },
+                  { value: 'session_chair', label: 'Session Chair' },
+                  { value: 'invited_speaker', label: 'Invited Speaker in Conference' },
+                  { value: 'invited_panel_member', label: 'Invited Panel Member' },
+                ].map(role => (
+                  <label key={role.value} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="conferenceRole" value={role.value}
+                      checked={formData.conferenceRole === role.value} onChange={handleInputChange}
+                      className="w-4 h-4 text-orange-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{role.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Indexed In */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Indexed in <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: 'wos', label: 'WoS' },
+                  { value: 'scopus', label: 'Scopus' },
+                  { value: 'both', label: 'Both' },
+                  { value: 'non_index', label: 'Non Index' },
+                ].map(opt => (
+                  <label key={opt.value} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="indexedIn" value={opt.value}
+                      checked={formData.indexedIn === opt.value} onChange={handleInputChange}
+                      className="w-4 h-4 text-orange-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Conference Held Location */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Conference Held <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: 'india', label: 'India' },
+                  { value: 'abroad', label: 'Abroad' },
+                ].map(opt => (
+                  <label key={opt.value} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="conferenceHeldLocation" value={opt.value}
+                      checked={formData.conferenceHeldLocation === opt.value} onChange={handleInputChange}
+                      className="w-4 h-4 text-orange-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Conference Name & Venue */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name of Conference <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="conferenceName" value={formData.conferenceName} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white"
+                  placeholder="Enter conference name"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Venue <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white"
+                  placeholder="Enter venue"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Date & Topic */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date of Conference <span className="text-red-500">*</span>
+                </label>
+                <input type="date" name="conferenceDate" value={formData.conferenceDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white"
+                  required
+                />
+                
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="topic" value={formData.topic} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white"
+                  placeholder="Enter topic"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Virtual Conference */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Whether you have attended Virtual Conference?</label>
+              <div className="flex gap-4 mt-1">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="attendedVirtual" value={v}
+                      checked={formData.attendedVirtual === v} onChange={handleInputChange}
+                      className="w-4 h-4 text-orange-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          )}
+
+          {/* Type 4: Organizer/Coordinator/Member of Conference held at SGT */}
+          {formData.conferenceSubType === 'organizer_coordinator_member' && (
+          <div className="p-5 bg-gradient-to-r from-slate-50 to-cyan-50 rounded-xl border border-slate-200 space-y-5">
+            {/* Category Selection */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Category <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: 'conference', label: 'Conference' },
+                  { value: 'seminar_symposia', label: 'Seminar/Symposia' },
+                ].map(cat => (
+                  <label key={cat.value} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="eventCategory" value={cat.value}
+                      checked={formData.eventCategory === cat.value} onChange={handleInputChange}
+                      className="w-4 h-4 text-cyan-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{cat.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Role Selection based on Category */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                {formData.eventCategory === 'seminar_symposia' ? 'Seminar/Symposia Role' : 'Role'} <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {formData.eventCategory === 'conference' ? (
+                  // Conference roles
+                  [
+                    { value: 'chairman_chairperson', label: 'Chairman/Chairperson/Convener/Organizing Secretary' },
+                    { value: 'joint_secretary', label: 'Joint Secretary' },
+                    { value: 'committee_coordinators', label: 'Committee Coordinators' },
+                    { value: 'committee_members', label: 'Committee Members' },
+                    { value: 'session_chair', label: 'Session Chair' },
+                  ].map(role => (
+                    <label key={role.value} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="organizerRole" value={role.value}
+                        checked={formData.organizerRole === role.value} onChange={handleInputChange}
+                        className="w-4 h-4 text-cyan-600"
+                      />
+                      <span className="ml-1.5 text-gray-700">{role.label}</span>
+                    </label>
+                  ))
+                ) : (
+                  // Seminar/Symposia roles
+                  [
+                    { value: 'seminar_organizing_secretary', label: 'Seminar Organizing Secretary' },
+                    { value: 'seminar_joint_organizing_secretary', label: 'Seminar Joint Organizing Secretary' },
+                    { value: 'seminar_committee_coordinator', label: 'Seminar Committee Co-ordinator' },
+                    { value: 'seminar_committee_member', label: 'Seminar Committee Member' },
+                  ].map(role => (
+                    <label key={role.value} className="inline-flex items-center text-sm cursor-pointer">
+                      <input type="radio" name="organizerRole" value={role.value}
+                        checked={formData.organizerRole === role.value} onChange={handleInputChange}
+                        className="w-4 h-4 text-cyan-600"
+                      />
+                      <span className="ml-1.5 text-gray-700">{role.label}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Conference Type */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Conference Type <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: 'national', label: 'National' },
+                  { value: 'international', label: 'International' },
+                ].map(opt => (
+                  <label key={opt.value} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="conferenceType" value={opt.value}
+                      checked={formData.conferenceType === opt.value} onChange={handleInputChange}
+                      className="w-4 h-4 text-cyan-600"
+                    />
+                    <span className="ml-1.5 text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Conference Name & Venue */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name of Conference <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="conferenceName" value={formData.conferenceName} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 bg-white"
+                  placeholder="Enter conference name"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Venue <span className="text-red-500">*</span>
+                </label>
+                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 bg-white"
+                  placeholder="Enter venue"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Date & Topic */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date of Conference <span className="text-red-500">*</span>
+                </label>
+                <input type="date" name="conferenceDate" value={formData.conferenceDate} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 bg-white"
+                  required
+                />
+                
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic
+                </label>
+                <input type="text" name="topic" value={formData.topic} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 bg-white"
+                  placeholder="Enter topic"
+                />
+              </div>
+            </div>
+
+            {/* Virtual Conference */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Whether you have attended Virtual Conference?</label>
+              <div className="flex gap-4 mt-1">
+                {['yes','no'].map(v => (
+                  <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                    <input type="radio" name="attendedVirtual" value={v}
+                      checked={formData.attendedVirtual === v} onChange={handleInputChange}
+                      className="w-4 h-4 text-cyan-600"
+                    />
+                    <span className="ml-1.5 capitalize text-gray-700">{v}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          )}
+          </>
+          )}
+
+          {/* SDG Goals - Shown for all types */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               UN Sustainable Development Goals (SDGs)
@@ -1893,7 +3023,8 @@ export default function ResearchContributionForm({ publicationType, contribution
             )}
           </div>
 
-          {/* Publication Details Grid */}
+          {/* Publication Details Grid - Only for Research Papers */}
+          {publicationType === 'research_paper' && (
           <div className="p-5 bg-slate-50 rounded-xl border border-slate-200">
             <h4 className="text-sm font-semibold text-gray-700 mb-4">Publication Information</h4>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -1936,11 +3067,11 @@ export default function ResearchContributionForm({ publicationType, contribution
             </div>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-600 mb-2">Weblink (Publication URL)</label>
-              <input type="url" name="publisherName" value={formData.publisherName} onChange={(e) => {
+              <input type="url" name="weblink" value={formData.publisherName} onChange={(e) => {
                   const url = e.target.value;
                   // Allow empty or valid https URLs
                   if (url === '' || url.startsWith('https://') || url.startsWith('http://')) {
-                    handleInputChange(e);
+                    setFormData(prev => ({ ...prev, publisherName: url }));
                   }
                 }}
                 pattern="https://.*"
@@ -1952,9 +3083,16 @@ export default function ResearchContributionForm({ publicationType, contribution
               )}
             </div>
           </div>
+          )}
         </div>
       </div>
 
+      {/* Author Information Section - For Research Papers, Conference Papers (Scopus), Books, and Book Chapters */}
+      {(formData.publicationType === 'research_paper' || 
+        (formData.publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus') ||
+        formData.publicationType === 'book' ||
+        formData.publicationType === 'book_chapter') && (
+      <div>
       {/* Mentor Selection (Only for Students) - Compact */}
       {user?.userType === 'student' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
@@ -2011,13 +3149,13 @@ export default function ResearchContributionForm({ publicationType, contribution
 
       {/* Authors Section - Professional */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 px-5 py-3">
+        <div className={`bg-gradient-to-r ${formData.publicationType === 'conference_paper' ? 'from-purple-600 to-purple-700' : (formData.publicationType === 'book' || formData.publicationType === 'book_chapter') ? 'from-teal-600 to-teal-700' : 'from-emerald-600 to-emerald-700'} px-5 py-3`}>
           <h2 className="text-lg font-semibold text-white">Author Information</h2>
         </div>
         <div className="p-5">
         
         {/* Author Counts and Additional Info - All in One Box */}
-        <div className="p-5 bg-gradient-to-r from-gray-50 to-emerald-50 rounded-xl border border-gray-100 space-y-5">
+        <div className={`p-5 bg-gradient-to-r ${formData.publicationType === 'conference_paper' ? 'from-gray-50 to-purple-50' : (formData.publicationType === 'book' || formData.publicationType === 'book_chapter') ? 'from-gray-50 to-teal-50' : 'from-gray-50 to-emerald-50'} rounded-xl border border-gray-100 space-y-5`}>
           {/* Row 1: Basic Author Counts */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
@@ -2031,7 +3169,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                   if (totalInternalAuthors > value) { setTotalInternalAuthors(value); }
                 }}
                 disabled={hasAuthorsAdded}
-                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 ${publicationType === 'book' || publicationType === 'book_chapter' ? 'focus:ring-teal-500' : 'focus:ring-emerald-500'} ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
                 title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
               />
             </div>
@@ -2049,10 +3187,15 @@ export default function ResearchContributionForm({ publicationType, contribution
                   setError(null);
                 }}
                 disabled={hasAuthorsAdded}
-                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 ${publicationType === 'book' || publicationType === 'book_chapter' ? 'focus:ring-teal-500' : 'focus:ring-emerald-500'} ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="1"
                 title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
               />
             </div>
+            
+            {/* Internal Co-Authors and Your Role - For Research Papers and Scopus Conference Papers */}
+            {(publicationType === 'research_paper' || 
+              (publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus')) && (
+            <>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">
                 Internal Co-Authors <span className="text-red-500">*</span>
@@ -2068,35 +3211,13 @@ export default function ResearchContributionForm({ publicationType, contribution
                   if (value < 0) { setError('Internal co-authors cannot be negative'); return; }
                   if (value > maxCoAuthors) { setError(`Internal co-authors cannot exceed ${maxCoAuthors}.`); return; }
                   
-                  // Validate based on user's role
-                  const remainingInternalAuthors = totalInternalAuthors - 1; // Exclude yourself
-                  if (userAuthorType === 'first_and_corresponding' || userAuthorType === 'first_and_corresponding_author') {
-                    // If you're First & Corresponding, all remaining internal authors MUST be co-authors
-                    if (value !== remainingInternalAuthors) {
-                      setError(`Since you're First & Corresponding Author, all ${remainingInternalAuthors} remaining internal author(s) must be co-authors.`);
-                      return;
-                    }
-                  } else if (userAuthorType === 'first_author' || userAuthorType === 'first') {
-                    // If you're First Author only, at least (remainingInternalAuthors - 1) must be co-authors
-                    // One can be Corresponding Author
-                    if (value < remainingInternalAuthors - 1) {
-                      setError(`With you as First Author, at least ${remainingInternalAuthors - 1} internal co-author(s) required (one can be Corresponding).`);
-                      return;
-                    }
-                  } else if (userAuthorType === 'corresponding_author' || userAuthorType === 'corresponding') {
-                    // If you're Corresponding Author only, at least (remainingInternalAuthors - 1) must be co-authors
-                    // One can be First Author
-                    if (value < remainingInternalAuthors - 1) {
-                      setError(`With you as Corresponding Author, at least ${remainingInternalAuthors - 1} internal co-author(s) required (one can be First).`);
-                      return;
-                    }
-                  }
-                  
+                  // Remove strict role-based validation during initial setup
+                  // Only validate the basic count constraints
                   setTotalInternalCoAuthors(value);
                   setError(null);
                 }}
                 disabled={hasAuthorsAdded}
-                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="0"
+                className={`w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 ${publicationType === 'conference_paper' ? 'focus:ring-purple-500' : 'focus:ring-emerald-500'} ${hasAuthorsAdded ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} placeholder="0"
                 title={hasAuthorsAdded ? 'Remove all authors to change this field' : ''}
               />
             </div>
@@ -2124,7 +3245,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                     setError(null);
                   }
                 }}
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                  className={`px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 ${publicationType === 'conference_paper' ? 'focus:ring-purple-500' : 'focus:ring-emerald-500'}`}
                 >
                   {getAllowedUserRoles().includes('first_and_corresponding') && <option value="first_and_corresponding">First & Corresponding</option>}
                   {getAllowedUserRoles().includes('corresponding') && <option value="corresponding">Corresponding</option>}
@@ -2133,6 +3254,17 @@ export default function ResearchContributionForm({ publicationType, contribution
                 </select>
               )}
             </div>
+            </>
+            )}
+            
+            {/* For Books - Show equal distribution note */}
+            {(publicationType === 'book' || publicationType === 'book_chapter') && (
+              <div className="flex items-center text-xs text-teal-700 bg-teal-50 px-3 py-2 rounded-lg border border-teal-200">
+                <Coins className="w-4 h-4 mr-2" />
+                Incentive will be distributed equally among all SGT authors
+              </div>
+            )}
+            
             {hasAuthorsAdded && (
               <div className="flex items-center text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                 <AlertCircle className="w-4 h-4 mr-2" />
@@ -2141,11 +3273,15 @@ export default function ResearchContributionForm({ publicationType, contribution
             )}
           </div>
           
-          {/* Divider */}
+          {/* Divider - Only for Research Papers and Conference Papers */}
+          {(formData.publicationType === 'research_paper' || formData.publicationType === 'conference_paper') && (
+          <>
           <div className="border-t border-gray-200"></div>
           
-          {/* Row 2: Additional Author Information */}
+          {/* Row 2: Additional Author Information - Only for Research Papers and Conference Papers */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+            {/* International Author - Only show when there are external authors (Total > SGT) */}
+            {totalAuthors > totalInternalAuthors && (
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-2">
                 International Author <span className="text-red-500">*</span>
@@ -2170,6 +3306,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                 ))}
               </div>
             </div>
+            )}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-2">
                 Student(s) from SGT <span className="text-red-500">*</span>
@@ -2187,7 +3324,8 @@ export default function ResearchContributionForm({ publicationType, contribution
                 ))}
               </div>
             </div>
-            {(formData.hasInternationalAuthor === 'yes' || totalAuthors > totalInternalAuthors) && (
+            {/* Foreign Universities - Only show when International Author is Yes */}
+            {formData.hasInternationalAuthor === 'yes' && (
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-2">
                   Foreign Universities Collaborated:
@@ -2204,6 +3342,10 @@ export default function ResearchContributionForm({ publicationType, contribution
                   onChange={(e) => {
                     const value = Number(e.target.value) || 0;
                     const maxExternal = totalAuthors - totalInternalAuthors;
+                    if (value < 0) {
+                      setError('Foreign universities cannot be negative');
+                      return;
+                    }
                     if (value > maxExternal) {
                       setError(`Foreign universities cannot exceed ${maxExternal} (your total external authors)`);
                       return;
@@ -2219,11 +3361,13 @@ export default function ResearchContributionForm({ publicationType, contribution
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
         
         {/* Add Other Author's Detail - Compact */}
         {(totalAuthors > 1) && (
-          <div className="border border-orange-300 bg-orange-50 rounded p-3 mb-4">
+          <div className={`border ${publicationType === 'book' || publicationType === 'book_chapter' ? 'border-teal-300 bg-teal-50' : 'border-orange-300 bg-orange-50'} rounded p-3 mb-4`}>
             <h3 className="text-sm font-semibold text-gray-900 mb-2">
               Add Other Authors {editingAuthorIndex !== null && <span className="text-xs text-blue-600">(Editing)</span>}
             </h3>
@@ -2235,12 +3379,14 @@ export default function ResearchContributionForm({ publicationType, contribution
                 const externalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'External').length;
                 
                 // Calculate how many internal authors to add (excluding yourself)
-                const maxInternalToAdd = totalInternalAuthors - 1;
-                const maxExternalToAdd = totalAuthors - totalInternalAuthors;
+                // Total SGT people = totalInternalAuthors (user) + totalInternalCoAuthors (additional SGT co-authors)
+                const totalSGTPeople = totalInternalAuthors + totalInternalCoAuthors;
+                const maxInternalToAdd = totalSGTPeople - 1;  // Exclude user
+                const maxExternalToAdd = totalAuthors - totalSGTPeople;
                 
                 const parts = [];
                 if (maxInternalToAdd > 0) {
-                  parts.push(`${maxInternalToAdd} internal author(s) [${internalAdded} added]`);
+                  parts.push(`${maxInternalToAdd} SGT author(s) [${internalAdded} added]`);
                 }
                 if (maxExternalToAdd > 0) {
                   parts.push(`${maxExternalToAdd} external author(s) [${externalAdded} added]`);
@@ -2250,28 +3396,33 @@ export default function ResearchContributionForm({ publicationType, contribution
                   return `You are the only author.`;
                 }
                 
-                return `You can add ${parts.join(' and ')}. Total: ${currentAdded}/${maxCoAuthors} co-author(s) added.`;
+                return `You need to add ${parts.join(' and ')}. Total: ${currentAdded}/${maxCoAuthors} author(s) added.`;
               })()}
             </p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Author Category */}
+            {/* Author Category - Internal/External */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Author Type: <span className="text-red-500">*</span>
+                {publicationType === 'book' || publicationType === 'book_chapter' ? 'Author From:' : 'Author Type:'} <span className="text-red-500">*</span>
               </label>
               <div className="flex gap-6">
                 {(() => {
                   // Check if internal slots are full
                   const totalInternalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
-                  // SGT Authors includes applicant, so max internal to add = totalInternalAuthors - 1
-                  const maxInternalToAdd = totalInternalAuthors - 1;
+                  // Total SGT people = totalInternalAuthors (user) + totalInternalCoAuthors (additional SGT co-authors)
+                  const totalSGTPeople = totalInternalAuthors + totalInternalCoAuthors;
+                  // Max internal to add = total SGT people - 1 (excluding the user)
+                  const maxInternalToAdd = totalSGTPeople - 1;
                   const internalSlotsFull = totalInternalAdded >= maxInternalToAdd;
+                  
+                  // For books, simplified logic - just show Internal/External based on counts
+                  const isBook = publicationType === 'book' || publicationType === 'book_chapter';
                   
                   return (
                     <>
-                      {/* Show Internal option when: SGT > 1, OR when SGT=1 and Internal Co-Authors=1 */}
-                      {(totalInternalAuthors > 1 || (totalInternalAuthors === 1 && totalInternalCoAuthors === 1)) && (
+                      {/* Show Internal option when there are internal slots available (maxInternalToAdd > 0) */}
+                      {maxInternalToAdd > 0 && (
                         <label className="inline-flex items-center">
                           <input
                             type="radio"
@@ -2282,50 +3433,48 @@ export default function ResearchContributionForm({ publicationType, contribution
                               setNewAuthor(prev => ({ 
                                 ...prev, 
                                 authorCategory: e.target.value,
-                                authorType: 'Faculty',
+                                authorType: isBook ? 'Author' : 'Faculty',
                                 affiliation: 'SGT University',
                                 uid: '',
                                 name: '',
                                 email: '',
-                                authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'first_and_corresponding'
+                                authorRole: isBook ? 'author' : (availableRoles.length > 0 ? availableRoles[0].value : 'first_and_corresponding')
                               }));
                               setSearchSuggestions([]);
                               setShowSuggestions(false);
                             }}
-                            className="w-4 h-4 text-blue-600"
-                            disabled={internalSlotsFull || totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors}
+                            className={`w-4 h-4 ${isBook ? 'text-teal-600' : 'text-blue-600'}`}
+                            disabled={internalSlotsFull}
                           />
                           <span className="ml-2">
-                            Internal 
+                            {isBook ? 'SGT University' : 'Internal'}
                             {internalSlotsFull && <span className="text-red-600 text-xs ml-1">(Limit reached: {totalInternalAdded}/{maxInternalToAdd})</span>}
-                            {(totalInternalAuthors === 1 && totalInternalCoAuthors === 1 || totalAuthors === totalInternalAuthors) && !internalSlotsFull && '(Required)'}
                           </span>
                         </label>
                       )}
-                      {/* Show External option only when there are external authors (totalAuthors > totalInternalAuthors) */}
-                      {totalAuthors > totalInternalAuthors && !(totalInternalAuthors === 1 && totalInternalCoAuthors === 1) && (
+                      {/* Show External option when there are external authors (totalAuthors > totalSGTPeople) */}
+                      {totalAuthors > totalSGTPeople && (
                         <label className="inline-flex items-center">
                           <input
                             type="radio"
                             value="External"
-                            checked={newAuthor.authorCategory === 'External' || internalSlotsFull || (totalInternalAuthors === 1 && totalInternalCoAuthors === 0)}
+                            checked={newAuthor.authorCategory === 'External' || internalSlotsFull}
                             onChange={(e) => {
                               const availableRoles = getAvailableOtherAuthorRoles();
                               setNewAuthor(prev => ({ 
                                 ...prev, 
                                 authorCategory: e.target.value,
-                                authorType: 'Academic',
+                                authorType: isBook ? 'Author' : 'Academic',
                                 affiliation: '',
                                 uid: '',
                                 name: '',
                                 email: '',
-                                authorRole: availableRoles.length > 0 ? availableRoles[0].value : 'co_author'
+                                authorRole: isBook ? 'author' : (availableRoles.length > 0 ? availableRoles[0].value : 'co_author')
                               }));
                               setSearchSuggestions([]);
                               setShowSuggestions(false);
                             }}
-                            className="w-4 h-4 text-blue-600"
-                            disabled={totalInternalAuthors === 1 && totalInternalCoAuthors === 0}
+                            className={`w-4 h-4 ${isBook ? 'text-teal-600' : 'text-blue-600'}`}
                           />
                           <span className="ml-2">
                             External
@@ -2337,19 +3486,16 @@ export default function ResearchContributionForm({ publicationType, contribution
                   );
                 })()}
               </div>
-              {totalInternalAuthors === 1 && totalInternalCoAuthors === 1 && (
-                <p className="text-xs text-orange-600 mt-1">
-                  You must add an Internal co-author who will be First/Corresponding Author
-                </p>
-              )}
-              {totalAuthors === totalInternalAuthors && totalAuthors > 1 && (
+              {totalAuthors === (totalInternalAuthors + totalInternalCoAuthors) && totalAuthors > 1 && (
                 <p className="text-xs text-blue-600 mt-1">
-                  All authors are internal (SGT affiliated). External option is hidden.
+                  All authors are from SGT. External option is hidden.
                 </p>
               )}
             </div>
             
             {/* Author Category Type - Different options for Internal vs External */}
+            {/* Show for research papers and conference papers, not for books */}
+            {(formData.publicationType === 'research_paper' || formData.publicationType === 'conference_paper') && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 {newAuthor.authorCategory === 'Internal' ? 'Select Type:' : 'Author category:'} <span className="text-red-500">*</span>
@@ -2372,7 +3518,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                         setSearchSuggestions([]);
                         setShowSuggestions(false);
                       }}
-                      className="w-4 h-4 text-blue-600"
+                      className={`w-4 h-4 ${formData.publicationType === 'conference_paper' ? 'text-purple-600' : 'text-blue-600'}`}
                     />
                     <span className="ml-2">Teacher</span>
                   </label>
@@ -2392,7 +3538,7 @@ export default function ResearchContributionForm({ publicationType, contribution
                         setSearchSuggestions([]);
                         setShowSuggestions(false);
                       }}
-                      className="w-4 h-4 text-blue-600"
+                      className={`w-4 h-4 ${formData.publicationType === 'conference_paper' ? 'text-purple-600' : 'text-blue-600'}`}
                     />
                     <span className="ml-2">Student</span>
                   </label>
@@ -2449,8 +3595,10 @@ export default function ResearchContributionForm({ publicationType, contribution
                 </div>
               )}
             </div>
+            )}
             
-            {/* Author Role */}
+            {/* Author Role - Only for Research Papers and Conference Papers */}
+            {(formData.publicationType === 'research_paper' || formData.publicationType === 'conference_paper') && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Author Role: <span className="text-red-500">*</span>
@@ -2470,12 +3618,13 @@ export default function ResearchContributionForm({ publicationType, contribution
                 </p>
               )}
             </div>
+            )}
             
             {/* Registration Number / UID - Only show for Internal authors */}
             {newAuthor.authorCategory === 'Internal' && (
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {newAuthor.authorType === 'Student' ? 'Reg No:' : 'UID:'} <span className="text-red-500">*</span>
+                  {newAuthor.authorType === 'Student' ? 'Reg No:' : (newAuthor.authorType === 'Author' ? 'UID/Reg No:' : 'UID:')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -2510,8 +3659,10 @@ export default function ResearchContributionForm({ publicationType, contribution
                   onBlur={(e) => {
                     // Delay to allow clicking on suggestions
                     setTimeout(() => {
-                      if (e.target.value && !showSuggestions) {
-                        lookupAuthor(e.target.value);
+                      const uid = e.target.value;
+                      // Only lookup if UID is complete (at least 5 characters) and no suggestions are showing
+                      if (uid && uid.length >= 5 && !showSuggestions) {
+                        lookupAuthor(uid);
                       }
                     }, 200);
                   }}
@@ -2520,27 +3671,34 @@ export default function ResearchContributionForm({ publicationType, contribution
                       setShowSuggestions(true);
                     }
                   }}
-                  placeholder={newAuthor.authorType === 'Student' ? 'e.g., 12345678' : 'e.g., STF12345'}
+                  placeholder={newAuthor.authorType === 'Student' ? 'e.g., 12345678' : (newAuthor.authorType === 'Author' ? 'e.g., STF12345 or 12345678' : 'e.g., STF12345')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 
                 {/* Search Suggestions Dropdown */}
                 {showSuggestions && searchSuggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {searchSuggestions.map((suggestion, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => selectAuthorFromSuggestion(suggestion)}
-                        className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-200 last:border-b-0"
-                      >
-                        <div className="font-medium text-gray-900">
-                          {suggestion.uid} - {suggestion.name}
+                    {searchSuggestions.map((suggestion, idx) => {
+                      // Handle different field names from backend
+                      const displayName = suggestion.name || suggestion.displayName || `${suggestion.firstName || ''} ${suggestion.lastName || ''}`.trim();
+                      const displayRole = suggestion.designation || suggestion.role || 'User';
+                      const displayDept = suggestion.department || suggestion.departmentName || '';
+                      
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => selectAuthorFromSuggestion(suggestion)}
+                          className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-200 last:border-b-0"
+                        >
+                          <div className="font-medium text-gray-900">
+                            {suggestion.uid} - {displayName}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {displayRole} {displayDept && `• ${displayDept}`}
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-600">
-                          {suggestion.designation || suggestion.role} • {suggestion.department}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2616,7 +3774,11 @@ export default function ResearchContributionForm({ publicationType, contribution
                 onClick={() => {
                   setEditingAuthorIndex(null);
                   // Reset to appropriate defaults based on what authors can be added
-                  const defaultCategory = (totalInternalAuthors === 1 && totalInternalCoAuthors === 0) ? 'External' : 'Internal';
+                  const totalSGTPeople = totalInternalAuthors + totalInternalCoAuthors;
+                  const maxInternalToAdd = totalSGTPeople - 1;
+                  const internalAdded = coAuthors.filter(a => a.name && a.authorCategory === 'Internal').length;
+                  const hasInternalSlots = internalAdded < maxInternalToAdd;
+                  const defaultCategory = hasInternalSlots ? 'Internal' : 'External';
                   const defaultType = defaultCategory === 'External' ? 'Academic' : 'Faculty';
                   const defaultAffiliation = defaultCategory === 'External' ? '' : 'SGT University';
                   const availableRoles = getAvailableOtherAuthorRoles();
@@ -2649,11 +3811,12 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
         )}
         
-        {/* Incentive Preview Table - Show always with applicant details */}
-        {(formData.quartile || formData.sjr) && (
+        {/* Incentive Preview Table - Show for Research Papers with quartile/sjr OR Conference Papers with proceedings quartile */}
+        {((formData.publicationType === 'research_paper' && (formData.quartile || formData.sjr)) || 
+          (formData.publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus' && formData.proceedingsQuartile)) && (
           <div className="mt-6">
             <h3 className="text-md font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <Award className="w-5 h-5 text-blue-600" />
+              <Award className={`w-5 h-5 ${formData.publicationType === 'conference_paper' ? 'text-purple-600' : 'text-blue-600'}`} />
               Incentive & Points Preview
             </h3>
             <div className="overflow-x-auto">
@@ -2868,6 +4031,11 @@ export default function ResearchContributionForm({ publicationType, contribution
           </div>
         )}
       </div>
+      </div>
+      </div>
+      )}
+
+
 
       {/* Document Upload Section */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -2881,6 +4049,56 @@ export default function ResearchContributionForm({ publicationType, contribution
               <p className="text-sm text-gray-500">Upload all documents as a single ZIP file (Max 5 MB)</p>
             </div>
           </div>
+
+          {/* Document Requirements Checklist for Scopus Conference Papers */}
+          {publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus' && (
+            <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <h4 className="text-sm font-semibold text-purple-900 mb-3">Document Submission Checklist (Mark before submit)</h4>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    name="takeholderContents"
+                    checked={formData.takeholderContents === 'yes'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, takeholderContents: e.target.checked ? 'yes' : 'no' }))}
+                    className="w-4 h-4 mt-0.5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                  />
+                  <label className="text-sm text-gray-700">i. Takeholder Contents</label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    name="frontPageWithAuthorAffiliation"
+                    checked={formData.frontPageWithAuthorAffiliation === 'yes'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, frontPageWithAuthorAffiliation: e.target.checked ? 'yes' : 'no' }))}
+                    className="w-4 h-4 mt-0.5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                  />
+                  <label className="text-sm text-gray-700">ii. Front page of the paper with author affiliation to be included</label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    name="nameContainsSpecialCharacters"
+                    checked={formData.nameContainsSpecialCharacters === 'yes'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, nameContainsSpecialCharacters: e.target.checked ? 'yes' : 'no' }))}
+                    className="w-4 h-4 mt-0.5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                  />
+                  <label className="text-sm text-gray-700">iii. Please ensure the name contains no special characters (accents, unicode, etc.)</label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    name="confDatesVenue"
+                    checked={formData.confDatesVenue === 'yes'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, confDatesVenue: e.target.checked ? 'yes' : 'no' }))}
+                    className="w-4 h-4 mt-0.5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                  />
+                  <label className="text-sm text-gray-700">iv. Please mention the date and venue of conference</label>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="relative">
             <input
               type="file"
@@ -2965,7 +4183,6 @@ export default function ResearchContributionForm({ publicationType, contribution
           </div>
         </div>
       </div>
-        </div>
         </>
       )}
 

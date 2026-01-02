@@ -5,7 +5,7 @@ import IncentivePolicyManagement from '@/components/admin/IncentivePolicyManagem
 
 export default function IncentivePoliciesPage() {
   return (
-    <ProtectedRoute allowedRoles={['admin']}>
+    <ProtectedRoute>
       <IncentivePolicyManagement />
     </ProtectedRoute>
   );
