@@ -23,6 +23,8 @@ const DEFAULT_RESEARCH_POLICIES = {
       ieee: 12000
     },
     quartileBonuses: {
+      'Top 1%': 37500,
+      'Top 5%': 30000,
       q1: 25000,
       q2: 15000,
       q3: 8000,
@@ -217,6 +219,20 @@ exports.createPolicy = async (req, res) => {
       });
     }
 
+    // Validate quartile incentives if provided
+    if (indexingBonuses && indexingBonuses.quartileIncentives) {
+      const requiredQuartiles = ['Top 1%', 'Top 5%', 'Q1', 'Q2', 'Q3', 'Q4'];
+      const providedQuartiles = indexingBonuses.quartileIncentives.map(q => q.quartile);
+      const missingQuartiles = requiredQuartiles.filter(q => !providedQuartiles.includes(q));
+      
+      if (missingQuartiles.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing required quartile incentives: ${missingQuartiles.join(', ')}. All six quartiles (Top 1%, Top 5%, Q1-Q4) must be provided.`
+        });
+      }
+    }
+
     // Check for overlapping date ranges with existing policies of same publication type
     const existingPolicies = await prisma.researchIncentivePolicy.findMany({
       where: {
@@ -321,6 +337,20 @@ exports.updatePolicy = async (req, res) => {
         success: false,
         message: 'Research incentive policy not found'
       });
+    }
+
+    // Validate quartile incentives if provided
+    if (indexingBonuses && indexingBonuses.quartileIncentives) {
+      const requiredQuartiles = ['Top 1%', 'Top 5%', 'Q1', 'Q2', 'Q3', 'Q4'];
+      const providedQuartiles = indexingBonuses.quartileIncentives.map(q => q.quartile);
+      const missingQuartiles = requiredQuartiles.filter(q => !providedQuartiles.includes(q));
+      
+      if (missingQuartiles.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing required quartile incentives: ${missingQuartiles.join(', ')}. All six quartiles (Top 1%, Top 5%, Q1-Q4) must be provided.`
+        });
+      }
     }
 
     // If dates are being updated, check for overlapping date ranges

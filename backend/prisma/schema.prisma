@@ -60,6 +60,12 @@ model UserLogin {
   researchContributionStatusChanges   ResearchContributionStatusHistory[]  @relation("ResearchContributionStatusChanges")
   createdResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyCreatedBy")
   updatedResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyUpdatedBy")
+  createdBookPolicies                 BookIncentivePolicy[]                @relation("BookPolicyCreatedBy")
+  updatedBookPolicies                 BookIncentivePolicy[]                @relation("BookPolicyUpdatedBy")
+  createdBookChapterPolicies          BookChapterIncentivePolicy[]         @relation("BookChapterPolicyCreatedBy")
+  updatedBookChapterPolicies          BookChapterIncentivePolicy[]         @relation("BookChapterPolicyUpdatedBy")
+  createdConferencePolicies           ConferenceIncentivePolicy[]          @relation("ConferencePolicyCreatedBy")
+  updatedConferencePolicies           ConferenceIncentivePolicy[]          @relation("ConferencePolicyUpdatedBy")
   researchPapers                      ResearchPaper[]                      @relation("ResearchPapers")
   researchPaperReviews                ResearchPaperReview[]                @relation("ResearchPaperReviews")
   researchPaperStatusChanges          ResearchPaperStatusHistory[]         @relation("ResearchPaperStatusChanges")
@@ -1361,6 +1367,85 @@ model ResearchIncentivePolicy {
   @@map("research_incentive_policy")
 }
 
+model BookIncentivePolicy {
+  id                              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  policyName                      String     @map("policy_name") @db.VarChar(255)
+  authoredIncentiveAmount         Decimal    @map("authored_incentive_amount") @db.Decimal(15, 2)
+  authoredPoints                  Int        @map("authored_points")
+  editedIncentiveAmount           Decimal    @map("edited_incentive_amount") @db.Decimal(15, 2)
+  editedPoints                    Int        @map("edited_points")
+  splitPolicy                     String     @map("split_policy") @db.VarChar(50) // 'equal' or 'weighted'
+  indexingBonuses                 Json?      @default("{\"scopus_indexed\": 10000, \"non_indexed\": 0, \"sgt_publication_house\": 2000}") @map("indexing_bonuses")
+  internationalBonus              Decimal?   @default(5000) @map("international_bonus") @db.Decimal(15, 2)
+  isActive                        Boolean    @default(true) @map("is_active")
+  effectiveFrom                   DateTime   @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo                     DateTime?  @map("effective_to") @db.Timestamptz(6)
+  createdById                     String     @map("created_by_id") @db.Uuid
+  updatedById                     String?    @map("updated_by_id") @db.Uuid
+  createdAt                       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy                       UserLogin  @relation("BookPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, map: "book_incentive_policy_created_by_fkey")
+  updatedBy                       UserLogin? @relation("BookPolicyUpdatedBy", fields: [updatedById], references: [id], map: "book_incentive_policy_updated_by_fkey")
+
+  @@index([isActive])
+  @@map("book_incentive_policy")
+}
+
+model BookChapterIncentivePolicy {
+  id                              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  policyName                      String     @map("policy_name") @db.VarChar(255)
+  authoredIncentiveAmount         Decimal    @map("authored_incentive_amount") @db.Decimal(15, 2)
+  authoredPoints                  Int        @map("authored_points")
+  editedIncentiveAmount           Decimal    @map("edited_incentive_amount") @db.Decimal(15, 2)
+  editedPoints                    Int        @map("edited_points")
+  splitPolicy                     String     @map("split_policy") @db.VarChar(50) // 'equal' or 'weighted'
+  indexingBonuses                 Json?      @default("{\"scopus_indexed\": 10000, \"non_indexed\": 0, \"sgt_publication_house\": 2000}") @map("indexing_bonuses")
+  internationalBonus              Decimal?   @default(5000) @map("international_bonus") @db.Decimal(15, 2)
+  isActive                        Boolean    @default(true) @map("is_active")
+  effectiveFrom                   DateTime   @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo                     DateTime?  @map("effective_to") @db.Timestamptz(6)
+  createdById                     String     @map("created_by_id") @db.Uuid
+  updatedById                     String?    @map("updated_by_id") @db.Uuid
+  createdAt                       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy                       UserLogin  @relation("BookChapterPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, map: "book_chapter_incentive_policy_created_by_fkey")
+  updatedBy                       UserLogin? @relation("BookChapterPolicyUpdatedBy", fields: [updatedById], references: [id], map: "book_chapter_incentive_policy_updated_by_fkey")
+
+  @@index([isActive])
+  @@map("book_chapter_incentive_policy")
+}
+
+model ConferenceIncentivePolicy {
+  id                              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  policyName                      String     @map("policy_name") @db.VarChar(255)
+  conferenceSubType               String     @map("conference_sub_type") @db.VarChar(50) // 'paper_indexed_scopus', 'paper_not_indexed', 'keynote_speaker_invited_talks', 'organizer_coordinator_member'
+  
+  // For paper_indexed_scopus - quartile-based incentives (similar to research)
+  quartileIncentives              Json?      @default("[]") @map("quartile_incentives") // [{quartile: 'Q1', incentiveAmount: 50000, points: 50}, ...]
+  rolePercentages                 Json?      @default("[]") @map("role_percentages") // [{role: 'first_author', percentage: 50}, ...]
+  
+  // For other conference types - flat incentive (single amount and points)
+  flatIncentiveAmount             Decimal?   @map("flat_incentive_amount") @db.Decimal(15, 2)
+  flatPoints                      Int?       @map("flat_points")
+  
+  splitPolicy                     String     @map("split_policy") @db.VarChar(50) // 'equal' or 'percentage_based'
+  internationalBonus              Decimal?   @default(5000) @map("international_bonus") @db.Decimal(15, 2)
+  bestPaperAwardBonus             Decimal?   @default(5000) @map("best_paper_award_bonus") @db.Decimal(15, 2)
+  isActive                        Boolean    @default(true) @map("is_active")
+  effectiveFrom                   DateTime   @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo                     DateTime?  @map("effective_to") @db.Timestamptz(6)
+  createdById                     String     @map("created_by_id") @db.Uuid
+  updatedById                     String?    @map("updated_by_id") @db.Uuid
+  createdAt                       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy                       UserLogin  @relation("ConferencePolicyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, map: "conference_incentive_policy_created_by_fkey")
+  updatedBy                       UserLogin? @relation("ConferencePolicyUpdatedBy", fields: [updatedById], references: [id], map: "conference_incentive_policy_updated_by_fkey")
+
+  @@index([isActive])
+  @@index([conferenceSubType])
+  @@map("conference_incentive_policy")
+}
+
 enum UserRoleEnum {
   superadmin
   admin
@@ -1562,12 +1647,10 @@ enum TargetedResearchTypeEnum {
 }
 
 enum quartile_enum {
-  top1
-  top5
-  top10
-  q1
-  q2
-  q3
-  q4
-  na
+  Top_1_  @map("Top 1%")
+  Top_5_  @map("Top 5%")
+  Q1
+  Q2
+  Q3
+  Q4
 }

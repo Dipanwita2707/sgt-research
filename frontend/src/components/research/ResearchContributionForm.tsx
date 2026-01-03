@@ -15,7 +15,10 @@ import {
   CheckCircle,
   Loader2,
   X,
-  FileText
+  FileText,
+  BookOpen,
+  Globe,
+  Trophy
 } from 'lucide-react';
 import { researchService, ResearchPublicationType, ResearchContributionAuthor } from '@/services/research.service';
 import { useAuthStore } from '@/store/authStore';
@@ -133,6 +136,12 @@ export default function ResearchContributionForm({ publicationType, contribution
     sjrRanges: Array<{ minSJR: number; maxSJR: number; incentiveAmount: number; points: number }>;
     rolePercentages: Array<{ role: string; percentage: number }>;
   } | null>(null);
+  
+  // Book and Book Chapter policy states
+  const [bookPolicy, setBookPolicy] = useState<any>(null);
+  const [bookChapterPolicy, setBookChapterPolicy] = useState<any>(null);
+  const [conferencePolicy, setConferencePolicy] = useState<any>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -306,14 +315,254 @@ export default function ResearchContributionForm({ publicationType, contribution
   // - Students get incentives but ZERO points
   // - External first/corresponding author percentages are LOST (not redistributed)
   // - External co-author percentages are redistributed to internal co-authors
-  const calculateAuthorIncentivePoints = (authorType: string, authorCategory: string, authorRole: string) => {
-    // RULE 1: External authors get ZERO incentives and points
+  // ============================================
+  // SEPARATE CALCULATION FUNCTIONS FOR EACH TYPE
+  // ============================================
+
+  /**
+   * Calculate incentive for CONFERENCE PAPER authors
+   */
+  const calculateConferenceIncentive = (authorType: string, authorCategory: string, authorRole: string) => {
+    // External authors get ZERO
+    if (authorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+
+    // Check if we have conference policy
+    if (!conferencePolicy) {
+      return { incentive: 0, points: 0 };
+    }
+
+    const subType = formData.conferenceSubType;
+    let totalIncentive = 0;
+    let totalPoints = 0;
+
+    // For Scopus-indexed conferences - use quartile-based calculation
+    if (subType === 'paper_indexed_scopus') {
+      const proceedingsQuartile = formData.proceedingsQuartile?.toUpperCase() || '';
+      
+      if (proceedingsQuartile && conferencePolicy.quartileIncentives) {
+        const quartileMatch = conferencePolicy.quartileIncentives.find(
+          (q: any) => q.quartile.toUpperCase() === proceedingsQuartile
+        );
+        if (quartileMatch) {
+          totalIncentive = Number(quartileMatch.incentiveAmount) || 0;
+          totalPoints = Number(quartileMatch.points) || 0;
+        }
+      }
+
+      // Apply bonuses
+      if (formData.conferenceType === 'international' && conferencePolicy.internationalBonus) {
+        totalIncentive += Number(conferencePolicy.internationalBonus);
+      }
+      if (formData.conferenceBestPaperAward === 'yes' && conferencePolicy.bestPaperAwardBonus) {
+        totalIncentive += Number(conferencePolicy.bestPaperAwardBonus);
+      }
+
+      // Use role percentages for distribution
+      const firstAuthorPct = conferencePolicy.rolePercentages?.find((r: any) => r.role === 'first_author')?.percentage || 35;
+      const correspondingAuthorPct = conferencePolicy.rolePercentages?.find((r: any) => r.role === 'corresponding_author')?.percentage || 30;
+      const coAuthorTotalPct = 100 - firstAuthorPct - correspondingAuthorPct;
+
+      const composition = analyzeAuthorCompositionFrontend();
+      const otherAuthorsCount = coAuthors.filter(a => a.name).length;
+      const totalAuthorCount = otherAuthorsCount + 1;
+
+      let rolePercentage = 0;
+      if (totalAuthorCount === 1) {
+        rolePercentage = 100;
+      } else if (authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding') {
+        rolePercentage = firstAuthorPct + correspondingAuthorPct;
+      } else if (authorRole === 'first_author' || authorRole === 'first') {
+        rolePercentage = firstAuthorPct;
+      } else if (authorRole === 'corresponding_author' || authorRole === 'corresponding') {
+        rolePercentage = correspondingAuthorPct;
+      } else if (authorRole === 'co_author' || authorRole === 'co') {
+        const effectiveInternalCoAuthorCount = Math.max(composition.internalCoAuthorCount, 1);
+        rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
+      }
+
+      const authorIncentive = Math.round((totalIncentive * rolePercentage) / 100);
+      const authorPoints = Math.round((totalPoints * rolePercentage) / 100);
+
+      if (authorType === 'Student') {
+        return { incentive: authorIncentive, points: 0 };
+      }
+      return { incentive: authorIncentive, points: authorPoints };
+    } 
+    // For other conference types - use flat incentive
+    else {
+      // Default incentives based on national vs international
+      const defaultFlatIncentive: Record<string, { national: { incentiveAmount: number, points: number }, international: { incentiveAmount: number, points: number } }> = {
+        'paper_not_indexed': {
+          national: { incentiveAmount: 10000, points: 10 },
+          international: { incentiveAmount: 15000, points: 15 }
+        },
+        'keynote_speaker_invited_talks': {
+          national: { incentiveAmount: 10000, points: 10 },
+          international: { incentiveAmount: 20000, points: 20 }
+        },
+        'organizer_coordinator_member': {
+          national: { incentiveAmount: 5000, points: 5 },
+          international: { incentiveAmount: 10000, points: 10 }
+        }
+      };
+
+      // Check if international based on conferenceType or conferenceHeldLocation
+      const isInternational = 
+        formData.conferenceType === 'international' ||
+        formData.conferenceHeldLocation === 'abroad';
+
+      // Use policy if available, otherwise use defaults
+      if (conferencePolicy && conferencePolicy.flatIncentiveAmount && conferencePolicy.flatPoints) {
+        totalIncentive = Number(conferencePolicy.flatIncentiveAmount) || 0;
+        totalPoints = Number(conferencePolicy.flatPoints) || 0;
+        
+        // Apply international bonus from policy
+        if (isInternational && conferencePolicy.internationalBonus) {
+          totalIncentive += Number(conferencePolicy.internationalBonus);
+        }
+      } else {
+        // Use defaults based on sub-type and national/international status
+        const subTypeDefaults = defaultFlatIncentive[subType];
+        if (subTypeDefaults) {
+          const levelDefaults = isInternational ? subTypeDefaults.international : subTypeDefaults.national;
+          totalIncentive = levelDefaults.incentiveAmount;
+          totalPoints = levelDefaults.points;
+        } else {
+          // Fallback
+          const levelDefaults = isInternational ? 
+            defaultFlatIncentive['paper_not_indexed'].international : 
+            defaultFlatIncentive['paper_not_indexed'].national;
+          totalIncentive = levelDefaults.incentiveAmount;
+          totalPoints = levelDefaults.points;
+        }
+      }
+
+      // For keynote speakers and organizers: single person gets full amount (no split)
+      // For paper_not_indexed: split equally among all authors
+      let authorIncentive = 0;
+      let authorPoints = 0;
+
+      if (subType === 'keynote_speaker_invited_talks' || subType === 'organizer_coordinator_member') {
+        // Single presenter/organizer gets full amount
+        authorIncentive = totalIncentive;
+        authorPoints = totalPoints;
+      } else {
+        // paper_not_indexed: divide equally among all authors
+        const otherAuthorsCount = coAuthors.filter(a => a.name).length;
+        const totalAuthorCount = otherAuthorsCount + 1;
+        authorIncentive = Math.round(totalIncentive / totalAuthorCount);
+        authorPoints = Math.round(totalPoints / totalAuthorCount);
+      }
+
+      if (authorType === 'Student') {
+        return { incentive: authorIncentive, points: 0 };
+      }
+      return { incentive: authorIncentive, points: authorPoints };
+    }
+  };
+
+  /**
+   * Calculate incentive for BOOK authors
+   */
+  const calculateBookIncentive = (authorType: string, authorCategory: string) => {
+    // External authors get ZERO
+    if (authorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+
+    if (!bookPolicy) {
+      return { incentive: 0, points: 0 };
+    }
+
+    const bookType = formData.bookPublicationType || 'authored';
+    let baseIncentive = bookType === 'authored' 
+      ? Number(bookPolicy.authoredIncentiveAmount) || 0
+      : Number(bookPolicy.editedIncentiveAmount) || 0;
+    let basePoints = bookType === 'authored'
+      ? Number(bookPolicy.authoredPoints) || 0
+      : Number(bookPolicy.editedPoints) || 0;
+
+    // Apply indexing bonuses
+    if (formData.bookIndexingType === 'scopus_indexed' && bookPolicy.indexingBonuses?.scopus_indexed) {
+      baseIncentive += Number(bookPolicy.indexingBonuses.scopus_indexed);
+    } else if (formData.bookIndexingType === 'sgt_publication_house' && bookPolicy.indexingBonuses?.sgt_publication_house) {
+      baseIncentive += Number(bookPolicy.indexingBonuses.sgt_publication_house);
+    }
+
+    // Apply international bonus
+    if (formData.nationalInternational === 'international' && bookPolicy.internationalBonus) {
+      baseIncentive += Number(bookPolicy.internationalBonus);
+    }
+
+    // Divide among all authors
+    const otherAuthorsCount = coAuthors.filter(a => a.name).length;
+    const totalAuthorCount = otherAuthorsCount + 1;
+    const authorIncentive = Math.round(baseIncentive / totalAuthorCount);
+    const authorPoints = Math.round(basePoints / totalAuthorCount);
+
+    if (authorType === 'Student') {
+      return { incentive: authorIncentive, points: 0 };
+    }
+    return { incentive: authorIncentive, points: authorPoints };
+  };
+
+  /**
+   * Calculate incentive for BOOK CHAPTER authors
+   */
+  const calculateBookChapterIncentive = (authorType: string, authorCategory: string) => {
+    // External authors get ZERO
+    if (authorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+
+    if (!bookChapterPolicy) {
+      return { incentive: 0, points: 0 };
+    }
+
+    const bookType = formData.bookPublicationType || 'authored';
+    let baseIncentive = bookType === 'authored'
+      ? Number(bookChapterPolicy.authoredIncentiveAmount) || 0
+      : Number(bookChapterPolicy.editedIncentiveAmount) || 0;
+    let basePoints = bookType === 'authored'
+      ? Number(bookChapterPolicy.authoredPoints) || 0
+      : Number(bookChapterPolicy.editedPoints) || 0;
+
+    // Apply indexing bonuses
+    if (formData.bookIndexingType === 'scopus_indexed' && bookChapterPolicy.indexingBonuses?.scopus_indexed) {
+      baseIncentive += Number(bookChapterPolicy.indexingBonuses.scopus_indexed);
+    } else if (formData.bookIndexingType === 'sgt_publication_house' && bookChapterPolicy.indexingBonuses?.sgt_publication_house) {
+      baseIncentive += Number(bookChapterPolicy.indexingBonuses.sgt_publication_house);
+    }
+
+    // Apply international bonus
+    if (formData.nationalInternational === 'international' && bookChapterPolicy.internationalBonus) {
+      baseIncentive += Number(bookChapterPolicy.internationalBonus);
+    }
+
+    // Divide among all authors
+    const otherAuthorsCount = coAuthors.filter(a => a.name).length;
+    const totalAuthorCount = otherAuthorsCount + 1;
+    const authorIncentive = Math.round(baseIncentive / totalAuthorCount);
+    const authorPoints = Math.round(basePoints / totalAuthorCount);
+
+    if (authorType === 'Student') {
+      return { incentive: authorIncentive, points: 0 };
+    }
+    return { incentive: authorIncentive, points: authorPoints };
+  };
+
+  /**
+   * Calculate incentive for RESEARCH PAPER authors
+   */
+  const calculateResearchPaperIncentive = (authorType: string, authorCategory: string, authorRole: string) => {
+    // External authors get ZERO
     if (authorCategory === 'External') {
       return { incentive: 0, points: 0 };
     }
 
     // Default quartile-based incentives (fallback if policy not loaded)
-    // Top 1% and Top 5% get same benefits as Q1
     const defaultQuartileIncentives: Record<string, { incentiveAmount: number; points: number }> = {
       'TOP1': { incentiveAmount: 50000, points: 50 },
       'TOP5': { incentiveAmount: 50000, points: 50 },
@@ -483,6 +732,27 @@ export default function ResearchContributionForm({ publicationType, contribution
     
     // Faculty/Employees get both incentives and points
     return { incentive: authorIncentive, points: authorPoints };
+  };
+
+  /**
+   * MAIN DISPATCHER: Routes to appropriate calculation function based on publication type
+   */
+  const calculateAuthorIncentivePoints = (authorType: string, authorCategory: string, authorRole: string) => {
+    const pubType = formData.publicationType;
+
+    // Route to appropriate calculation function
+    if (pubType === 'conference_paper') {
+      return calculateConferenceIncentive(authorType, authorCategory, authorRole);
+    } else if (pubType === 'book') {
+      return calculateBookIncentive(authorType, authorCategory);
+    } else if (pubType === 'book_chapter') {
+      return calculateBookChapterIncentive(authorType, authorCategory);
+    } else if (pubType === 'research_paper') {
+      return calculateResearchPaperIncentive(authorType, authorCategory, authorRole);
+    }
+
+    // Fallback: no calculation possible
+    return { incentive: 0, points: 0 };
   };
   
   // Document upload state
@@ -889,22 +1159,44 @@ export default function ResearchContributionForm({ publicationType, contribution
 
   const fetchPolicy = async () => {
     try {
-      // Fetch active policy for research_paper publication type
-      const response = await api.get('/research-policies/active/research_paper');
-      if (response.data.success && response.data.data) {
-        const policy = response.data.data;
-        if (policy.indexingBonuses) {
-          setPolicyData({
-            quartileIncentives: policy.indexingBonuses.quartileIncentives || [],
-            sjrRanges: policy.indexingBonuses.sjrRanges || [],
-            rolePercentages: policy.indexingBonuses.rolePercentages || []
-          });
-          console.log('Policy loaded:', policy.indexingBonuses);
+      setPolicyLoading(true);
+      
+      // Fetch policy based on publication type
+      if (publicationType === 'research_paper') {
+        const response = await api.get('/research-policies/active/research_paper');
+        if (response.data.success && response.data.data) {
+          const policy = response.data.data;
+          if (policy.indexingBonuses) {
+            setPolicyData({
+              quartileIncentives: policy.indexingBonuses.quartileIncentives || [],
+              sjrRanges: policy.indexingBonuses.sjrRanges || [],
+              rolePercentages: policy.indexingBonuses.rolePercentages || []
+            });
+            console.log('Research policy loaded:', policy.indexingBonuses);
+          }
         }
+      } else if (publicationType === 'book') {
+        const response = await api.get('/book-policies/active');
+        if (response.data.success && response.data.data) {
+          setBookPolicy(response.data.data);
+          console.log('Book policy loaded:', response.data.data);
+        }
+      } else if (publicationType === 'book_chapter') {
+        const response = await api.get('/book-chapter-policies/active');
+        if (response.data.success && response.data.data) {
+          setBookChapterPolicy(response.data.data);
+          console.log('Book chapter policy loaded:', response.data.data);
+        }
+      } else if (publicationType === 'conference_paper') {
+        // Conference policies are loaded when conferenceSubType is selected
+        // Set initial null state
+        setConferencePolicy(null);
       }
     } catch (error) {
       console.error('Error fetching policy:', error);
       // Keep defaults if policy fetch fails
+    } finally {
+      setPolicyLoading(false);
     }
   };
 
@@ -916,6 +1208,34 @@ export default function ResearchContributionForm({ publicationType, contribution
       console.error('Error fetching departments:', error);
     }
   };
+
+  // Fetch conference policy when conferenceSubType changes
+  const fetchConferencePolicy = async (subType: string) => {
+    if (!subType || publicationType !== 'conference_paper') return;
+    
+    try {
+      setPolicyLoading(true);
+      const response = await api.get(`/conference-policies/active/${subType}`);
+      if (response.data.success && response.data.data) {
+        setConferencePolicy(response.data.data);
+        console.log('Conference policy loaded:', response.data.data);
+      } else {
+        setConferencePolicy(null);
+      }
+    } catch (error) {
+      console.error('Error fetching conference policy:', error);
+      setConferencePolicy(null);
+    } finally {
+      setPolicyLoading(false);
+    }
+  };
+
+  // Effect to fetch conference policy when conferenceSubType changes
+  useEffect(() => {
+    if (formData.conferenceSubType && publicationType === 'conference_paper') {
+      fetchConferencePolicy(formData.conferenceSubType);
+    }
+  }, [formData.conferenceSubType, publicationType]);
 
   const fetchContribution = async () => {
     if (!contributionId) return;
@@ -938,6 +1258,13 @@ export default function ResearchContributionForm({ publicationType, contribution
           isInterdisciplinary: contrib.interdisciplinaryFromSgt ? 'yes' : 'no',
           hasLpuStudents: contrib.studentsFromSgt ? 'yes' : 'no',
           journalName: contrib.journalName || '',
+          // Conference fields
+          conferenceSubType: contrib.conferenceSubType || '',
+          conferenceName: contrib.conferenceName || '',
+          proceedingsQuartile: contrib.proceedingsQuartile || 'na',
+          conferenceType: contrib.conferenceType || 'national',
+          conferenceBestPaperAward: contrib.conferenceBestPaperAward ? 'yes' : 'no',
+          // Common fields
           volume: contrib.volume || '',
           issue: contrib.issue || '',
           pageNumbers: contrib.pageNumbers || '',
@@ -1609,6 +1936,24 @@ export default function ResearchContributionForm({ publicationType, contribution
     const internalAuthorsCount = authors.filter(a => a.authorType?.startsWith('internal_')).length;
     const internalCoAuthorsCount = internalAuthorsCount - 1; // Exclude current user
     
+    console.log('[Frontend Submission] Conference fields being sent:', {
+      conferenceSubType: formData.conferenceSubType,
+      conferenceSubType_length: formData.conferenceSubType?.length,
+      conferenceSubType_type: typeof formData.conferenceSubType,
+      conferenceSubType_JSON: JSON.stringify(formData.conferenceSubType),
+      proceedingsQuartile: formData.proceedingsQuartile,
+      conferenceType: formData.conferenceType,
+      conferenceBestPaperAward: formData.conferenceBestPaperAward
+    });
+
+    console.log('[Frontend Submission] Full formData state:', {
+      publicationType: formData.publicationType,
+      conferenceSubType: formData.conferenceSubType,
+      conferenceName: formData.conferenceName,
+      proceedingsQuartile: formData.proceedingsQuartile,
+      conferenceType: formData.conferenceType
+    });
+
     const data: any = {
       publicationType: formData.publicationType,
       title: formData.title,
@@ -1685,6 +2030,16 @@ export default function ResearchContributionForm({ publicationType, contribution
       sdgGoals: formData.sdgGoals.length > 0 ? formData.sdgGoals : null,
     };
     
+    console.log('[Frontend buildSubmitData] Final data object:', {
+      conferenceSubType: data.conferenceSubType,
+      conferenceSubType_JSON: JSON.stringify(data.conferenceSubType),
+      conferenceSubType_fromFormData: formData.conferenceSubType,
+      proceedingsQuartile: data.proceedingsQuartile,
+      conferenceType: data.conferenceType,
+      publicationType: data.publicationType,
+      conferenceName: data.conferenceName
+    });
+
     return data;
   };
 
@@ -2019,7 +2374,6 @@ export default function ResearchContributionForm({ publicationType, contribution
                           {[
                             { value: 'top1', label: 'Top 1%' },
                             { value: 'top5', label: 'Top 5%' },
-                            { value: 'top10', label: 'Top 10%' },
                             { value: 'q1', label: 'Q1' },
                             { value: 'q2', label: 'Q2' },
                             { value: 'q3', label: 'Q3' },
@@ -2073,6 +2427,135 @@ export default function ResearchContributionForm({ publicationType, contribution
           {/* Book / Book Chapter Specific Fields */}
           {(publicationType === 'book' || publicationType === 'book_chapter') && (
           <>
+          {/* Policy Information Display */}
+          {(publicationType === 'book' && bookPolicy) || (publicationType === 'book_chapter' && bookChapterPolicy) ? (
+            <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 space-y-4">
+              <div className="flex items-center gap-2 mb-3">
+                <BookOpen className="w-5 h-5 text-blue-600" />
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Current {publicationType === 'book' ? 'Book' : 'Book Chapter'} Policy
+                </h3>
+              </div>
+              
+              {publicationType === 'book' && bookPolicy && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-700 mb-2">Authored Book</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Incentive:</span>
+                        <span className="font-semibold text-green-600">₹{bookPolicy.authoredIncentiveAmount?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-semibold text-purple-600">{bookPolicy.authoredPoints}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-700 mb-2">Edited Book</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Incentive:</span>
+                        <span className="font-semibold text-green-600">₹{bookPolicy.editedIncentiveAmount?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-semibold text-purple-600">{bookPolicy.editedPoints}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 md:col-span-2">
+                    <h4 className="font-medium text-gray-700 mb-2">Bonuses</h4>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">Scopus Indexed</span>
+                        <span className="font-semibold text-blue-600">₹{bookPolicy.indexingBonuses?.scopus_indexed?.toLocaleString()}</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">SGT Publication</span>
+                        <span className="font-semibold text-blue-600">₹{bookPolicy.indexingBonuses?.sgt_publication_house?.toLocaleString()}</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">International</span>
+                        <span className="font-semibold text-blue-600">₹{bookPolicy.internationalBonus?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {publicationType === 'book_chapter' && bookChapterPolicy && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-700 mb-2">Authored Chapter</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Incentive:</span>
+                        <span className="font-semibold text-green-600">₹{bookChapterPolicy.authoredIncentiveAmount?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-semibold text-purple-600">{bookChapterPolicy.authoredPoints}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-700 mb-2">Edited Chapter</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Incentive:</span>
+                        <span className="font-semibold text-green-600">₹{bookChapterPolicy.editedIncentiveAmount?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-semibold text-purple-600">{bookChapterPolicy.editedPoints}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 md:col-span-2">
+                    <h4 className="font-medium text-gray-700 mb-2">Bonuses</h4>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">Scopus Indexed</span>
+                        <span className="font-semibold text-blue-600">₹{bookChapterPolicy.indexingBonuses?.scopus_indexed?.toLocaleString()}</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">SGT Publication</span>
+                        <span className="font-semibold text-blue-600">₹{bookChapterPolicy.indexingBonuses?.sgt_publication_house?.toLocaleString()}</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="block text-gray-600 mb-1">International</span>
+                        <span className="font-semibold text-blue-600">₹{bookChapterPolicy.internationalBonus?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <p className="text-xs text-gray-600 mt-2">
+                <strong>Note:</strong> Final incentives will be calculated based on this policy and split among authors according to the split policy.
+              </p>
+            </div>
+          ) : policyLoading ? (
+            <div className="p-5 bg-gray-50 rounded-xl border border-gray-200 text-center">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto mb-2" />
+              <p className="text-sm text-gray-600">Loading policy information...</p>
+            </div>
+          ) : (
+            <div className="p-5 bg-yellow-50 rounded-xl border border-yellow-200">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm text-yellow-800 font-medium">No active policy found</p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Please contact the administrator to set up a {publicationType === 'book' ? 'book' : 'book chapter'} policy before submitting.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Book Details - All in One Box */}
           <div className="p-5 bg-gradient-to-r from-slate-50 to-green-50 rounded-xl border border-slate-200 space-y-5">
             {/* Row 1: Publication Type (Scopus/Non-indexed/SGT Publication House) */}
@@ -2329,6 +2812,77 @@ export default function ResearchContributionForm({ publicationType, contribution
                 <option value="organizer_coordinator_member">Organizer / Coordinator / Member of conference held at SGT</option>
               </select>
             </div>
+            
+            {/* Conference Policy Display */}
+            {formData.conferenceSubType && conferencePolicy && (
+              <div className="mt-4 p-4 bg-white rounded-lg border border-purple-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Award className="w-5 h-5 text-purple-600" />
+                  <h4 className="font-semibold text-gray-900">Current Incentive Policy</h4>
+                </div>
+                
+                {formData.conferenceSubType === 'paper_indexed_scopus' && conferencePolicy.quartileIncentives ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600 mb-2">Quartile-based incentives (based on proceedings quartile):</p>
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                      {conferencePolicy.quartileIncentives.map((qi: any) => (
+                        <div key={qi.quartile} className="text-center p-2 bg-purple-50 rounded-lg">
+                          <div className="text-xs font-medium text-purple-600">{qi.quartile}</div>
+                          <div className="text-sm font-semibold text-gray-900">₹{Number(qi.incentiveAmount).toLocaleString()}</div>
+                          <div className="text-xs text-gray-500">{qi.points} pts</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-4 mt-2 text-sm">
+                      {conferencePolicy.internationalBonus && (
+                        <span className="text-gray-600">
+                          <Globe className="w-4 h-4 inline mr-1 text-purple-500" />
+                          International Bonus: <span className="font-medium text-green-600">₹{Number(conferencePolicy.internationalBonus).toLocaleString()}</span>
+                        </span>
+                      )}
+                      {conferencePolicy.bestPaperAwardBonus && (
+                        <span className="text-gray-600">
+                          <Trophy className="w-4 h-4 inline mr-1 text-amber-500" />
+                          Best Paper Award: <span className="font-medium text-green-600">₹{Number(conferencePolicy.bestPaperAwardBonus).toLocaleString()}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-green-600" />
+                        <span className="text-gray-600">Incentive Amount:</span>
+                        <span className="font-semibold text-green-600">₹{Number(conferencePolicy.flatIncentiveAmount || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Award className="w-4 h-4 text-purple-600" />
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-semibold text-purple-600">{conferencePolicy.flatPoints || 0}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 mt-2 text-sm">
+                      {conferencePolicy.internationalBonus && (
+                        <span className="text-gray-600">
+                          <Globe className="w-4 h-4 inline mr-1 text-purple-500" />
+                          International Bonus: <span className="font-medium text-green-600">₹{Number(conferencePolicy.internationalBonus).toLocaleString()}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {formData.conferenceSubType && !conferencePolicy && !policyLoading && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-700">
+                  <AlertCircle className="w-4 h-4 inline mr-1" />
+                  No active policy configured for this conference type. Default incentives will be applied.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Type 1 & 2: Paper in Conference (Not Indexed or Indexed in Scopus) */}
@@ -2565,7 +3119,9 @@ export default function ResearchContributionForm({ publicationType, contribution
             {/* Official ID & Central Facility */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Have you communicated the publication with official ID?</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Have you communicated the publication with official ID? <span className="text-red-500">*</span>
+                </label>
                 <div className="flex gap-4 mt-1">
                   {['yes','no'].map(v => (
                     <label key={v} className="inline-flex items-center text-sm cursor-pointer">
@@ -2593,6 +3149,21 @@ export default function ResearchContributionForm({ publicationType, contribution
                 </div>
               </div>
             </div>
+
+            {/* Personal Email - Show only if not communicated with official ID */}
+            {formData.communicatedWithOfficialId === 'no' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Your Personal Email ID <span className="text-red-500">*</span>
+                </label>
+                <input type="email" name="personalEmail" value={formData.personalEmail} onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  placeholder="Enter your personal email address"
+                  required
+                />
+                <p className="text-xs text-orange-600 mt-1">Since you haven't communicated with official ID, please provide your personal email.</p>
+              </div>
+            )}
 
             {/* Dates */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

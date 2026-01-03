@@ -59,6 +59,9 @@ router.use('/google-docs', googleDocsRoutes); // Google Docs-style change tracki
 router.use('/notifications', notificationRoutes); // User notifications
 router.use('/incentive-policies', incentivePolicyRoutes); // Admin incentive policy management
 router.use('/research-policies', require('./researchPolicy.routes')); // Research paper incentive policy management
+router.use('/book-policies', require('./bookPolicy.routes')); // Book incentive policy management
+router.use('/book-chapter-policies', require('./bookChapterPolicy.routes')); // Book Chapter incentive policy management
+router.use('/conference-policies', require('./conferencePolicy.routes')); // Conference incentive policy management
 router.use('/file-upload', require('./fileUpload.routes')); // S3 file upload service
 
 // Research Contribution Module

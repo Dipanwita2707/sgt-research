@@ -39,7 +39,8 @@
 
 */
 -- AlterEnum
-ALTER TYPE "ipr_status_enum" ADD VALUE 'pending_mentor_approval';
+-- Note: pending_mentor_approval already exists in database, commenting out to avoid duplicate
+-- ALTER TYPE "ipr_status_enum" ADD VALUE 'pending_mentor_approval';
 
 -- AlterEnum
 BEGIN;
@@ -209,8 +210,8 @@ CREATE INDEX "ipr_application_status_idx" ON "ipr_application"("status");
 -- CreateIndex
 CREATE INDEX "ipr_application_source_provisional_id_idx" ON "ipr_application"("source_provisional_id");
 
--- CreateIndex
-CREATE UNIQUE INDEX "unique_active_research_policy_per_type" ON "research_incentive_policy"("publication_type", "is_active");
+-- Note: unique_active_research_policy_per_type index already exists from migration 20251208000000_add_research_contribution_module
+-- Removed duplicate index creation to avoid conflict
 
 -- RenameForeignKey
 ALTER TABLE "research_contribution_applicant_details" RENAME CONSTRAINT "research_contribution_applicant_details_contribution_fkey" TO "research_contribution_applicant_details_research_contribut_fkey";

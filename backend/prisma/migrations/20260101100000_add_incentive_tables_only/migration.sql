@@ -71,10 +71,10 @@ CREATE INDEX IF NOT EXISTS "incentive_policy_ipr_type_idx" ON "incentive_policy"
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "incentive_policy_is_active_idx" ON "incentive_policy"("is_active");
 
--- CreateIndex
+-- CreateIndex (skip if already exists from previous migration)
 DO $$ BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'unique_active_policy_per_type'
+        SELECT 1 FROM pg_indexes WHERE indexname = 'unique_active_policy_per_type'
     ) THEN
         CREATE UNIQUE INDEX "unique_active_policy_per_type" ON "incentive_policy"("ipr_type", "is_active");
     END IF;

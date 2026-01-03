@@ -7,6 +7,32 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Helper function to normalize quartile values from frontend to Prisma enum names
+const normalizeQuartileValue = (quartile) => {
+  if (!quartile) return null;
+  
+  const normalized = quartile.toLowerCase().trim();
+  // Map to Prisma enum names (which use underscores), not database values
+  const mapping = {
+    'top1': 'Top_1_',
+    'top 1': 'Top_1_',
+    'top 1%': 'Top_1_',
+    'top1%': 'Top_1_',
+    'top_1_': 'Top_1_',
+    'top5': 'Top_5_',
+    'top 5': 'Top_5_',
+    'top 5%': 'Top_5_',
+    'top5%': 'Top_5_',
+    'top_5_': 'Top_5_',
+    'q1': 'Q1',
+    'q2': 'Q2',
+    'q3': 'Q3',
+    'q4': 'Q4'
+  };
+  
+  return mapping[normalized] || quartile;
+};
+
 // Application number generation
 const generateApplicationNumber = async (publicationType) => {
   const typePrefix = {
@@ -161,46 +187,515 @@ const calculateIncentives = async (
   externalFirstCorrespondingPct = 0,    // NEW: Percentage lost to external first/corresponding
   internalEmployeeCoAuthorCount = 0     // NEW: Count of internal employee co-authors only (for point distribution, excludes students)
 ) => {
-  // RULE 1: External authors get ZERO incentives and points
-  if (!isInternal) {
-    return {
-      incentiveAmount: 0,
-      points: 0
-    };
-  }
+  try {
+    // RULE 1: External authors get ZERO incentives and points
+    if (!isInternal) {
+      return {
+        incentiveAmount: 0,
+        points: 0
+      };
+    }
 
-  // Get active policy for this publication type based on publication date
-  const publicationDate = contributionData.publicationDate ? new Date(contributionData.publicationDate) : new Date();
+    // Get active policy for this publication type based on publication date
+    const publicationDate = contributionData.publicationDate ? new Date(contributionData.publicationDate) : new Date();
   
   console.log('[Policy Query] Looking for policy:', {
     publicationType,
     publicationDate: publicationDate.toISOString(),
   });
   
-  const policy = await prisma.researchIncentivePolicy.findFirst({
-    where: {
-      publicationType: publicationType,
-      isActive: true,
-      effectiveFrom: { lte: publicationDate },
-      OR: [
-        { effectiveTo: null },
-        { effectiveTo: { gte: publicationDate } }
-      ]
-    },
-    orderBy: { effectiveFrom: 'desc' }
-  });
+  // Check if this is a book/book_chapter/conference (use separate policies) or research paper (use ResearchIncentivePolicy)
+  const isBook = publicationType === 'book';
+  const isBookChapter = publicationType === 'book_chapter';
+  const isConference = publicationType === 'conference_paper';
+  const isBookType = isBook || isBookChapter;
   
-  console.log('[Policy Found]:', policy ? {
-    id: policy.id,
-    policyName: policy.policyName,
-    effectiveFrom: policy.effectiveFrom,
-    effectiveTo: policy.effectiveTo,
-    hasIndexingBonuses: !!policy.indexingBonuses,
-    indexingBonusesKeys: policy.indexingBonuses ? Object.keys(policy.indexingBonuses) : []
-  } : 'No policy found, using defaults');
+  let policy = null;
+  let bookPolicy = null;
+  let bookChapterPolicy = null;
+  let conferencePolicy = null;
+  
+  if (isBook) {
+    // Use BookIncentivePolicy for books only
+    bookPolicy = await prisma.bookIncentivePolicy.findFirst({
+      where: {
+        isActive: true,
+        effectiveFrom: { lte: publicationDate },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: publicationDate } }
+        ]
+      },
+      orderBy: { effectiveFrom: 'desc' }
+    });
+    
+    console.log('[Book Policy Found]:', bookPolicy ? {
+      id: bookPolicy.id,
+      policyName: bookPolicy.policyName,
+      effectiveFrom: bookPolicy.effectiveFrom,
+      effectiveTo: bookPolicy.effectiveTo,
+      authoredIncentiveAmount: bookPolicy.authoredIncentiveAmount,
+      editedIncentiveAmount: bookPolicy.editedIncentiveAmount,
+      splitPolicy: bookPolicy.splitPolicy
+    } : 'No book policy found');
+  } else if (isBookChapter) {
+    // Use BookChapterIncentivePolicy for book chapters only
+    bookChapterPolicy = await prisma.bookChapterIncentivePolicy.findFirst({
+      where: {
+        isActive: true,
+        effectiveFrom: { lte: publicationDate },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: publicationDate } }
+        ]
+      },
+      orderBy: { effectiveFrom: 'desc' }
+    });
+    
+    console.log('[Book Chapter Policy Found]:', bookChapterPolicy ? {
+      id: bookChapterPolicy.id,
+      policyName: bookChapterPolicy.policyName,
+      effectiveFrom: bookChapterPolicy.effectiveFrom,
+      effectiveTo: bookChapterPolicy.effectiveTo,
+      authoredIncentiveAmount: bookChapterPolicy.authoredIncentiveAmount,
+      editedIncentiveAmount: bookChapterPolicy.editedIncentiveAmount,
+      splitPolicy: bookChapterPolicy.splitPolicy
+    } : 'No book chapter policy found');
+  } else if (isConference) {
+    // Use ConferenceIncentivePolicy for conference papers
+    const conferenceSubType = contributionData.conferenceSubType;
+    
+    // Skip policy lookup if conferenceSubType is not provided (during draft saves)
+    if (conferenceSubType) {
+      conferencePolicy = await prisma.conferenceIncentivePolicy.findFirst({
+        where: {
+          conferenceSubType: conferenceSubType,
+          isActive: true,
+          effectiveFrom: { lte: publicationDate },
+          OR: [
+            { effectiveTo: null },
+            { effectiveTo: { gte: publicationDate } }
+          ]
+        },
+        orderBy: { effectiveFrom: 'desc' }
+      });
+    }
+    
+    console.log('[Conference Policy Found]:', conferenceSubType ? (conferencePolicy ? {
+      id: conferencePolicy.id,
+      policyName: conferencePolicy.policyName,
+      conferenceSubType: conferencePolicy.conferenceSubType,
+      effectiveFrom: conferencePolicy.effectiveFrom,
+      effectiveTo: conferencePolicy.effectiveTo,
+      hasQuartileIncentives: !!conferencePolicy.quartileIncentives,
+      flatIncentiveAmount: conferencePolicy.flatIncentiveAmount,
+      flatPoints: conferencePolicy.flatPoints
+    } : 'No conference policy found') : 'Conference subtype not yet selected');
+  } else {
+    // Use ResearchIncentivePolicy for research papers, grants, etc.
+    policy = await prisma.researchIncentivePolicy.findFirst({
+      where: {
+        publicationType: publicationType,
+        isActive: true,
+        effectiveFrom: { lte: publicationDate },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: publicationDate } }
+        ]
+      },
+      orderBy: { effectiveFrom: 'desc' }
+    });
+    
+    console.log('[Research Policy Found]:', policy ? {
+      id: policy.id,
+      policyName: policy.policyName,
+      effectiveFrom: policy.effectiveFrom,
+      effectiveTo: policy.effectiveTo,
+      hasIndexingBonuses: !!policy.indexingBonuses,
+      indexingBonusesKeys: policy.indexingBonuses ? Object.keys(policy.indexingBonuses) : []
+    } : 'No policy found, using defaults');
+  }
 
+  // BOOK/BOOK CHAPTER POLICY CALCULATION - Different structure than research papers
+  if (isBookType) {
+    console.log('[Book/BookChapter Calculation] Starting incentive calculation', {
+      isBook,
+      isBookChapter,
+      hasBookPolicy: !!bookPolicy,
+      hasBookChapterPolicy: !!bookChapterPolicy,
+      bookType: contributionData.bookType,
+      totalAuthors,
+      internalCoAuthorCount
+    });
+
+    // Use the correct policy based on publication type, or use default values
+    const activePolicy = isBook ? bookPolicy : bookChapterPolicy;
+    const policy = activePolicy || {
+      authoredIncentiveAmount: 50000,
+      authoredPoints: 50,
+      editedIncentiveAmount: 40000,
+      editedPoints: 40,
+      splitPolicy: 'equal',
+      indexingBonuses: {
+        scopus_indexed: 10000,
+        non_indexed: 0,
+        sgt_publication_house: 2000
+      },
+      internationalBonus: 5000
+    };
+
+    // For books, we use authored/edited distinction instead of quartiles
+    const isAuthored = contributionData.bookType === 'authored';
+    const isEdited = contributionData.bookType === 'edited';
+    
+    let baseIncentive = 0;
+    let basePoints = 0;
+    
+    if (isAuthored) {
+      baseIncentive = policy.authoredIncentiveAmount || 50000;
+      basePoints = policy.authoredPoints || 50;
+    } else if (isEdited) {
+      baseIncentive = policy.editedIncentiveAmount || 40000;
+      basePoints = policy.editedPoints || 40;
+    } else {
+      // Default to authored if not specified
+      baseIncentive = policy.authoredIncentiveAmount || 50000;
+      basePoints = policy.authoredPoints || 50;
+    }
+    
+    // Apply indexing bonuses if applicable
+    const indexingBonuses = policy.indexingBonuses || {};
+    if (contributionData.indexing === 'scopus_indexed') {
+      baseIncentive += indexingBonuses.scopus_indexed || 0;
+    } else if (contributionData.indexing === 'non_indexed') {
+      baseIncentive += indexingBonuses.non_indexed || 0;
+    } else if (contributionData.indexing === 'sgt_publication_house') {
+      baseIncentive += indexingBonuses.sgt_publication_house || 0;
+    }
+    
+    // Apply international bonus
+    if (contributionData.isInternational) {
+      baseIncentive += policy.internationalBonus || 0;
+    }
+    
+    // Apply split policy - equal or weighted
+    let authorShare = 0;
+    let pointShare = 0;
+    
+    // For equal split, divide among all authors equally
+    // totalAuthors is passed in as the actual author count
+    const effectiveAuthorCount = Math.max(totalAuthors, 1);
+    authorShare = baseIncentive / effectiveAuthorCount;
+    pointShare = basePoints / effectiveAuthorCount;
+    
+    console.log('[Book Calculation] Result:', {
+      baseIncentive,
+      basePoints,
+      effectiveAuthorCount,
+      authorShare,
+      pointShare,
+      isStudent
+    });
+    
+    // Students get incentives but no points
+    if (isStudent) {
+      return {
+        incentiveAmount: Math.round(authorShare),
+        points: 0
+      };
+    }
+    
+    return {
+      incentiveAmount: Math.round(authorShare),
+      points: Math.round(pointShare)
+    };
+  }
+
+  // CONFERENCE PAPER POLICY CALCULATION
+  if (isConference) {
+    const conferenceSubType = contributionData.conferenceSubType;
+    
+    // If no conferenceSubType yet (draft save), return zeros
+    if (!conferenceSubType) {
+      console.log('[Conference Calculation] No conference subtype provided, returning zeros');
+      return {
+        incentiveAmount: 0,
+        points: 0
+      };
+    }
+
+    console.log('[Conference Calculation] Starting incentive calculation', {
+      conferenceSubType,
+      hasConferencePolicy: !!conferencePolicy,
+      totalAuthors,
+      internalCoAuthorCount
+    });
+
+    // For paper_indexed_scopus - use quartile-based calculation similar to research
+    if (conferenceSubType === 'paper_indexed_scopus') {
+      // Default quartile incentives for conference papers
+      const defaultConferenceQuartileIncentives = [
+        { quartile: 'Top 1%', incentiveAmount: 60000, points: 60 },
+        { quartile: 'Top 5%', incentiveAmount: 50000, points: 50 },
+        { quartile: 'Q1', incentiveAmount: 40000, points: 40 },
+        { quartile: 'Q2', incentiveAmount: 25000, points: 25 },
+        { quartile: 'Q3', incentiveAmount: 12000, points: 12 },
+        { quartile: 'Q4', incentiveAmount: 5000, points: 5 },
+      ];
+
+      const defaultRolePercentages = [
+        { role: 'first_author', percentage: 35 },
+        { role: 'corresponding_author', percentage: 30 },
+      ];
+
+      // Get data from policy or use defaults
+      const quartileIncentives = conferencePolicy?.quartileIncentives || defaultConferenceQuartileIncentives;
+      const rolePercentages = conferencePolicy?.rolePercentages || defaultRolePercentages;
+      
+      // Get the total pool based on proceedings quartile
+      let totalAmount = 0;
+      let totalPoints = 0;
+      
+      // Helper to convert Prisma enum names to display names for matching
+      const toDisplayQuartile = (q) => {
+        if (!q) return '';
+        const displayMapping = {
+          'Top_1_': 'Top 1%',
+          'Top_5_': 'Top 5%',
+          'Q1': 'Q1', 'Q2': 'Q2', 'Q3': 'Q3', 'Q4': 'Q4'
+        };
+        return displayMapping[q] || q;
+      };
+      
+      // Use proceedingsQuartile for conference papers
+      const quartile = contributionData.proceedingsQuartile;
+      if (quartile) {
+        const displayQuartile = toDisplayQuartile(quartile);
+        const quartileMatch = quartileIncentives.find(q => 
+          q.quartile.toUpperCase() === displayQuartile.toUpperCase() ||
+          q.quartile.toUpperCase() === quartile.toUpperCase()
+        );
+        if (quartileMatch) {
+          totalAmount = Number(quartileMatch.incentiveAmount) || 0;
+          totalPoints = Number(quartileMatch.points) || 0;
+        }
+      }
+      
+      // Apply international bonus - based on conference type (national/international)
+      const isInternational = contributionData.conferenceType === 'international';
+      if (isInternational && conferencePolicy?.internationalBonus) {
+        totalAmount += Number(conferencePolicy.internationalBonus) || 0;
+      }
+      
+      // Apply best paper award bonus - only if explicitly 'yes'
+      if (contributionData.conferenceBestPaperAward === 'yes' && conferencePolicy?.bestPaperAwardBonus) {
+        totalAmount += Number(conferencePolicy.bestPaperAwardBonus) || 0;
+      }
+
+      // Get role percentages from policy
+      const firstAuthorPct = rolePercentages.find(rp => rp.role === 'first_author')?.percentage || 35;
+      const correspondingAuthorPct = rolePercentages.find(rp => rp.role === 'corresponding_author')?.percentage || 30;
+      const coAuthorTotalPct = 100 - firstAuthorPct - correspondingAuthorPct;
+
+      // Calculate percentage based on role
+      // Distribution Rules:
+      // - Single author: 100%
+      // - First author: 35% (from policy)
+      // - Corresponding author: 30% (from policy)
+      // - First + Corresponding: 65% (35% + 30%)
+      // - Co-authors: Remaining 35% divided equally among internal co-authors
+      let rolePercentage = 0;
+      let calculationNote = '';
+      
+      if (totalAuthors === 1) {
+        // Case 1: Single author gets 100%
+        rolePercentage = 100 - externalFirstCorrespondingPct;
+        calculationNote = `Single author: 100%`;
+      } else if (totalAuthors === 2 && internalCoAuthorCount === 0 && coAuthorCount === 0) {
+        // Case 2: Two authors, both first+corresponding (rare edge case)
+        rolePercentage = 50;
+        calculationNote = `Two authors special case: 50% each`;
+      } else if (authorRole === 'first_and_corresponding_author' || authorRole === 'first_and_corresponding') {
+        // Case 3: First + Corresponding author
+        rolePercentage = firstAuthorPct + correspondingAuthorPct;
+        calculationNote = `First + Corresponding: ${firstAuthorPct}% + ${correspondingAuthorPct}% = ${rolePercentage}%`;
+      } else if (authorRole === 'first_author') {
+        // Case 4: First author only
+        rolePercentage = firstAuthorPct;
+        calculationNote = `First author: ${firstAuthorPct}%`;
+      } else if (authorRole === 'corresponding_author') {
+        // Case 5: Corresponding author only
+        rolePercentage = correspondingAuthorPct;
+        calculationNote = `Corresponding author: ${correspondingAuthorPct}%`;
+      } else if (authorRole === 'co_author') {
+        // Case 6: Co-author (share remaining 35% among all internal co-authors)
+        const effectiveInternalCoAuthorCount = Math.max(internalCoAuthorCount, 1);
+        rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
+        calculationNote = `Co-author: ${coAuthorTotalPct}% ÷ ${effectiveInternalCoAuthorCount} internal co-authors = ${rolePercentage.toFixed(2)}%`;
+      } else {
+        // Default: treat as co-author
+        const effectiveInternalCoAuthorCount = Math.max(internalCoAuthorCount, 1);
+        rolePercentage = coAuthorTotalPct / effectiveInternalCoAuthorCount;
+        calculationNote = `Default co-author: ${coAuthorTotalPct}% ÷ ${effectiveInternalCoAuthorCount} = ${rolePercentage.toFixed(2)}%`;
+      }
+
+      console.log('[Conference Distribution Logic]:', {
+        totalAuthors,
+        authorRole,
+        internalCoAuthorCount,
+        firstAuthorPct,
+        correspondingAuthorPct,
+        coAuthorTotalPct,
+        calculationNote
+      });
+
+      const authorIncentive = Math.round((totalAmount * rolePercentage) / 100);
+      
+      // For points: co-authors split points only among internal EMPLOYEES (excluding students)
+      // BUT: Single authors should get 100%, not be treated as co-authors
+      let pointPercentage = rolePercentage;
+      let pointCalculationNote = calculationNote;
+      if (authorRole === 'co_author' && totalAuthors > 1) {
+        // Only recalculate for multi-author papers where this person is a co-author
+        const effectiveEmployeeCoAuthorCount = Math.max(internalEmployeeCoAuthorCount, 1);
+        pointPercentage = coAuthorTotalPct / effectiveEmployeeCoAuthorCount;
+        pointCalculationNote = `Co-author points: ${coAuthorTotalPct}% ÷ ${effectiveEmployeeCoAuthorCount} employee co-authors = ${pointPercentage.toFixed(2)}%`;
+      }
+      
+      const authorPoints = Math.round((totalPoints * pointPercentage) / 100);
+
+      console.log('[Conference Scopus Calculation] Result:', {
+        quartile,
+        totalAmount,
+        totalPoints,
+        rolePercentage: `${rolePercentage.toFixed(2)}%`,
+        pointPercentage: `${pointPercentage.toFixed(2)}%`,
+        authorIncentive: `₹${authorIncentive}`,
+        authorPoints,
+        isStudent,
+        incentiveNote: calculationNote,
+        pointNote: pointCalculationNote
+      });
+
+      if (isStudent) {
+        return {
+          incentiveAmount: authorIncentive,
+          points: 0
+        };
+      }
+
+      return {
+        incentiveAmount: authorIncentive,
+        points: authorPoints
+      };
+    } else {
+      // For other conference types (paper_not_indexed, keynote_speaker_invited_talks, organizer_coordinator_member)
+      // Use flat incentive amount - no quartile categorization
+      
+      // Default incentives based on national vs international
+      const defaultFlatIncentive = {
+        'paper_not_indexed': {
+          national: { incentiveAmount: 10000, points: 10 },
+          international: { incentiveAmount: 15000, points: 15 }
+        },
+        'keynote_speaker_invited_talks': {
+          national: { incentiveAmount: 10000, points: 10 },
+          international: { incentiveAmount: 20000, points: 20 }
+        },
+        'organizer_coordinator_member': {
+          national: { incentiveAmount: 5000, points: 5 },
+          international: { incentiveAmount: 10000, points: 10 }
+        }
+      };
+
+      let baseIncentive = 0;
+      let basePoints = 0;
+
+      // Check if conference is international based on multiple fields
+      const isInternational = 
+        contributionData.conferenceType === 'international' ||
+        contributionData.nationalInternational === 'international' || 
+        contributionData.conferenceHeldLocation === 'abroad';
+
+      if (conferencePolicy) {
+        baseIncentive = Number(conferencePolicy.flatIncentiveAmount) || 0;
+        basePoints = Number(conferencePolicy.flatPoints) || 0;
+        
+        // Apply international bonus if from policy
+        if (isInternational && conferencePolicy.internationalBonus) {
+          baseIncentive += Number(conferencePolicy.internationalBonus) || 0;
+        }
+      } else {
+        // Use defaults based on conference sub-type and national/international status
+        const subTypeDefaults = defaultFlatIncentive[conferenceSubType];
+        if (subTypeDefaults) {
+          const levelDefaults = isInternational ? subTypeDefaults.international : subTypeDefaults.national;
+          baseIncentive = levelDefaults.incentiveAmount;
+          basePoints = levelDefaults.points;
+        } else {
+          // Fallback to paper_not_indexed defaults
+          const levelDefaults = isInternational ? 
+            defaultFlatIncentive['paper_not_indexed'].international : 
+            defaultFlatIncentive['paper_not_indexed'].national;
+          baseIncentive = levelDefaults.incentiveAmount;
+          basePoints = levelDefaults.points;
+        }
+      }
+      
+      // Apply best paper award bonus (mainly for paper types)
+      if (contributionData.conferenceBestPaperAward === 'yes' && conferencePolicy?.bestPaperAwardBonus) {
+        baseIncentive += Number(conferencePolicy.bestPaperAwardBonus) || 0;
+      }
+
+      // For keynote speakers and organizers, typically single person gets full amount
+      // For paper_not_indexed, split equally among authors
+      let authorShare = 0;
+      let pointShare = 0;
+      
+      if (conferenceSubType === 'keynote_speaker_invited_talks' || conferenceSubType === 'organizer_coordinator_member') {
+        // Single presenter/organizer gets full amount (no split)
+        authorShare = baseIncentive;
+        pointShare = basePoints;
+      } else {
+        // paper_not_indexed and others: split equally among all authors
+        const effectiveAuthorCount = Math.max(totalAuthors, 1);
+        authorShare = baseIncentive / effectiveAuthorCount;
+        pointShare = basePoints / effectiveAuthorCount;
+      }
+
+      console.log('[Conference Flat Calculation] Result:', {
+        conferenceSubType,
+        isInternational,
+        baseIncentive,
+        basePoints,
+        totalAuthors,
+        authorShare,
+        pointShare,
+        isStudent,
+        splitLogic: (conferenceSubType === 'keynote_speaker_invited_talks' || conferenceSubType === 'organizer_coordinator_member') 
+          ? 'Full amount to single person' 
+          : `Split equally among ${totalAuthors} authors`
+      });
+
+      if (isStudent) {
+        return {
+          incentiveAmount: Math.round(authorShare),
+          points: 0
+        };
+      }
+
+      return {
+        incentiveAmount: Math.round(authorShare),
+        points: Math.round(pointShare)
+      };
+    }
+  }
+
+  // RESEARCH PAPER POLICY CALCULATION (original logic below)
   // Default quartile incentives
   const defaultQuartileIncentives = [
+    { quartile: 'Top 1%', incentiveAmount: 75000, points: 75 },  // Higher tier for Top 1%
+    { quartile: 'Top 5%', incentiveAmount: 60000, points: 60 },  // Higher tier for Top 5%
     { quartile: 'Q1', incentiveAmount: 50000, points: 50 },
     { quartile: 'Q2', incentiveAmount: 30000, points: 30 },
     { quartile: 'Q3', incentiveAmount: 15000, points: 15 },
@@ -240,16 +735,26 @@ const calculateIncentives = async (
   let totalAmount = 0;
   let totalPoints = 0;
   
+  // Helper to convert Prisma enum names to display names for matching
+  const toDisplayQuartile = (q) => {
+    if (!q) return '';
+    const displayMapping = {
+      'Top_1_': 'Top 1%',
+      'Top_5_': 'Top 5%',
+      'Q1': 'Q1', 'Q2': 'Q2', 'Q3': 'Q3', 'Q4': 'Q4'
+    };
+    return displayMapping[q] || q;
+  };
+  
   // First try quartile-based incentives (primary/mandatory)
   let quartile = contributionData.quartile;
   if (quartile) {
-    // Normalize quartile: top1%, top5%, top10% should use Q1 incentives
-    let normalizedQuartile = quartile.toUpperCase();
-    if (normalizedQuartile === 'TOP1' || normalizedQuartile === 'TOP5' || normalizedQuartile === 'TOP10') {
-      normalizedQuartile = 'Q1';
-    }
-    
-    const quartileMatch = quartileIncentives.find(q => q.quartile.toUpperCase() === normalizedQuartile);
+    // Convert Prisma enum name to display name for matching with policy
+    const displayQuartile = toDisplayQuartile(quartile);
+    const quartileMatch = quartileIncentives.find(q => 
+      q.quartile.toUpperCase() === displayQuartile.toUpperCase() ||
+      q.quartile.toUpperCase() === quartile.toUpperCase()
+    );
     if (quartileMatch) {
       totalAmount = Number(quartileMatch.incentiveAmount) || 0;
       totalPoints = Number(quartileMatch.points) || 0;
@@ -342,6 +847,20 @@ const calculateIncentives = async (
     incentiveAmount: authorIncentive,
     points: authorPoints
   };
+  } catch (error) {
+    console.error('[calculateIncentives] Error:', error);
+    console.error('[calculateIncentives] Context:', {
+      publicationType,
+      authorRole,
+      isStudent,
+      contributionTitle: contributionData?.title
+    });
+    // Return zero incentives on error rather than breaking the approval
+    return {
+      incentiveAmount: 0,
+      points: 0
+    };
+  }
 };
 
 /**
@@ -351,6 +870,14 @@ exports.createResearchContribution = async (req, res) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
+    
+    console.log('[createResearchContribution] Request body conference fields:', {
+      publicationType: req.body.publicationType,
+      conferenceSubType: req.body.conferenceSubType,
+      proceedingsQuartile: req.body.proceedingsQuartile,
+      conferenceName: req.body.conferenceName
+    });
+
     const {
       publicationType,
       title,
@@ -465,12 +992,17 @@ exports.createResearchContribution = async (req, res) => {
     // Get applicant's author role from the first author (which should be the applicant)
     const applicantAuthorRole = authorsList.length > 0 ? authorsList[0].authorRole : 'co_author';
     
+    // For single author, treat as first_and_corresponding to get 100% share
+    const effectiveApplicantRole = (totalAuthorCount === 1 && authorsList.length === 0) 
+      ? 'first_and_corresponding_author' 
+      : applicantAuthorRole || 'co_author';
+    
     // Analyze author composition for proper incentive distribution
     // Includes applicant as part of the analysis
     const authorComposition = analyzeAuthorComposition(
       authorsList, 
       applicantType, 
-      applicantAuthorRole || 'co_author'
+      effectiveApplicantRole
     );
 
     // Determine if applicant is internal (always true for staff/student/faculty)
@@ -481,9 +1013,14 @@ exports.createResearchContribution = async (req, res) => {
     // External authors get nothing
     const sjrValue = Number(sjr) || 0;
     const incentiveCalculation = await calculateIncentives(
-      { publicationDate, quartile },
+      { 
+        publicationDate, 
+        quartile,
+        conferenceSubType,
+        proceedingsQuartile
+      },
       publicationType,
-      applicantAuthorRole || 'co_author',
+      effectiveApplicantRole,
       isStudent,
       sjrValue,
       authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors for reference
@@ -562,6 +1099,14 @@ exports.createResearchContribution = async (req, res) => {
       return String(value).substring(0, maxLength);
     };
 
+    console.log('[createResearchContribution] Before saving - conferenceSubType value:', {
+      conferenceSubType,
+      type: typeof conferenceSubType,
+      truncated: truncateField(conferenceSubType, 64),
+      isEmpty: !conferenceSubType,
+      isEmptyString: conferenceSubType === ''
+    });
+
     // Create the research contribution
     const contribution = await prisma.researchContribution.create({
       data: {
@@ -590,7 +1135,7 @@ exports.createResearchContribution = async (req, res) => {
         internationalAuthor: internationalAuthor || false,
         foreignCollaborationsCount: foreignCollaborationsCount || 0,
         impactFactor: impactFactor ? Number(impactFactor) : null,
-        quartile: quartile || null,
+        quartile: normalizeQuartileValue(quartile),
         sjr: sjr ? Number(sjr) : null,
         interdisciplinaryFromSgt: interdisciplinaryFromSgt || false,
         studentsFromSgt: studentsFromSgt || false,
@@ -758,7 +1303,12 @@ exports.createResearchContribution = async (req, res) => {
         // Students get only incentives, no points
         const sjrValue = Number(sjr) || 0;
         const authorIncentive = await calculateIncentives(
-          { publicationDate, quartile },
+          { 
+            publicationDate, 
+            quartile,
+            conferenceSubType,
+            proceedingsQuartile
+          },
           publicationType,
           mappedAuthorType,
           authorIsStudent,
@@ -1261,6 +1811,13 @@ exports.updateResearchContribution = async (req, res) => {
     const userId = req.user.id;
     const updateData = req.body;
 
+    console.log('[updateResearchContribution] Request body conference fields:', {
+      conferenceSubType: req.body.conferenceSubType,
+      proceedingsQuartile: req.body.proceedingsQuartile,
+      conferenceName: req.body.conferenceName,
+      conferenceType: req.body.conferenceType
+    });
+
     // Get current contribution
     const contribution = await prisma.researchContribution.findUnique({
       where: { id },
@@ -1330,28 +1887,36 @@ exports.updateResearchContribution = async (req, res) => {
     const applicantIsStudent = contribution.applicantType === 'internal_student';
     const isApplicantInternal = contribution.applicantType?.startsWith('internal_') || true;
     const sjrValue = Number(contributionData.sjr) || Number(contribution.sjr) || 0;
-    const quartileValue = contributionData.quartile || contribution.quartile;
+    const quartileValue = normalizeQuartileValue(contributionData.quartile || contribution.quartile);
     
     // Count co-authors for distribution
     const authorsList = authors || contribution.authors || [];
     const totalAuthorCount = authorsList.length || 1;
     
+    // For single author, treat as first_and_corresponding to get 100% share
+    let effectiveAuthorRole = contributionData.authorRole || contribution.authorRole || 'co_author';
+    if (totalAuthorCount === 1 && authorsList.length === 0) {
+      effectiveAuthorRole = 'first_and_corresponding_author';
+    }
+    
     // Analyze author composition for proper incentive distribution
     const authorComposition = analyzeAuthorComposition(
       authorsList,
       contribution.applicantType,
-      contributionData.authorRole || contribution.authorRole || 'co_author'
+      effectiveAuthorRole
     );
     
     let incentiveUpdate = {};
-    if (contributionData.sjr || contributionData.quartile || contributionData.authorRole || contributionData.publicationDate) {
+    if (contributionData.sjr || contributionData.quartile || contributionData.authorRole || contributionData.publicationDate || contributionData.conferenceSubType || contributionData.proceedingsQuartile) {
       const incentiveCalculation = await calculateIncentives(
         {
           publicationDate: contributionData.publicationDate || contribution.publicationDate,
-          quartile: quartileValue
+          quartile: quartileValue,
+          conferenceSubType: contributionData.conferenceSubType || contribution.conferenceSubType,
+          proceedingsQuartile: contributionData.proceedingsQuartile || contribution.proceedingsQuartile
         },
         contribution.publicationType,
-        contributionData.authorRole || contribution.authorRole || 'co_author',
+        effectiveAuthorRole,
         applicantIsStudent,
         sjrValue,
         authorComposition.internalCoAuthorCount + authorComposition.externalCoAuthorCount, // total co-authors
@@ -1395,6 +1960,11 @@ exports.updateResearchContribution = async (req, res) => {
       }
     }
 
+    // Normalize quartile value before update
+    if (contributionData.quartile) {
+      contributionData.quartile = normalizeQuartileValue(contributionData.quartile);
+    }
+
     // Remove schoolId and departmentId from contributionData as we'll handle them with nested operations
     const { schoolId: _schoolId, departmentId: _departmentId, ...cleanContributionData } = contributionData;
 
@@ -1419,6 +1989,14 @@ exports.updateResearchContribution = async (req, res) => {
     }
 
     // Update the contribution (without authors)
+    console.log('[updateResearchContribution] Before Prisma update - conferenceSubType:', {
+      inCleanData: cleanContributionData.conferenceSubType,
+      inOriginalData: contributionData.conferenceSubType,
+      inReqBody: req.body.conferenceSubType,
+      type: typeof cleanContributionData.conferenceSubType,
+      JSON: JSON.stringify(cleanContributionData.conferenceSubType)
+    });
+
     const updated = await prisma.researchContribution.update({
       where: { id },
       data: {
@@ -1434,6 +2012,13 @@ exports.updateResearchContribution = async (req, res) => {
         school: true,
         department: true
       }
+    });
+
+    console.log('[updateResearchContribution] After Prisma update - database has:', {
+      conferenceSubType: updated.conferenceSubType,
+      proceedingsQuartile: updated.proceedingsQuartile,
+      calculatedIncentiveAmount: updated.calculatedIncentiveAmount,
+      calculatedPoints: updated.calculatedPoints
     });
 
     // Update applicant details if provided or if mentorUid was sent
@@ -1805,15 +2390,24 @@ exports.mentorApproveContribution = async (req, res) => {
     });
 
     // Notify applicant
+    const publicationTypeLabel = {
+      'research_paper': 'Research Paper',
+      'book': 'Book',
+      'book_chapter': 'Book Chapter',
+      'conference_paper': 'Conference Paper',
+      'grant': 'Grant'
+    }[contribution.publicationType] || 'Publication';
+    
     await prisma.notification.create({
       data: {
         userId: contribution.applicantUserId,
         type: 'research_mentor_approved',
-        title: 'Mentor Approved Your Research Paper',
+        title: `Mentor Approved Your ${publicationTypeLabel}`,
         message: `Your mentor approved "${contribution.title}". It has been forwarded to DRD for review.`,
         metadata: {
           contributionId: id,
-          applicationType: 'research_contribution'
+          applicationType: 'research_contribution',
+          publicationType: contribution.publicationType
         }
       }
     });
@@ -2589,5 +3183,8 @@ exports.uploadDocuments = async (req, res) => {
     });
   }
 };
+
+// Export the calculateIncentives function for use in other controllers
+exports.calculateIncentives = calculateIncentives;
 
 module.exports = exports;

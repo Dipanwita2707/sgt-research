@@ -320,14 +320,20 @@ export default function ContributionDetailPage() {
         {/* Incentive Card */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-500">Incentive</span>
+            <span className="text-sm text-gray-500">My Incentive</span>
             <Coins className="w-5 h-5 text-green-500" />
           </div>
-          {['approved', 'completed'].includes(contribution.status) && contribution.incentiveAmount ? (
-            <div>
-              <p className="text-2xl font-bold text-green-600">₹{Number(contribution.incentiveAmount).toLocaleString()}</p>
-              <p className="text-xs text-green-600 mt-1">✓ Credited</p>
-            </div>
+          {['approved', 'completed'].includes(contribution.status) && contribution.authors ? (
+            (() => {
+              const currentUserAuthor = contribution.authors.find((a: any) => a.userId === user?.id);
+              const myIncentive = currentUserAuthor?.incentiveShare || 0;
+              return (
+                <div>
+                  <p className="text-2xl font-bold text-green-600">₹{Number(myIncentive).toLocaleString()}</p>
+                  <p className="text-xs text-green-600 mt-1">✓ Credited</p>
+                </div>
+              );
+            })()
           ) : contribution.calculatedIncentiveAmount ? (
             <div>
               <p className="text-2xl font-bold text-blue-600">₹{Number(contribution.calculatedIncentiveAmount).toLocaleString()}</p>
@@ -341,14 +347,20 @@ export default function ContributionDetailPage() {
         {/* Points Card */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-500">Points</span>
+            <span className="text-sm text-gray-500">My Points</span>
             <Award className="w-5 h-5 text-purple-500" />
           </div>
-          {['approved', 'completed'].includes(contribution.status) && contribution.pointsAwarded ? (
-            <div>
-              <p className="text-2xl font-bold text-purple-600">{contribution.pointsAwarded}</p>
-              <p className="text-xs text-purple-600 mt-1">✓ Credited</p>
-            </div>
+          {['approved', 'completed'].includes(contribution.status) && contribution.authors ? (
+            (() => {
+              const currentUserAuthor = contribution.authors.find((a: any) => a.userId === user?.id);
+              const myPoints = currentUserAuthor?.pointsShare || 0;
+              return (
+                <div>
+                  <p className="text-2xl font-bold text-purple-600">{myPoints}</p>
+                  <p className="text-xs text-purple-600 mt-1">✓ Credited</p>
+                </div>
+              );
+            })()
           ) : contribution.calculatedPoints ? (
             <div>
               <p className="text-2xl font-bold text-indigo-600">{contribution.calculatedPoints}</p>

@@ -47,7 +47,7 @@ const AUTHOR_ROLES = [
 
 // Quartile-based incentive structure (mandatory)
 interface QuartileIncentive {
-  quartile: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  quartile: 'Top 1%' | 'Top 5%' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
   incentiveAmount: number;
   points: number;
 }
@@ -67,6 +67,8 @@ interface RolePercentage {
 }
 
 const DEFAULT_QUARTILE_INCENTIVES: QuartileIncentive[] = [
+  { quartile: 'Top 1%', incentiveAmount: 75000, points: 75 },
+  { quartile: 'Top 5%', incentiveAmount: 60000, points: 60 },
   { quartile: 'Q1', incentiveAmount: 50000, points: 50 },
   { quartile: 'Q2', incentiveAmount: 30000, points: 30 },
   { quartile: 'Q3', incentiveAmount: 15000, points: 15 },
@@ -288,7 +290,7 @@ export default function ResearchPolicyManagement() {
             Research Paper Incentive Policies
           </h1>
           <p className="text-gray-500 mt-1">
-            Configure incentive amounts and points based on journal quartile (Q1-Q4) and optional SJR ranges
+            Configure incentive amounts and points based on journal quartile (Top 1%, Top 5%, Q1-Q4) and optional SJR ranges
           </p>
         </div>
         <button
@@ -306,7 +308,7 @@ export default function ResearchPolicyManagement() {
         <div className="text-sm text-blue-800">
           <p className="font-semibold mb-1">Incentive Distribution Rules:</p>
           <ul className="list-disc list-inside space-y-1">
-            <li>Quartile incentives (Q1-Q4) are <strong>mandatory</strong> for all policies</li>
+            <li>Quartile incentives (Top 1%, Top 5%, Q1-Q4) are <strong>mandatory</strong> for all policies</li>
             <li>SJR range incentives are <strong>optional</strong> and override quartile amounts when defined</li>
             <li><strong>First Author</strong> and <strong>Corresponding Author</strong> percentages are defined in policy</li>
             <li><strong>Co-Authors</strong> automatically share the remainder (100% - First - Corresponding), split equally among <strong>internal</strong> co-authors</li>
@@ -555,7 +557,20 @@ export default function ResearchPolicyManagement() {
                   </label>
                   <select
                     value={formData.publicationType}
-                    onChange={(e) => setFormData({ ...formData, publicationType: e.target.value })}
+                    onChange={(e) => {
+                      const selectedType = e.target.value;
+                      // Redirect to book policies page if book is selected
+                      if (selectedType === 'book') {
+                        window.location.href = '/admin/book-policies';
+                        return;
+                      }
+                      // Redirect to book chapter policies page if book_chapter is selected
+                      if (selectedType === 'book_chapter') {
+                        window.location.href = '/admin/book-chapter-policies';
+                        return;
+                      }
+                      setFormData({ ...formData, publicationType: selectedType });
+                    }}
                     disabled={!!editingPolicy}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                   >
@@ -625,7 +640,7 @@ export default function ResearchPolicyManagement() {
                   Quartile-Based Incentives <span className="text-red-500 text-sm">*</span>
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Define base incentive amounts for each journal quartile (Q1, Q2, Q3, Q4). These are mandatory.
+                  Define base incentive amounts for each journal quartile (Top 1%, Top 5%, Q1, Q2, Q3, Q4). These are mandatory and applied based on publication date.
                 </p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -567,14 +567,25 @@ exports.requestChanges = async (req, res) => {
 
     // Notify applicant
     if (contribution.applicantUserId) {
+      const publicationTypeLabel = {
+        'research_paper': 'Research Paper',
+        'book': 'Book',
+        'book_chapter': 'Book Chapter',
+        'conference_paper': 'Conference Paper',
+        'grant': 'Grant'
+      }[contribution.publicationType] || 'Publication';
+      
       await prisma.notification.create({
         data: {
           userId: contribution.applicantUserId,
           type: 'research_changes_required',
           title: 'Changes Requested',
-          message: `Your research contribution "${contribution.title}" requires changes. Please review the feedback.`,
+          message: `Your ${publicationTypeLabel.toLowerCase()} "${contribution.title}" requires changes. Please review the feedback and resubmit.`,
           referenceType: 'research_contribution',
-          referenceId: id
+          referenceId: id,
+          metadata: {
+            publicationType: contribution.publicationType
+          }
         }
       });
     }
@@ -706,14 +717,25 @@ exports.recommendForApproval = async (req, res) => {
       });
 
       for (const approver of approvers) {
+        const publicationTypeLabel = {
+          'research_paper': 'Research Paper',
+          'book': 'Book',
+          'book_chapter': 'Book Chapter',
+          'conference_paper': 'Conference Paper',
+          'grant': 'Grant'
+        }[contribution.publicationType] || 'Publication';
+        
         await prisma.notification.create({
           data: {
             userId: approver.employeeId,
             type: 'research_recommended',
-            title: 'Research Contribution Recommended',
-            message: `${updated.title} has been recommended for approval by a reviewer.`,
+            title: `${publicationTypeLabel} Recommended for Approval`,
+            message: `${updated.title} has been recommended for your approval by a reviewer.`,
             referenceType: 'research_contribution',
-            referenceId: id
+            referenceId: id,
+            metadata: {
+              publicationType: contribution.publicationType
+            }
           }
         });
       }
@@ -769,80 +791,80 @@ exports.approveContribution = async (req, res) => {
       });
     }
 
-    // Get active research policy for this publication type
-    let policy = await prisma.researchIncentivePolicy.findFirst({
-      where: {
-        publicationType: contribution.publicationType,
-        isActive: true
-      }
+    // Count internal vs external authors for proper distribution
+    const totalAuthors = contribution.authors.length;
+    const internalAuthors = contribution.authors.filter(a => {
+      const category = a.authorCategory?.toLowerCase() || 'internal';
+      return !category.includes('external');
+    });
+    
+    const internalCoAuthors = internalAuthors.filter(a => {
+      const role = a.authorRole || 'co_author';
+      return role === 'co_author' || role === 'senior_author';
+    });
+    
+    const internalEmployeeCoAuthors = internalCoAuthors.filter(a => {
+      const type = a.authorType?.toLowerCase() || '';
+      return !type.includes('student');
     });
 
-    // Default percentages if none found
-    const firstAuthorPercent = policy?.firstAuthorPercentage ? Number(policy.firstAuthorPercentage) : 40;
-    const correspondingAuthorPercent = policy?.correspondingAuthorPercentage ? Number(policy.correspondingAuthorPercentage) : 30;
-
-    const baseAmount = policy ? Number(policy.baseIncentiveAmount) : 30000;
-    const basePoints = policy ? policy.basePoints : 30;
-
-    // Calculate percentages based on author roles
-    // Step 1: Find first author and corresponding author
-    let hasFirstAuthor = false;
-    let hasCorrespondingAuthor = false;
-    let firstAndCorrespondingAuthorId = null;
-    
-    for (const author of contribution.authors) {
-      const authorRole = author.authorRole || 'co_author';
-      if (authorRole === 'first_author') {
-        hasFirstAuthor = true;
-      }
-      if (authorRole === 'corresponding_author') {
-        hasCorrespondingAuthor = true;
-      }
-      if (authorRole === 'first_and_corresponding') {
-        hasFirstAuthor = true;
-        hasCorrespondingAuthor = true;
-        firstAndCorrespondingAuthorId = author.id;
-      }
-    }
-
-    // Step 2: Calculate total percentage used by first and corresponding
-    let usedPercentage = 0;
-    if (hasFirstAuthor) usedPercentage += firstAuthorPercent;
-    if (hasCorrespondingAuthor) usedPercentage += correspondingAuthorPercent;
-    
-    // Step 3: Calculate remaining percentage for co-authors
-    const remainingPercentage = 100 - usedPercentage;
-    const coAuthorCount = contribution.authors.filter(a => {
+    const totalCoAuthors = contribution.authors.filter(a => {
       const role = a.authorRole || 'co_author';
       return role === 'co_author' || role === 'senior_author';
     }).length;
-    
-    const perCoAuthorPercentage = coAuthorCount > 0 ? remainingPercentage / coAuthorCount : 0;
 
-    // Credit incentives to all authors based on their roles
+    // Check if first/corresponding are external (to track lost percentage)
+    let externalFirstCorrespondingPct = 0;
+    contribution.authors.forEach(a => {
+      const isExternal = a.authorCategory?.toLowerCase().includes('external');
+      if (isExternal) {
+        const role = a.authorRole || 'co_author';
+        if (role === 'first_author') externalFirstCorrespondingPct += 35; // From policy
+        if (role === 'corresponding_author') externalFirstCorrespondingPct += 30; // From policy
+        if (role === 'first_and_corresponding_author' || role === 'first_and_corresponding') {
+          externalFirstCorrespondingPct += 65; // Both
+        }
+      }
+    });
+
     const now = new Date();
     let totalIncentiveAwarded = 0;
     let totalPointsAwarded = 0;
 
+    // Use the existing calculateIncentives function from researchContribution.controller
+    const { calculateIncentives } = require('./researchContribution.controller');
+
     for (const author of contribution.authors) {
-      // Calculate incentive based on author role using PERCENTAGE distribution
+      const isExternal = author.authorCategory?.toLowerCase().includes('external');
       const authorRole = author.authorRole || 'co_author';
-      let authorPercentage = 0;
-      
-      if (authorRole === 'first_and_corresponding') {
-        // Gets both percentages
-        authorPercentage = firstAuthorPercent + correspondingAuthorPercent;
-      } else if (authorRole === 'first_author') {
-        authorPercentage = firstAuthorPercent;
-      } else if (authorRole === 'corresponding_author') {
-        authorPercentage = correspondingAuthorPercent;
-      } else if (authorRole === 'co_author' || authorRole === 'senior_author') {
-        authorPercentage = perCoAuthorPercentage;
-      }
-      
-      // Calculate actual amounts based on percentage of base amount
-      let authorIncentive = (baseAmount * authorPercentage) / 100;
-      let authorPoints = Math.round((basePoints * authorPercentage) / 100);
+      const isStudent = author.authorType?.toLowerCase().includes('student') || false;
+
+      console.log('[Approval] Calculating for author:', {
+        authorId: author.id,
+        authorName: author.authorName,
+        authorRole,
+        isStudent,
+        isExternal,
+        publicationType: contribution.publicationType
+      });
+
+      // Calculate incentive using the same function as submission
+      const incentiveResult = await calculateIncentives(
+        contribution,                          // contributionData
+        contribution.publicationType,         // publicationType
+        authorRole,                           // authorRole
+        isStudent,                            // isStudent
+        contribution.sjr || 0,                // sjrValue
+        totalCoAuthors,                       // coAuthorCount
+        totalAuthors,                         // totalAuthors
+        !isExternal,                          // isInternal
+        internalCoAuthors.length,            // internalCoAuthorCount
+        externalFirstCorrespondingPct,       // externalFirstCorrespondingPct
+        internalEmployeeCoAuthors.length     // internalEmployeeCoAuthorCount
+      );
+
+      const authorIncentive = incentiveResult.incentiveAmount || 0;
+      const authorPoints = incentiveResult.points || 0;
 
       // Update author with calculated incentive
       await prisma.researchContributionAuthor.update({
@@ -856,21 +878,29 @@ exports.approveContribution = async (req, res) => {
       totalIncentiveAwarded += Math.round(authorIncentive);
       totalPointsAwarded += authorPoints;
 
-      if (author.userId) {
-        // Create notification for each internal author showing THEIR individual incentive
+      if (author.userId && !isExternal) {
+        // Create notification ONLY for internal authors
+        const publicationTypeLabel = {
+          'research_paper': 'Research Paper',
+          'book': 'Book',
+          'book_chapter': 'Book Chapter',
+          'conference_paper': 'Conference Paper',
+          'grant': 'Grant'
+        }[contribution.publicationType] || 'Publication';
+        
         await prisma.notification.create({
           data: {
             userId: author.userId,
             type: 'research_incentive_credited',
-            title: 'Research Incentive Credited',
-            message: `You have been credited ₹${Math.round(authorIncentive).toLocaleString()} and ${authorPoints} points for "${contribution.title}" as ${authorRole.replace(/_/g, ' ')}. Your share: ${authorPercentage.toFixed(1)}% of total incentive.`,
+            title: `${publicationTypeLabel} Incentive Credited`,
+            message: `You have been credited ₹${Math.round(authorIncentive).toLocaleString()} and ${authorPoints} points for "${contribution.title}" as ${authorRole.replace(/_/g, ' ')}.`,
             referenceType: 'research_contribution',
             referenceId: id,
             metadata: {
               incentiveAmount: Math.round(authorIncentive),
               points: authorPoints,
               authorRole: authorRole,
-              percentage: authorPercentage,
+              publicationType: contribution.publicationType,
               yourShare: Math.round(authorIncentive),
               yourPoints: authorPoints
             }
@@ -881,17 +911,26 @@ exports.approveContribution = async (req, res) => {
 
     // Notify applicant
     if (contribution.applicantUserId) {
+      const publicationTypeLabel = {
+        'research_paper': 'Research Paper',
+        'book': 'Book',
+        'book_chapter': 'Book Chapter',
+        'conference_paper': 'Conference Paper',
+        'grant': 'Grant'
+      }[contribution.publicationType] || 'Publication';
+      
       await prisma.notification.create({
         data: {
           userId: contribution.applicantUserId,
           type: 'research_approved',
-          title: 'Research Contribution Approved',
-          message: `Your research contribution "${contribution.title}" has been approved. Total incentives credited: ₹${totalIncentiveAwarded.toLocaleString()}.`,
+          title: `${publicationTypeLabel} Approved`,
+          message: `Your ${publicationTypeLabel.toLowerCase()} "${contribution.title}" has been approved. Total incentives credited: ₹${totalIncentiveAwarded.toLocaleString()} and ${totalPointsAwarded} points distributed among all internal authors as per policy.`,
           referenceType: 'research_contribution',
           referenceId: id,
           metadata: {
             incentiveAmount: totalIncentiveAwarded,
-            points: totalPointsAwarded
+            points: totalPointsAwarded,
+            publicationType: contribution.publicationType
           }
         }
       });
@@ -909,17 +948,26 @@ exports.approveContribution = async (req, res) => {
     });
 
     for (const review of recommendingReviews) {
+      const publicationTypeLabel = {
+        'research_paper': 'Research Paper',
+        'book': 'Book',
+        'book_chapter': 'Book Chapter',
+        'conference_paper': 'Conference Paper',
+        'grant': 'Grant'
+      }[contribution.publicationType] || 'Publication';
+      
       await prisma.notification.create({
         data: {
           userId: review.reviewerId,
           type: 'research_recommendation_approved',
           title: 'Your Recommendation Approved',
-          message: `Your recommended research contribution "${contribution.title}" has been approved by the approver.`,
+          message: `Your recommended ${publicationTypeLabel.toLowerCase()} "${contribution.title}" has been approved by the approver.`,
           referenceType: 'research_contribution',
           referenceId: id,
           metadata: {
             reviewId: review.id,
-            approvedAt: now.toISOString()
+            approvedAt: now.toISOString(),
+            publicationType: contribution.publicationType
           }
         }
       });
@@ -969,11 +1017,11 @@ exports.approveContribution = async (req, res) => {
           totalIncentiveAwarded,
           totalPointsAwarded,
           authorCount: contribution.authors.length,
-          policyUsed: policy ? policy.policyName : 'Default Policy',
+          policyUsed: 'Calculated via calculateIncentives function',
           distributionMethod: 'percentage-based',
-          firstAuthorPercent,
-          correspondingAuthorPercent,
-          coAuthorPercent: perCoAuthorPercentage
+          firstAuthorPercent: 35,
+          correspondingAuthorPercent: 30,
+          coAuthorPercent: (totalCoAuthors > 0 ? Math.round((35 / totalCoAuthors) * 100) / 100 : 0)
         }
       }
     });
@@ -1040,14 +1088,25 @@ exports.rejectContribution = async (req, res) => {
 
     // Notify applicant
     if (contribution.applicantUserId) {
+      const publicationTypeLabel = {
+        'research_paper': 'Research Paper',
+        'book': 'Book',
+        'book_chapter': 'Book Chapter',
+        'conference_paper': 'Conference Paper',
+        'grant': 'Grant'
+      }[contribution.publicationType] || 'Publication';
+      
       await prisma.notification.create({
         data: {
           userId: contribution.applicantUserId,
           type: 'research_rejected',
-          title: 'Research Contribution Rejected',
-          message: `Your research contribution "${contribution.title}" has been rejected. Reason: ${reason || comments || 'Not specified'}`,
+          title: `${publicationTypeLabel} Rejected`,
+          message: `Your ${publicationTypeLabel.toLowerCase()} "${contribution.title}" has been rejected. Reason: ${reason || comments || 'Not specified'}`,
           referenceType: 'research_contribution',
-          referenceId: id
+          referenceId: id,
+          metadata: {
+            publicationType: contribution.publicationType
+          }
         }
       });
     }
@@ -1267,7 +1326,80 @@ exports.respondToSuggestion = async (req, res) => {
     // If accepted, apply the change
     if (accept && suggestion.fieldName && suggestion.suggestedValue) {
       const updateData = {};
-      updateData[suggestion.fieldName] = suggestion.suggestedValue;
+      let valueToUpdate = suggestion.suggestedValue;
+      
+      // Handle sdg_goals - convert string to array
+      if (suggestion.fieldName === 'sdg_goals') {
+        valueToUpdate = typeof suggestion.suggestedValue === 'string'
+          ? suggestion.suggestedValue.split(',').map(s => s.trim()).filter(s => s)
+          : suggestion.suggestedValue;
+      }
+      // Handle integer fields
+      else if (['totalPresenters', 'foreignCollaborationsCount'].includes(suggestion.fieldName)) {
+        valueToUpdate = suggestion.suggestedValue ? parseInt(suggestion.suggestedValue, 10) : null;
+      }
+      // Handle boolean fields that come as "yes"/"no" strings
+      else if ([
+        'communicatedWithOfficialId', 
+        'interdisciplinaryFromSgt', 
+        'studentsFromSgt', 
+        'internationalAuthor',
+        'conferenceHeldAtSgt',
+        'virtualConference',
+        'industryCollaboration',
+        'centralFacilityUsed',
+        'conferenceBestPaperAward'
+      ].includes(suggestion.fieldName)) {
+        if (typeof suggestion.suggestedValue === 'string') {
+          const lowerValue = suggestion.suggestedValue.toLowerCase();
+          valueToUpdate = lowerValue === 'yes' || lowerValue === 'true';
+        } else {
+          valueToUpdate = Boolean(suggestion.suggestedValue);
+        }
+      }
+      // Handle targetedResearchType - convert display value to enum value
+      else if (suggestion.fieldName === 'targetedResearchType') {
+        const displayToEnumMap = {
+          'Scopus': 'scopus',
+          'SCI/SCIE': 'wos',
+          'Both': 'both',
+          'scopus': 'scopus',
+          'wos': 'wos',
+          'both': 'both'
+        };
+        valueToUpdate = displayToEnumMap[suggestion.suggestedValue] || suggestion.suggestedValue.toLowerCase();
+        
+        // Clear dependent fields based on the new value
+        if (valueToUpdate === 'scopus') {
+          // If scopus, clear impact factor (only WOS has impact factor)
+          updateData.impactFactor = null;
+        } else if (valueToUpdate === 'wos') {
+          // If wos, clear SJR and quartile (only Scopus has these)
+          updateData.sjr = null;
+          updateData.quartile = null;
+        }
+        // If 'both', keep both sets of fields
+      }
+      // Handle quartile - convert display value to enum value
+      else if (suggestion.fieldName === 'quartile') {
+        const displayToEnumMap = {
+          'Top 1%': 'Top_1_',
+          'Top 5%': 'Top_5_',
+          'Q1': 'Q1',
+          'Q2': 'Q2',
+          'Q3': 'Q3',
+          'Q4': 'Q4',
+          'top1': 'Top_1_',
+          'top5': 'Top_5_',
+          'q1': 'Q1',
+          'q2': 'Q2',
+          'q3': 'Q3',
+          'q4': 'Q4'
+        };
+        valueToUpdate = displayToEnumMap[suggestion.suggestedValue] || suggestion.suggestedValue;
+      }
+      
+      updateData[suggestion.fieldName] = valueToUpdate;
       
       await prisma.researchContribution.update({
         where: { id: suggestion.researchContributionId },
