@@ -2393,3 +2393,450 @@ exports.getMyAssignedConferenceSchools = async (req, res) => {
     });
   }
 };
+
+/**
+ * Assign schools to a DRD member for GRANT review
+ * @body { userId, schoolIds: string[] }
+ * Accessible by: admin OR DRD Head (users with grant_approve permission)
+ */
+exports.assignGrantMemberSchools = async (req, res) => {
+  try {
+    const { userId, schoolIds } = req.body;
+
+    // Check if user is authorized (admin, DRD Head, or has grant_assign_school permission)
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.grant_approve === true || 
+             p.permissions?.grant_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to assign grant schools to DRD members',
+      });
+    }
+
+    if (!userId || !Array.isArray(schoolIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and schoolIds array are required',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.status(404).json({
+        success: false,
+        message: 'DRD department not found. Please create a Central Department with code or name containing "DRD".',
+      });
+    }
+
+    // Find or create the user's DRD permission record
+    let drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId,
+        centralDeptId: drdDept.id,
+      },
+    });
+
+    if (drdPermission) {
+      // Update existing permission with grant school assignments
+      drdPermission = await prisma.centralDepartmentPermission.update({
+        where: { id: drdPermission.id },
+        data: {
+          assignedGrantSchoolIds: schoolIds,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      // Create new permission record with grant school assignments
+      drdPermission = await prisma.centralDepartmentPermission.create({
+        data: {
+          userId,
+          centralDeptId: drdDept.id,
+          permissions: { grant_review: true },
+          assignedGrantSchoolIds: schoolIds,
+          isPrimary: false,
+          isActive: true,
+          assignedBy: req.user.id,
+        },
+        include: {
+          user: {
+            select: {
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: 'ASSIGN_GRANT_MEMBER_SCHOOLS',
+        targetTable: 'central_department_permission',
+        targetId: drdPermission.id,
+        details: { userId, schoolIds },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Grant schools assigned to DRD member successfully',
+      data: drdPermission,
+    });
+  } catch (error) {
+    console.error('Assign grant member schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign grant schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all DRD members with their assigned GRANT schools
+ * Accessible by: admin OR DRD Head (users with grant_approve permission)
+ */
+exports.getDrdMembersWithGrantSchools = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.grant_approve === true || 
+             p.permissions?.grant_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view grant school assignments',
+      });
+    }
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          members: [],
+          allSchools: [],
+        },
+        message: 'DRD department not found.',
+      });
+    }
+
+    // Get all users with DRD permissions
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            email: true,
+            role: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true,
+                designation: true,
+                primaryDepartment: {
+                  select: {
+                    departmentName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get all schools
+    const allSchools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Transform member data
+    const members = drdMembers.map((member) => ({
+      userId: member.userId,
+      uid: member.user.uid,
+      email: member.user.email,
+      user: member.user,
+      permissions: member.permissions || {},
+      assignedGrantSchoolIds: member.assignedGrantSchoolIds || [],
+      assignedGrantSchools: allSchools.filter((s) =>
+        (member.assignedGrantSchoolIds || []).includes(s.id)
+      ),
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        members,
+        allSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get DRD members with grant schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch DRD members with grant schools',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get schools with their assigned GRANT members
+ * Accessible by: admin OR DRD Head (users with grant_approve permission)
+ */
+exports.getSchoolsWithGrantMembers = async (req, res) => {
+  try {
+    // Check if user is authorized
+    const isAdmin = req.user.role === 'admin';
+    const canAssignSchools = req.user.centralDeptPermissions?.some(
+      (p) => p.permissions?.grant_approve === true || 
+             p.permissions?.grant_assign_school === true
+    );
+
+    if (!isAdmin && !canAssignSchools) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view grant school assignments',
+      });
+    }
+
+    // Get all schools
+    const schools = await prisma.facultySchoolList.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+      orderBy: { facultyName: 'asc' },
+    });
+
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: schools.map((school) => ({
+          ...school,
+          assignedMembers: [],
+          hasAssignedMember: false,
+        })),
+      });
+    }
+
+    // Get all DRD members with grant schools
+    const drdMembers = await prisma.centralDepartmentPermission.findMany({
+      where: {
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            employeeDetails: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Map schools with their assigned grant members
+    const schoolsWithMembers = schools.map((school) => {
+      const assignedMembers = drdMembers
+        .filter((member) => {
+          const assignedGrantSchoolIds = member.assignedGrantSchoolIds || [];
+          return assignedGrantSchoolIds.includes(school.id);
+        })
+        .map((member) => ({
+          userId: member.userId,
+          uid: member.user.uid,
+          displayName: member.user.employeeDetails?.displayName || member.user.uid,
+          permissions: member.permissions,
+        }));
+
+      return {
+        ...school,
+        assignedMembers,
+        hasAssignedMember: assignedMembers.length > 0,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: schoolsWithMembers,
+    });
+  } catch (error) {
+    console.error('Get schools with grant members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch schools with grant members',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get my assigned GRANT schools (for current user)
+ */
+exports.getMyAssignedGrantSchools = async (req, res) => {
+  try {
+    // Find the DRD department
+    const drdDept = await prisma.centralDepartment.findFirst({
+      where: {
+        OR: [
+          { departmentCode: 'DRD' },
+          { departmentCode: { contains: 'DRD', mode: 'insensitive' } },
+          { departmentName: { contains: 'DRD', mode: 'insensitive' } },
+          { shortName: 'DRD' },
+          { departmentName: { contains: 'Development', mode: 'insensitive' } },
+          { departmentName: { contains: 'Research', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!drdDept) {
+      return res.json({
+        success: true,
+        data: {
+          assignedGrantSchoolIds: [],
+          assignedGrantSchools: [],
+        },
+      });
+    }
+
+    // Get user's DRD permission
+    const drdPermission = await prisma.centralDepartmentPermission.findFirst({
+      where: {
+        userId: req.user.id,
+        centralDeptId: drdDept.id,
+        isActive: true,
+      },
+    });
+
+    if (!drdPermission) {
+      return res.json({
+        success: true,
+        data: {
+          assignedGrantSchoolIds: [],
+          assignedGrantSchools: [],
+        },
+      });
+    }
+
+    const assignedGrantSchoolIds = drdPermission.assignedGrantSchoolIds || [];
+
+    // Get school details
+    const assignedGrantSchools = await prisma.facultySchoolList.findMany({
+      where: {
+        id: { in: assignedGrantSchoolIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        facultyCode: true,
+        facultyName: true,
+        shortName: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignedGrantSchoolIds,
+        assignedGrantSchools,
+      },
+    });
+  } catch (error) {
+    console.error('Get my assigned grant schools error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assigned grant schools',
+      error: error.message,
+    });
+  }
+};

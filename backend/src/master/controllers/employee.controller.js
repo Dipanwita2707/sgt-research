@@ -42,6 +42,7 @@ const createEmployee = async (req, res) => {
     console.log('=== CREATE EMPLOYEE DEBUG ===');
     console.log('schoolId:', schoolId);
     console.log('departmentId:', departmentId);
+    console.log('designation:', designation);
     console.log('primaryCentralDeptId:', req.body.primaryCentralDeptId);
     console.log('Full request body:', JSON.stringify(req.body, null, 2));
 
@@ -82,7 +83,7 @@ const createEmployee = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user with employee details in a transaction
+    // Create user with employee details in a transaction with extended timeout
     const result = await prisma.$transaction(async (tx) => {
       // Create user login
       const user = await tx.userLogin.create({
@@ -111,6 +112,11 @@ const createEmployee = async (req, res) => {
           email: email,
           phoneNumber: mobileNumber || null,
           joinDate: dateOfJoining ? new Date(dateOfJoining) : new Date(),
+          ...(schoolId && {
+            primarySchool: {
+              connect: { id: schoolId }
+            }
+          }),
           ...(departmentId && {
             primaryDepartment: {
               connect: { id: departmentId }
@@ -169,6 +175,13 @@ const createEmployee = async (req, res) => {
 
       return { user, employee };
     });
+
+    // Log what was created
+    console.log('=== EMPLOYEE CREATED ===');
+    console.log('Employee ID:', result.employee.id);
+    console.log('Primary School ID:', result.employee.primarySchoolId);
+    console.log('Primary Department ID:', result.employee.primaryDepartmentId);
+    console.log('Designation:', result.employee.designation);
 
     res.status(201).json({
       success: true,
@@ -249,6 +262,12 @@ const getAllEmployees = async (req, res) => {
                   },
                 },
               },
+              primarySchool: {
+                select: {
+                  id: true,
+                  facultyName: true,
+                },
+              },
               primaryCentralDept: {
                 select: {
                   id: true,
@@ -274,9 +293,50 @@ const getAllEmployees = async (req, res) => {
       }),
     ]);
 
+    // Debug: Log raw employee data from database
+    console.log('Raw employees from DB:', employees.map(emp => ({
+      id: emp.id,
+      uid: emp.uid,
+      hasEmployeeDetails: !!emp.employeeDetails,
+      primarySchoolId: emp.employeeDetails?.primarySchoolId,
+      primaryDepartmentId: emp.employeeDetails?.primaryDepartmentId,
+      hasPrimarySchool: !!emp.employeeDetails?.primarySchool,
+      hasPrimaryDepartment: !!emp.employeeDetails?.primaryDepartment,
+    })));
+
+    // Format employee data to include IDs for frontend
+    const formattedEmployees = employees.map(emp => {
+      if (!emp.employeeDetails) {
+        return emp;
+      }
+
+      const employeeDetails = {
+        ...emp.employeeDetails,
+        schoolId: emp.employeeDetails.primarySchool?.id || emp.employeeDetails.primarySchoolId || null,
+        schoolName: emp.employeeDetails.primarySchool?.facultyName || null,
+        departmentId: emp.employeeDetails.primaryDepartment?.id || emp.employeeDetails.primaryDepartmentId || null,
+        departmentName: emp.employeeDetails.primaryDepartment?.departmentName || null,
+        centralDepartmentId: emp.employeeDetails.primaryCentralDept?.id || emp.employeeDetails.primaryCentralDeptId || null,
+        centralDepartmentName: emp.employeeDetails.primaryCentralDept?.departmentName || null,
+      };
+
+      console.log('Formatted employee:', {
+        id: emp.id,
+        schoolId: employeeDetails.schoolId,
+        departmentId: employeeDetails.departmentId,
+        schoolName: employeeDetails.schoolName,
+        departmentName: employeeDetails.departmentName
+      });
+
+      return {
+        ...emp,
+        employeeDetails
+      };
+    });
+
     res.json({
       success: true,
-      data: employees,
+      data: formattedEmployees,
       pagination: {
         total,
         page: parseInt(page),
@@ -342,6 +402,10 @@ const updateEmployee = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
+    console.log('=== UPDATE EMPLOYEE DEBUG ===');
+    console.log('User ID:', id);
+    console.log('Updates received:', JSON.stringify(updates, null, 2));
+
     // Separate login updates from employee details updates
     const loginUpdates = {};
     const employeeUpdates = {};
@@ -358,7 +422,7 @@ const updateEmployee = async (req, res) => {
     // Employee detail fields (only fields that exist in schema)
     if (updates.firstName) employeeUpdates.firstName = updates.firstName;
     if (updates.lastName) employeeUpdates.lastName = updates.lastName;
-    if (updates.designation) employeeUpdates.designation = updates.designation;
+    if (updates.designation !== undefined) employeeUpdates.designation = updates.designation || null;
     if (updates.email) employeeUpdates.email = updates.email;
     if (updates.mobileNumber) employeeUpdates.phoneNumber = updates.mobileNumber;
     if (updates.dateOfJoining) employeeUpdates.joinDate = new Date(updates.dateOfJoining);
@@ -366,6 +430,8 @@ const updateEmployee = async (req, res) => {
     if (updates.departmentId !== undefined) employeeUpdates.primaryDepartmentId = updates.departmentId || null;
     if (updates.primaryCentralDeptId !== undefined) employeeUpdates.primaryCentralDeptId = updates.primaryCentralDeptId || null;
     if (updates.isActive !== undefined) employeeUpdates.isActive = updates.isActive;
+    
+    console.log('Employee updates to apply:', employeeUpdates);
     
     // Store extra fields in metadata
     const employee = await prisma.employeeDetails.findFirst({
@@ -411,6 +477,10 @@ const updateEmployee = async (req, res) => {
 
       return { user: updatedUser, employee: updatedEmployee };
     });
+
+    console.log('=== EMPLOYEE UPDATE COMPLETE ===');
+    console.log('Updated fields:', Object.keys(employeeUpdates));
+    console.log('Result:', result);
 
     res.json({
       success: true,

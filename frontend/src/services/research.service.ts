@@ -25,6 +25,113 @@ export type ResearchAuthorType =
   | 'external_industry'
   | 'external_other';
 
+// Grant Application Types
+export type GrantProjectType = 'indian' | 'international';
+export type GrantProjectStatus = 'submitted' | 'approved';
+export type GrantProjectCategory = 'govt' | 'non_govt' | 'industry';
+export type GrantFundingAgency = 'dst' | 'dbt' | 'anrf' | 'csir' | 'icssr' | 'other';
+export type GrantInvestigatorRole = 'pi' | 'co_pi';
+export type GrantApplicationStatus = 
+  | 'draft'
+  | 'submitted'
+  | 'under_review'
+  | 'changes_required'
+  | 'resubmitted'
+  | 'approved'
+  | 'rejected';
+
+export interface GrantConsortiumOrganization {
+  id?: string;
+  organizationName: string;
+  country: string;
+  numberOfMembers: number;
+  isCoordinator?: boolean;
+  displayOrder?: number;
+}
+
+export interface GrantInvestigator {
+  id?: string;
+  userId?: string;
+  uid?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  designation?: string;
+  affiliation?: string;
+  department?: string;
+  roleType: GrantInvestigatorRole;
+  isInternal: boolean;
+  investigatorType?: string;
+  consortiumOrgId?: string;
+  isTeamCoordinator?: boolean;
+  displayOrder?: number;
+}
+
+export interface GrantApplicationData {
+  title: string;
+  agencyName: string;
+  submittedAmount?: number;
+  sdgGoals?: string[];
+  projectType: GrantProjectType;
+  numberOfConsortiumOrgs?: number;
+  projectStatus: GrantProjectStatus;
+  projectCategory: GrantProjectCategory;
+  fundingAgencyType?: GrantFundingAgency;
+  fundingAgencyName?: string;
+  totalInvestigators: number;
+  numberOfInternalPIs: number;
+  numberOfInternalCoPIs: number;
+  isPIExternal: boolean;
+  myRole: GrantInvestigatorRole;
+  dateOfSubmission?: string;
+  projectStartDate?: string;
+  projectEndDate?: string;
+  projectDurationMonths?: number;
+  schoolId?: string;
+  departmentId?: string;
+  status?: GrantApplicationStatus;
+  consortiumOrganizations?: GrantConsortiumOrganization[];
+  investigators?: GrantInvestigator[];
+}
+
+export interface GrantApplication {
+  id: string;
+  applicationNumber?: string;
+  applicantUserId: string;
+  applicantType: string;
+  title: string;
+  agencyName: string;
+  submittedAmount?: number;
+  sdgGoals: string[];
+  projectType: GrantProjectType;
+  numberOfConsortiumOrgs: number;
+  projectStatus: GrantProjectStatus;
+  projectCategory: GrantProjectCategory;
+  fundingAgencyType?: GrantFundingAgency;
+  fundingAgencyName?: string;
+  totalInvestigators: number;
+  numberOfInternalPIs: number;
+  numberOfInternalCoPIs: number;
+  isPIExternal: boolean;
+  myRole: GrantInvestigatorRole;
+  dateOfSubmission?: string;
+  projectStartDate?: string;
+  projectEndDate?: string;
+  projectDurationMonths?: number;
+  schoolId?: string;
+  departmentId?: string;
+  status: GrantApplicationStatus;
+  submittedAt?: string;
+  revisionCount: number;
+  createdAt: string;
+  updatedAt: string;
+  consortiumOrganizations?: GrantConsortiumOrganization[];
+  investigators?: GrantInvestigator[];
+  school?: any;
+  department?: any;
+  applicantUser?: any;
+}
+
 export type TargetedResearchType = 
   | 'research_based_journal'
   | 'community_based_journal'
@@ -388,6 +495,75 @@ class ResearchService {
 
   async rejectSuggestion(contributionId: string, suggestionId: string, response?: string) {
     return this.respondToSuggestion(suggestionId, { accept: false, response });
+  }
+
+  // ============================================
+  // Grant Application Methods
+  // ============================================
+
+  async createGrantApplication(data: GrantApplicationData) {
+    const response = await api.post('/grants', data);
+    return response.data;
+  }
+
+  async getMyGrantApplications() {
+    const response = await api.get('/grants/my-grants');
+    return response.data;
+  }
+
+  async getGrantApplicationById(id: string) {
+    const response = await api.get(`/grants/${id}`);
+    return response.data;
+  }
+
+  async updateGrantApplication(id: string, data: GrantApplicationData) {
+    const response = await api.put(`/grants/${id}`, data);
+    return response.data;
+  }
+
+  async submitGrantApplication(id: string) {
+    const response = await api.post(`/grants/${id}/submit`);
+    return response.data;
+  }
+
+  async deleteGrantApplication(id: string) {
+    const response = await api.delete(`/grants/${id}`);
+    return response.data;
+  }
+
+  async getPendingGrantReviews() {
+    const response = await api.get('/grants/review/pending');
+    return response.data;
+  }
+
+  async startGrantReview(id: string) {
+    const response = await api.post(`/grants/${id}/review/start`);
+    return response.data;
+  }
+
+  async requestGrantChanges(id: string, data: { comments: string; suggestions?: any[] }) {
+    const response = await api.post(`/grants/${id}/review/request-changes`, data);
+    return response.data;
+  }
+
+  async recommendGrant(id: string, data?: { comments?: string }) {
+    const response = await api.post(`/grants/${id}/review/recommend`, data);
+    return response.data;
+  }
+
+  async approveGrant(id: string, data?: { comments?: string }) {
+    const response = await api.post(`/grants/${id}/review/approve`, data);
+    return response.data;
+  }
+
+  async rejectGrant(id: string, data: { comments?: string; reason?: string }) {
+    const response = await api.post(`/grants/${id}/review/reject`, data);
+    return response.data;
+  }
+
+  async markGrantCompleted(id: string) {
+    const response = await api.post(`/grants/${id}/review/complete`);
+    return response.data;
   }
 }
 

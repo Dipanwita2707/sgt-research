@@ -31,7 +31,9 @@ import {
 } from 'lucide-react';
 import { researchService, ResearchContribution, ResearchPublicationType } from '@/services/research.service';
 import { permissionManagementService } from '@/services/permissionManagement.service';
+import { progressTrackerService, ResearchProgressTracker, StatusHistoryEntry, statusLabels, statusColors } from '@/services/progressTracker.service';
 import { useAuthStore } from '@/store/authStore';
+import { History, GitBranch } from 'lucide-react';
 
 // Editable field configuration
 const EDITABLE_FIELDS = [
@@ -205,9 +207,15 @@ export default function ResearchReviewPage() {
   const [tempSuggestion, setTempSuggestion] = useState<Partial<FieldSuggestion>>({});
   const [showSuggestionsPreview, setShowSuggestionsPreview] = useState(false);
 
+  // Research Progress Tracker state
+  const [trackerHistory, setTrackerHistory] = useState<ResearchProgressTracker[]>([]);
+  const [trackerHistoryLoading, setTrackerHistoryLoading] = useState(false);
+  const [showTrackerHistory, setShowTrackerHistory] = useState(false);
+
   useEffect(() => {
     if (id) {
       fetchContribution();
+      fetchTrackerHistory();
     }
     if (user?.id) {
       fetchUserPermissions();
@@ -238,6 +246,21 @@ export default function ResearchReviewPage() {
       console.error('Error fetching contribution:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTrackerHistory = async () => {
+    try {
+      setTrackerHistoryLoading(true);
+      const response = await progressTrackerService.getTrackerHistoryForContribution(id);
+      if (response.data?.trackers) {
+        setTrackerHistory(response.data.trackers);
+      }
+    } catch (error) {
+      console.error('Error fetching tracker history:', error);
+      // Silently fail - tracker history is optional
+    } finally {
+      setTrackerHistoryLoading(false);
     }
   };
 
@@ -1438,6 +1461,130 @@ export default function ResearchReviewPage() {
             </p>
           </div>
         </div>
+
+        {/* Research Progress Tracker History */}
+        {trackerHistory.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-2">
+                <History className="w-5 h-5 text-indigo-600" />
+                <h2 className="text-lg font-semibold text-gray-900">Research Progress History</h2>
+                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full">
+                  {trackerHistory.length} tracker{trackerHistory.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowTrackerHistory(!showTrackerHistory)}
+                className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+              >
+                {showTrackerHistory ? 'Hide Details' : 'Show Details'}
+              </button>
+            </div>
+            
+            <div className="text-sm text-gray-600 mb-4">
+              This contribution has been tracked through the Research Progress Tracker. 
+              View the complete journey from writing to publication.
+            </div>
+            
+            {showTrackerHistory && (
+              <div className="space-y-6">
+                {trackerHistory.map((tracker) => (
+                  <div key={tracker.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <GitBranch className="w-4 h-4 text-gray-500" />
+                          <span className="font-medium text-gray-900">{tracker.title}</span>
+                        </div>
+                        <span className={`px-2 py-1 text-xs rounded-full ${statusColors[tracker.currentStatus]}`}>
+                          {statusLabels[tracker.currentStatus]}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        Started: {new Date(tracker.createdAt).toLocaleDateString()} | 
+                        Last Updated: {new Date(tracker.updatedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    
+                    {/* Timeline of status changes */}
+                    {tracker.statusHistory && tracker.statusHistory.length > 0 && (
+                      <div className="px-4 py-3">
+                        <div className="relative">
+                          <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+                          <div className="space-y-4">
+                            {tracker.statusHistory.map((history, idx) => (
+                              <div key={history.id} className="relative flex items-start pl-8">
+                                <div className={`absolute left-1.5 w-3 h-3 rounded-full border-2 border-white ${
+                                  idx === 0 ? 'bg-indigo-600' : 'bg-gray-400'
+                                }`}></div>
+                                <div className="flex-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-sm font-medium ${
+                                      idx === 0 ? 'text-indigo-700' : 'text-gray-700'
+                                    }`}>
+                                      {statusLabels[history.status]}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      {new Date(history.changedAt).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  {history.notes && (
+                                    <p className="text-sm text-gray-600 mt-1">{history.notes}</p>
+                                  )}
+                                  {history.statusData && Object.keys(history.statusData).length > 0 && (
+                                    <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600 space-y-1">
+                                      {Object.entries(history.statusData as Record<string, unknown>).map(([key, value]) => (
+                                        <div key={key} className="flex">
+                                          <span className="font-medium capitalize w-32">
+                                            {key.replace(/([A-Z])/g, ' $1').trim()}:
+                                          </span>
+                                          <span>{String(value)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {!showTrackerHistory && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {trackerHistory.map((tracker) => (
+                  <div key={tracker.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-900 truncate flex-1">{tracker.title}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${statusColors[tracker.currentStatus]}`}>
+                        {statusLabels[tracker.currentStatus]}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {tracker.statusHistory?.length || 0} updates
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {trackerHistoryLoading && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center space-x-3">
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+              <span className="text-gray-600">Loading research progress history...</span>
+            </div>
+          </div>
+        )}
 
         {/* Review History */}
         {contribution.reviews && contribution.reviews.length > 0 && (

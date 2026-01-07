@@ -41,6 +41,12 @@ router.get('/schools/with-conference-members', permissionMgmt.getSchoolsWithConf
 router.post('/conference-member/assign-schools', permissionMgmt.assignConferenceMemberSchools);
 router.get('/my-assigned-conference-schools', permissionMgmt.getMyAssignedConferenceSchools);
 
+// Grant school assignments (requires grant_approve/grant_assign_school permission)
+router.get('/drd-members/with-grant-schools', permissionMgmt.getDrdMembersWithGrantSchools);
+router.get('/schools/with-grant-members', permissionMgmt.getSchoolsWithGrantMembers);
+router.post('/grant-member/assign-schools', permissionMgmt.assignGrantMemberSchools);
+router.get('/my-assigned-grant-schools', permissionMgmt.getMyAssignedGrantSchools);
+
 // Admin only routes
 router.use(restrictTo('admin'));
 

@@ -30,6 +30,8 @@ const incentivePolicyRoutes = require('./incentivePolicy.routes');
 
 // Research Contribution Module Routes
 const researchContributionRoutes = require('./researchContribution.routes');
+const researchProgressTrackerRoutes = require('./researchProgressTracker.routes');
+const grantRoutes = require('./grant.routes');
 // const fileUploadRoutes = require('./fileUpload.routes'); // TODO: Install @aws-sdk/client-s3 first
 
 // Mount routes
@@ -62,9 +64,12 @@ router.use('/research-policies', require('./researchPolicy.routes')); // Researc
 router.use('/book-policies', require('./bookPolicy.routes')); // Book incentive policy management
 router.use('/book-chapter-policies', require('./bookChapterPolicy.routes')); // Book Chapter incentive policy management
 router.use('/conference-policies', require('./conferencePolicy.routes')); // Conference incentive policy management
+router.use('/grant-policies', require('./grantPolicy.routes')); // Grant incentive policy management
 router.use('/file-upload', require('./fileUpload.routes')); // S3 file upload service
 
 // Research Contribution Module
 router.use('/research', researchContributionRoutes); // Research paper, book, conference, grant submissions
+router.use('/research-progress', researchProgressTrackerRoutes); // Research progress tracking from writing to publication
+router.use('/grants', grantRoutes); // Grant application management
 
 module.exports = router;

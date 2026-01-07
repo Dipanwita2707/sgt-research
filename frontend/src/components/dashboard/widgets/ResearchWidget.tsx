@@ -1,6 +1,7 @@
 'use client';
 
 import { Microscope, FileText, Award, TrendingUp, ChevronRight, Lightbulb } from 'lucide-react';
+import Link from 'next/link';
 
 export default function ResearchWidget() {
   return (
@@ -44,13 +45,13 @@ export default function ResearchWidget() {
       </div>
 
       <div className="flex gap-3">
-        <button className="flex-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:shadow-lg hover:shadow-cyan-500/25 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2">
-          New Submission
+        <Link href="/research/progress-tracker/new" className="flex-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:shadow-lg hover:shadow-cyan-500/25 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2">
+          Track Research
           <ChevronRight className="w-4 h-4" />
-        </button>
-        <button className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2.5 px-4 rounded-xl transition-all">
+        </Link>
+        <Link href="/research/progress-tracker" className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center">
           View All
-        </button>
+        </Link>
       </div>
     </div>
   );

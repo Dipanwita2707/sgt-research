@@ -27,6 +27,7 @@ import api from '@/lib/api';
 interface Props {
   publicationType: ResearchPublicationType;
   contributionId?: string;
+  trackerId?: string;
   onSuccess?: () => void;
 }
 
@@ -110,7 +111,7 @@ interface Author {
   userId?: string;
 }
 
-export default function ResearchContributionForm({ publicationType, contributionId, onSuccess }: Props) {
+export default function ResearchContributionForm({ publicationType, contributionId, trackerId, onSuccess }: Props) {
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1078,6 +1079,8 @@ export default function ResearchContributionForm({ publicationType, contribution
     fetchPolicy(); // Fetch policy on component mount
     if (contributionId) {
       fetchContribution();
+    } else if (trackerId) {
+      fetchTrackerData();
     } else {
       // Auto-populate school and department from logged-in user
       if (user?.employeeDetails?.department?.school?.id) {
@@ -1089,7 +1092,7 @@ export default function ResearchContributionForm({ publicationType, contribution
       }
     }
     // Don't auto-add current user - let them add authors manually
-  }, [contributionId, user]);
+  }, [contributionId, trackerId, user]);
 
   useEffect(() => {
     if (formData.schoolId) {
@@ -1316,6 +1319,75 @@ export default function ResearchContributionForm({ publicationType, contribution
     } catch (error) {
       console.error('Error fetching contribution:', error);
       setError('Failed to load contribution');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTrackerData = async () => {
+    if (!trackerId) return;
+    try {
+      setLoading(true);
+      const response = await api.get(`/research-progress/${trackerId}`);
+      if (response.data?.data) {
+        const tracker = response.data.data;
+        const typeData = tracker.researchPaperData || tracker.bookData || tracker.bookChapterData || tracker.conferencePaperData;
+        
+        if (!typeData) {
+          setError('Tracker data not found');
+          return;
+        }
+
+        // Map tracker data to form data based on publication type
+        setFormData(prev => ({
+          ...prev,
+          title: tracker.title || '',
+          schoolId: tracker.schoolId || '',
+          departmentId: tracker.departmentId || '',
+          // Research paper specific
+          journalName: typeData.targetJournal || '',
+          quartile: typeData.targetQuartile || '',
+          targetedResearchType: typeData.targetIndexing || 'scopus', // Default to scopus if not specified
+          // Conference specific
+          conferenceName: typeData.targetConference || typeData.conferenceName || '',
+          conferenceSubType: typeData.conferenceSubType || '',
+          conferenceType: typeData.conferenceType || '',
+          // Book specific
+          bookTitle: typeData.bookTitle || typeData.title || '',
+          bookPublicationType: typeData.bookType || 'authored',
+          chapterTitle: typeData.chapterTitle || '',
+          bookIndexingType: typeData.indexingType || '',
+          // Common fields
+          publicationStatus: 'published', // Tracker is marked published
+          nationalInternational: typeData.hasInternationalCollaboration ? 'international' : 'national',
+          hasLpuStudents: typeData.hasStudentInvolvement ? 'yes' : 'no',
+          isInterdisciplinary: typeData.isInterdisciplinary ? 'yes' : 'no',
+        }));
+
+        // Map co-authors if they exist and are in array format
+        if (typeData.coAuthors && Array.isArray(typeData.coAuthors)) {
+          const mappedAuthors = typeData.coAuthors.map((author: any) => ({
+            uid: author.uid || '',
+            name: author.name || '',
+            authorType: author.authorType || 'Faculty',
+            authorCategory: author.authorCategory || 'Internal',
+            email: author.email || '',
+            affiliation: author.affiliation || 'SGT University',
+            designation: author.designation || '',
+            authorRole: 'co_author', // Default to co-author
+          }));
+          setCoAuthors(mappedAuthors);
+          
+          // Update counts based on mapped authors
+          const internalCount = mappedAuthors.filter((a: any) => a.authorCategory === 'Internal').length;
+          setTotalInternalCoAuthors(internalCount);
+          setTotalAuthors(mappedAuthors.length + 1); // +1 for current user
+          setTotalInternalAuthors(internalCount + 1); // +1 for current user
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching tracker data:', error);
+      setError('Failed to load tracker data');
     } finally {
       setLoading(false);
     }

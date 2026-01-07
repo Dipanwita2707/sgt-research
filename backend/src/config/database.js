@@ -10,6 +10,11 @@ const prisma = new PrismaClient({
   },
   // Connection pool configuration for high concurrency
   // Note: Actual pool managed by PostgreSQL connection string params
+  transactionOptions: {
+    maxWait: 20000, // 20 seconds max wait to acquire a transaction slot
+    timeout: 30000, // 30 seconds transaction timeout (increased for slow connections)
+    isolationLevel: 'ReadCommitted', // Default isolation level
+  },
 });
 
 prisma.$connect()

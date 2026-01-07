@@ -60,7 +60,7 @@ const PUBLICATION_TYPES = [
     hoverColor: 'group-hover:bg-orange-600',
     description: 'Research grants and externally funded projects',
     features: ['Government funding', 'Industry collaboration', 'Project completion incentives'],
-    href: '/research/apply?type=grant'
+    href: '/research/apply-grant'
   },
 ];
 

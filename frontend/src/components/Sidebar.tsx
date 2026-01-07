@@ -171,11 +171,13 @@ const getNavItems = (userRole: string | undefined, userType: string | undefined,
         { name: 'Research School Assignment', href: '/admin/research-school-assignment', icon: BookOpen },
         { name: 'Book School Assignment', href: '/admin/book-school-assignment', icon: BookOpen },
         { name: 'Conference School Assignment', href: '/admin/conference-school-assignment', icon: Presentation },
+        { name: 'Grant School Assignment', href: '/admin/grant-school-assignment', icon: DollarSign },
         { name: 'IPR Policies', href: '/admin/incentive-policies', icon: Settings },
         { name: 'Research Policies', href: '/admin/research-policies', icon: FileText },
         { name: 'Book Policies', href: '/admin/book-policies', icon: BookOpen },
         { name: 'Book Chapter Policies', href: '/admin/book-chapter-policies', icon: BookOpen },
         { name: 'Conference Policies', href: '/admin/conference-policies', icon: Presentation },
+        { name: 'Grant Policies', href: '/admin/grant-policies', icon: DollarSign },
       ]
     });
   }

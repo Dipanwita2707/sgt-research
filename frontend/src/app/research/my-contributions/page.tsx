@@ -27,7 +27,7 @@ import {
   FolderOpen,
   Loader2
 } from 'lucide-react';
-import { researchService, ResearchContribution, ResearchPublicationType } from '@/services/research.service';
+import { researchService, ResearchContribution, ResearchPublicationType, GrantApplication } from '@/services/research.service';
 
 type TabType = 'all' | 'action_required' | 'draft' | 'in_progress' | 'completed';
 
@@ -62,6 +62,7 @@ const PUBLICATION_TYPE_CONFIG: Record<ResearchPublicationType, { label: string; 
 export default function MyContributionsPage() {
   const router = useRouter();
   const [contributions, setContributions] = useState<ResearchContribution[]>([]);
+  const [grants, setGrants] = useState<GrantApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,8 +80,29 @@ export default function MyContributionsPage() {
   });
 
   useEffect(() => {
-    fetchContributions();
+    const loadData = async () => {
+      await Promise.all([fetchContributions(), fetchGrants()]);
+    };
+    loadData();
   }, []);
+
+  const fetchGrants = async () => {
+    try {
+      const response = await researchService.getMyGrantApplications();
+      const data = response.data || [];
+      
+      // Sort by createdAt in descending order
+      const sortedData = [...data].sort((a: GrantApplication, b: GrantApplication) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      setGrants(sortedData);
+      return sortedData;
+    } catch (error) {
+      console.error('Error fetching grant applications:', error);
+      return [];
+    }
+  };
 
   const fetchContributions = async () => {
     try {
@@ -94,41 +116,63 @@ export default function MyContributionsPage() {
       );
       
       setContributions(sortedData);
-      
-      // Calculate stats
-      const actionRequiredStatuses = ['changes_required'];
-      const inProgressStatuses = ['submitted', 'under_review', 'resubmitted', 'pending_mentor_approval'];
-      const completedStatuses = ['approved', 'completed'];
-      
-      const completedContribs = sortedData.filter((c: ResearchContribution) => 
-        completedStatuses.includes(c.status)
-      );
-      
-      // Calculate total incentives (credited only)
-      const creditedIncentives = completedContribs.reduce((sum: number, c: ResearchContribution) => 
-        sum + (Number(c.incentiveAmount) || 0), 0
-      );
-      
-      const creditedPoints = completedContribs.reduce((sum: number, c: ResearchContribution) => 
-        sum + (Number(c.pointsAwarded) || 0), 0
-      );
-      
-      setStats({
-        total: sortedData.length,
-        drafts: sortedData.filter((c: ResearchContribution) => c.status === 'draft').length,
-        action_required: sortedData.filter((c: ResearchContribution) => actionRequiredStatuses.includes(c.status)).length,
-        in_progress: sortedData.filter((c: ResearchContribution) => inProgressStatuses.includes(c.status)).length,
-        completed: sortedData.filter((c: ResearchContribution) => completedStatuses.includes(c.status)).length,
-        rejected: sortedData.filter((c: ResearchContribution) => c.status === 'rejected').length,
-        totalIncentives: creditedIncentives,
-        totalPoints: creditedPoints,
-      });
+      return sortedData;
     } catch (error) {
       console.error('Error fetching contributions:', error);
+      return [];
     } finally {
       setLoading(false);
     }
   };
+
+  // Calculate stats whenever contributions or grants change
+  useEffect(() => {
+    const actionRequiredStatuses = ['changes_required'];
+    const inProgressStatuses = ['submitted', 'under_review', 'resubmitted', 'pending_mentor_approval'];
+    const completedStatuses = ['approved', 'completed'];
+    
+    const completedContribs = contributions.filter((c: ResearchContribution) => 
+      completedStatuses.includes(c.status)
+    );
+    
+    // Calculate total incentives (credited only)
+    const creditedIncentives = completedContribs.reduce((sum: number, c: ResearchContribution) => 
+      sum + (Number(c.incentiveAmount) || 0), 0
+    );
+    
+    const creditedPoints = completedContribs.reduce((sum: number, c: ResearchContribution) => 
+      sum + (Number(c.pointsAwarded) || 0), 0
+    );
+    
+    // Add grant stats
+    const completedGrants = grants.filter((g: GrantApplication) => 
+      ['approved', 'completed'].includes(g.status)
+    );
+    
+    const grantIncentives = completedGrants.reduce((sum: number, g: GrantApplication) => 
+      sum + (Number(g.incentiveAmount) || 0), 0
+    );
+    
+    const grantPoints = completedGrants.reduce((sum: number, g: GrantApplication) => 
+      sum + (Number(g.pointsAwarded) || 0), 0
+    );
+    
+    setStats({
+      total: contributions.length + grants.length,
+      drafts: contributions.filter((c: ResearchContribution) => c.status === 'draft').length + 
+              grants.filter((g: GrantApplication) => g.status === 'draft').length,
+      action_required: contributions.filter((c: ResearchContribution) => actionRequiredStatuses.includes(c.status)).length +
+                       grants.filter((g: GrantApplication) => g.status === 'changes_required').length,
+      in_progress: contributions.filter((c: ResearchContribution) => inProgressStatuses.includes(c.status)).length +
+                   grants.filter((g: GrantApplication) => ['submitted', 'under_review', 'resubmitted'].includes(g.status)).length,
+      completed: contributions.filter((c: ResearchContribution) => completedStatuses.includes(c.status)).length +
+                 grants.filter((g: GrantApplication) => ['approved', 'completed'].includes(g.status)).length,
+      rejected: contributions.filter((c: ResearchContribution) => c.status === 'rejected').length +
+                grants.filter((g: GrantApplication) => g.status === 'rejected').length,
+      totalIncentives: creditedIncentives + grantIncentives,
+      totalPoints: creditedPoints + grantPoints,
+    });
+  }, [contributions, grants]);
 
   const getFilteredContributions = useCallback(() => {
     if (!Array.isArray(contributions)) return [];
@@ -147,7 +191,7 @@ export default function MyContributionsPage() {
     }
     
     // Publication type filter
-    if (publicationTypeFilter) {
+    if (publicationTypeFilter && publicationTypeFilter !== 'grant') {
       filtered = filtered.filter(c => c.publicationType === publicationTypeFilter);
     }
     
@@ -164,6 +208,40 @@ export default function MyContributionsPage() {
     
     return filtered;
   }, [contributions, activeTab, publicationTypeFilter, searchQuery]);
+
+  const getFilteredGrants = useCallback(() => {
+    if (!Array.isArray(grants)) return [];
+    
+    let filtered = [...grants];
+    
+    // Tab filter
+    if (activeTab === 'action_required') {
+      filtered = filtered.filter(g => g.status === 'changes_required');
+    } else if (activeTab === 'draft') {
+      filtered = filtered.filter(g => g.status === 'draft');
+    } else if (activeTab === 'in_progress') {
+      filtered = filtered.filter(g => ['submitted', 'under_review', 'resubmitted'].includes(g.status));
+    } else if (activeTab === 'completed') {
+      filtered = filtered.filter(g => ['approved', 'completed', 'rejected'].includes(g.status));
+    }
+    
+    // Publication type filter
+    if (publicationTypeFilter && publicationTypeFilter !== 'grant') {
+      return []; // Don't show grants if filtering by other publication types
+    }
+    
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(g => 
+        g.title.toLowerCase().includes(query) ||
+        g.applicationNumber?.toLowerCase().includes(query) ||
+        g.agencyName?.toLowerCase().includes(query)
+      );
+    }
+    
+    return filtered;
+  }, [grants, activeTab, publicationTypeFilter, searchQuery]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -210,7 +288,38 @@ export default function MyContributionsPage() {
     }
   };
 
+  const handleGrantDelete = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm('Are you sure you want to delete this grant application?')) return;
+    
+    try {
+      await researchService.deleteGrantApplication(id);
+      fetchGrants();
+    } catch (error) {
+      console.error('Error deleting grant:', error);
+      alert('Failed to delete grant application');
+    }
+  };
+
+  const handleGrantSubmit = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm('Submit this grant application for review?')) return;
+    
+    try {
+      await researchService.submitGrantApplication(id);
+      fetchGrants();
+    } catch (error) {
+      console.error('Error submitting grant:', error);
+      alert('Failed to submit grant application');
+    }
+  };
+
   const filteredContributions = getFilteredContributions();
+  const filteredGrants = getFilteredGrants();
 
   if (loading) {
     return (
@@ -366,7 +475,7 @@ export default function MyContributionsPage() {
 
         {/* Contributions List */}
         <div className="divide-y divide-gray-100">
-          {filteredContributions.length === 0 ? (
+          {filteredContributions.length === 0 && filteredGrants.length === 0 ? (
             <div className="py-16 text-center">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <FolderOpen className="w-8 h-8 text-gray-400" />
@@ -386,6 +495,108 @@ export default function MyContributionsPage() {
               </Link>
             </div>
           ) : (
+            <>
+            {/* Grant Applications */}
+            {filteredGrants.map((grant, index) => {
+              const statusConfig = STATUS_CONFIG[grant.status] || STATUS_CONFIG.draft;
+              const StatusIcon = statusConfig.icon;
+              const pubTypeConfig = PUBLICATION_TYPE_CONFIG['grant'];
+              const PubTypeIcon = pubTypeConfig?.icon || FileText;
+              
+              return (
+                <div key={`grant-${grant.id}`} className="relative">
+                  <Link
+                    href={`/research/grant/${grant.id}`}
+                    className={`block p-5 hover:bg-gray-50/80 transition-all duration-200 ${
+                      index === 0 ? 'rounded-t-none' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      {/* Grant Type Icon */}
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${pubTypeConfig?.gradient || 'bg-gradient-to-br from-blue-500 to-blue-600'} shadow-lg`}>
+                        <PubTypeIcon className="w-6 h-6 text-white" />
+                      </div>
+                      
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 line-clamp-1 mb-1">
+                              {grant.title}
+                            </h3>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+                              <span className="inline-flex items-center">
+                                <span className="font-medium text-gray-700">{grant.agencyName || 'N/A'}</span>
+                              </span>
+                              {grant.submittedAmount && (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                  Amount: ₹{Number(grant.submittedAmount).toLocaleString()}
+                                </span>
+                              )}
+                              {grant.applicationNumber && (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                  {grant.applicationNumber}
+                                </span>
+                              )}
+                            </div>
+                            {grant.projectType && (
+                              <div className="mt-2">
+                                <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded">
+                                  {grant.projectType === 'indian' ? 'Indian Project' : 'International Project'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Status & Actions */}
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${statusConfig.borderColor} ${statusConfig.bgColor} ${statusConfig.color}`}>
+                              <StatusIcon className="w-3.5 h-3.5 mr-1.5" />
+                              {statusConfig.label}
+                            </div>
+                            
+                            {/* Action Buttons for Draft */}
+                            {grant.status === 'draft' && (
+                              <div className="flex items-center gap-1" onClick={(e) => e.preventDefault()}>
+                                <button
+                                  onClick={(e) => handleGrantSubmit(grant.id, e)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Submit for review"
+                                >
+                                  <Send className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleGrantDelete(grant.id, e)}
+                                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Delete draft"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                            
+                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                          </div>
+                        </div>
+                        
+                        {/* Date Info */}
+                        <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+                          <span>Created: {new Date(grant.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                          {grant.updatedAt && grant.updatedAt !== grant.createdAt && (
+                            <span>Updated: {new Date(grant.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                </div>
+              );
+            })}
+            
+            {/* Research Contributions */}
+            {(
             filteredContributions.map((contribution, index) => {
               const statusConfig = STATUS_CONFIG[contribution.status] || STATUS_CONFIG.draft;
               const StatusIcon = statusConfig.icon;
@@ -525,6 +736,8 @@ export default function MyContributionsPage() {
                 </div>
               );
             })
+            )}
+            </>
           )}
         </div>
       </div>

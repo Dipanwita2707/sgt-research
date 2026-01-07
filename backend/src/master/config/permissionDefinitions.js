@@ -145,6 +145,19 @@ const CENTRAL_DEPARTMENT_PERMISSIONS = {
     
     // Assign Schools for Conference - DRD Head can assign schools to DRD member reviewers
     { key: 'conference_assign_school', label: 'Assign Schools to DRD Members (Conference)', category: 'Conference Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Conference' },
+    
+    // ========== Grant/Funding Permissions ==========
+    // Grant Filing - Faculty/Student have this by default, Staff/Admin need explicit assignment
+    { key: 'grant_file_new', label: 'Grant Filing', category: 'Grant Permissions', type: 'action', description: 'Can file new grant/funding applications (Faculty/Student have this by default)' },
+    
+    // Grant Review - DRD Member can review grant applications from assigned schools
+    { key: 'grant_review', label: 'Grant Review', category: 'Grant Permissions', type: 'action', description: 'DRD Member - Can review grant/funding applications from assigned schools' },
+    
+    // Grant Approve - DRD Head can give final approval/rejection
+    { key: 'grant_approve', label: 'Grant Approve', category: 'Grant Permissions', type: 'action', description: 'DRD Head - Can give final approval/rejection on grant/funding applications' },
+    
+    // Assign Schools for Grant - DRD Head can assign schools to DRD member reviewers
+    { key: 'grant_assign_school', label: 'Assign Schools to DRD Members (Grant)', category: 'Grant Permissions', type: 'action', description: 'DRD Head - Can assign schools to DRD member reviewers for Grant/Funding' },
   ],
   
   // Finance Department

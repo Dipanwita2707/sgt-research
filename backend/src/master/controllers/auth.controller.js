@@ -231,6 +231,18 @@ exports.getMe = async (req, res) => {
       });
     }
 
+    console.log('\n=== /auth/me DEBUG ===');
+    console.log('User ID:', user.id);
+    console.log('Has employeeDetails:', !!user.employeeDetails);
+    if (user.employeeDetails) {
+      console.log('primarySchoolId:', user.employeeDetails.primarySchoolId);
+      console.log('primaryDepartmentId:', user.employeeDetails.primaryDepartmentId);
+      console.log('Has primarySchool relation:', !!user.employeeDetails.primarySchool);
+      console.log('Has primaryDepartment relation:', !!user.employeeDetails.primaryDepartment);
+      console.log('primarySchool:', user.employeeDetails.primarySchool);
+      console.log('primaryDepartment:', user.employeeDetails.primaryDepartment);
+    }
+
     // Format user data to match frontend expectations
     // Note: user.role is a scalar enum field (UserRoleEnum), not a relation
     const userDetails = {
@@ -315,6 +327,9 @@ exports.getMe = async (req, res) => {
           name: user.employeeDetails.designation
         } : null
       };
+
+      console.log('=== AUTH /me RETURNING ===');
+      console.log('Department:', JSON.stringify(departmentInfo, null, 2));
     }
 
     if (user.studentLogin) {

@@ -15,7 +15,8 @@ import {
   Clock,
   BookOpen,
   GraduationCap,
-  Briefcase
+  Briefcase,
+  TrendingUp
 } from 'lucide-react';
 import api from '@/lib/api';
 import PermissionBasedDashboard from './PermissionBasedDashboard';
@@ -376,6 +377,19 @@ export default function StaffDashboard() {
                   <User className="w-4 h-4 text-blue-600" />
                 </div>
                 <span className="text-sm font-medium text-gray-700">My Profile</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
+            </Link>
+
+            <Link 
+              href="/research/progress-tracker" 
+              className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-indigo-600" />
+                </div>
+                <span className="text-sm font-medium text-gray-700">Research Progress Tracker</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
             </Link>

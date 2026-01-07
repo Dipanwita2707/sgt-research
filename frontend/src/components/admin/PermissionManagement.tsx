@@ -59,6 +59,12 @@ export default function PermissionManagement() {
         { key: 'conference_review', label: 'Conference Paper Review', category: 'Conference Permissions', description: 'DRD Member - Can review conference paper contributions from assigned schools' },
         { key: 'conference_approve', label: 'Conference Paper Approve', category: 'Conference Permissions', description: 'DRD Head - Can give final approval/rejection on conference paper contributions' },
         { key: 'conference_assign_school', label: 'Assign Schools to DRD Members (Conference)', category: 'Conference Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Conference' },
+        
+        // Grant/Funding Permissions - 4 checkboxes
+        { key: 'grant_file_new', label: 'Grant Filing', category: 'Grant Permissions', description: 'Can file new grant/funding applications (Faculty/Student have this by default)' },
+        { key: 'grant_review', label: 'Grant Review', category: 'Grant Permissions', description: 'DRD Member - Can review grant/funding applications from assigned schools' },
+        { key: 'grant_approve', label: 'Grant Approve', category: 'Grant Permissions', description: 'DRD Head - Can give final approval/rejection on grant/funding applications' },
+        { key: 'grant_assign_school', label: 'Assign Schools to DRD Members (Grant)', category: 'Grant Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Grant/Funding' },
       ],
       HR: [
         { key: 'hr_view_employees', label: 'View Employees', category: 'HR' },
