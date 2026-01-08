@@ -6,9 +6,10 @@ interface ConferencePaperStatusFormProps {
   status: ResearchTrackerStatus;
   data: Record<string, unknown>;
   onChange: (data: Record<string, unknown>) => void;
+  conferenceSubType?: string;
 }
 
-export default function ConferencePaperStatusForm({ status, data, onChange }: ConferencePaperStatusFormProps) {
+export default function ConferencePaperStatusForm({ status, data, onChange, conferenceSubType }: ConferencePaperStatusFormProps) {
   const handleChange = (field: string, value: unknown) => {
     onChange({ ...data, [field]: value });
   };
@@ -17,37 +18,18 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
     case 'communicated':
       return (
         <div className="space-y-4">
-          {/* Conference Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Conference Type <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={(data.conferenceSubType as string) || ''}
-              onChange={(e) => handleChange('conferenceSubType', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            >
-              <option value="">-- Please Select --</option>
-              <option value="paper_not_indexed">Papers in Conferences (not Indexed) / Seminars / Workshops</option>
-              <option value="paper_indexed_scopus">Paper in conference proceeding indexed in Scopus</option>
-              <option value="keynote_speaker_invited_talks">Keynote Speaker / Session chair / Invited Talks (Outside SGT)</option>
-              <option value="organizer_coordinator_member">Organizer / Coordinator / Member of conference held at SGT</option>
-            </select>
-          </div>
-
-          {/* Conference Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Conference Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={(data.conferenceName as string) || ''}
-              onChange={(e) => handleChange('conferenceName', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="Enter conference name"
-            />
-          </div>
+          {/* Show conference type info banner */}
+          {conferenceSubType && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+              <p className="text-sm text-purple-800">
+                <span className="font-semibold">Conference Type:</span>{' '}
+                {conferenceSubType === 'paper_not_indexed' && 'Papers in Conferences (not Indexed) / Seminars / Workshops'}
+                {conferenceSubType === 'paper_indexed_scopus' && 'Paper in conference proceeding indexed in Scopus'}
+                {conferenceSubType === 'keynote_speaker_invited_talks' && 'Keynote Speaker / Session chair / Invited Talks'}
+                {conferenceSubType === 'organizer_coordinator_member' && 'Organizer / Coordinator / Member of conference'}
+              </p>
+            </div>
+          )}
 
           {/* Conference Date Range */}
           <div className="grid grid-cols-2 gap-4">
@@ -71,8 +53,8 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
             </div>
           </div>
 
-          {/* Proceedings Title & Quartile (for indexed conferences) */}
-          {(data.conferenceSubType === 'paper_not_indexed' || data.conferenceSubType === 'paper_indexed_scopus') && (
+          {/* Proceedings Title & Quartile (for paper conferences only) */}
+          {(conferenceSubType === 'paper_not_indexed' || conferenceSubType === 'paper_indexed_scopus') && (
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Title of the Proceedings</label>
@@ -84,7 +66,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
                   placeholder="Enter proceedings title"
                 />
               </div>
-              {data.conferenceSubType === 'paper_indexed_scopus' && (
+              {conferenceSubType === 'paper_indexed_scopus' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Proceedings Quartile <span className="text-red-500">*</span>
@@ -118,7 +100,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
                       type="radio"
                       name="conferenceType"
                       value={v}
-                      checked={(data.conferenceType as string) === v}
+                      checked={((data.conferenceType as string) || '') === v}
                       onChange={(e) => handleChange('conferenceType', e.target.value)}
                       className="w-4 h-4 text-indigo-600"
                     />
@@ -136,7 +118,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
                       type="radio"
                       name="virtualConference"
                       value={v}
-                      checked={(data.virtualConference as string) === v}
+                      checked={((data.virtualConference as string) || '') === v}
                       onChange={(e) => handleChange('virtualConference', e.target.value)}
                       className="w-4 h-4 text-indigo-600"
                     />
@@ -156,6 +138,75 @@ export default function ConferencePaperStatusForm({ status, data, onChange }: Co
               onChange={(e) => handleChange('submissionDate', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
+          </div>
+        </div>
+      );
+
+    case 'submitted':
+      return (
+        <div className="space-y-4">
+          {/* Submission Date & Paper ID */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Submission Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={(data.submissionDate as string) || ''}
+                onChange={(e) => handleChange('submissionDate', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Paper/Manuscript ID</label>
+              <input
+                type="text"
+                value={(data.manuscriptId as string) || ''}
+                onChange={(e) => handleChange('manuscriptId', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="Conference assigned ID"
+              />
+            </div>
+          </div>
+
+          {/* Submission Portal/Link */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Portal/Link</label>
+            <input
+              type="url"
+              value={(data.submissionPortal as string) || ''}
+              onChange={(e) => handleChange('submissionPortal', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="https://..."
+            />
+          </div>
+
+          {/* Progress Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Progress Notes</label>
+            <textarea
+              value={(data.progressNotes as string) || ''}
+              onChange={(e) => handleChange('progressNotes', e.target.value)}
+              rows={3}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="Brief update on submission status..."
+            />
+          </div>
+
+          {/* Upload Document */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Upload Submission Confirmation</label>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleChange('submissionDocument', file);
+              }}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+            <p className="text-xs text-gray-500 mt-1">Upload submission confirmation email or receipt (PDF, DOC, DOCX)</p>
           </div>
         </div>
       );

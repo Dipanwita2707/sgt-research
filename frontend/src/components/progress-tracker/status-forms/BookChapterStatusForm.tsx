@@ -147,6 +147,75 @@ export default function BookChapterStatusForm({ status, data, onChange }: BookCh
         </div>
       );
 
+    case 'submitted':
+      return (
+        <div className="space-y-4">
+          {/* Submission Date & Chapter ID */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Submission Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={(data.submissionDate as string) || ''}
+                onChange={(e) => handleChange('submissionDate', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Chapter/Manuscript ID</label>
+              <input
+                type="text"
+                value={(data.manuscriptId as string) || ''}
+                onChange={(e) => handleChange('manuscriptId', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="Publisher assigned ID"
+              />
+            </div>
+          </div>
+
+          {/* Submission Portal/Link */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Portal/Link</label>
+            <input
+              type="url"
+              value={(data.submissionPortal as string) || ''}
+              onChange={(e) => handleChange('submissionPortal', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="https://..."
+            />
+          </div>
+
+          {/* Progress Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Progress Notes</label>
+            <textarea
+              value={(data.progressNotes as string) || ''}
+              onChange={(e) => handleChange('progressNotes', e.target.value)}
+              rows={3}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="Brief update on submission status..."
+            />
+          </div>
+
+          {/* Upload Document */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Upload Submission Confirmation</label>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleChange('submissionDocument', file);
+              }}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+            <p className="text-xs text-gray-500 mt-1">Upload submission confirmation email or receipt (PDF, DOC, DOCX)</p>
+          </div>
+        </div>
+      );
+
     case 'accepted':
       return (
         <div className="space-y-4">

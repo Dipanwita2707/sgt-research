@@ -3,6 +3,7 @@ import api from '@/lib/api';
 // TypeScript Types
 export type ResearchTrackerStatus = 
   | 'communicated'
+  | 'submitted'
   | 'rejected'
   | 'accepted'
   | 'published';
@@ -365,6 +366,7 @@ const progressTrackerService = {
 // Status display helpers
 export const statusLabels: Record<ResearchTrackerStatus, string> = {
   communicated: 'Communicated',
+  submitted: 'Submitted',
   rejected: 'Rejected',
   accepted: 'Accepted',
   published: 'Published',
@@ -372,6 +374,7 @@ export const statusLabels: Record<ResearchTrackerStatus, string> = {
 
 export const statusColors: Record<ResearchTrackerStatus, string> = {
   communicated: 'bg-blue-100 text-blue-800',
+  submitted: 'bg-indigo-100 text-indigo-800',
   rejected: 'bg-red-100 text-red-800',
   accepted: 'bg-green-100 text-green-800',
   published: 'bg-emerald-100 text-emerald-800',
@@ -393,8 +396,9 @@ export const publicationTypeIcons: Record<TrackerPublicationType, string> = {
 
 // Valid status transitions
 export const validTransitions: Record<ResearchTrackerStatus, ResearchTrackerStatus[]> = {
-  communicated: ['rejected', 'accepted'],
-  rejected: ['communicated'],
+  communicated: ['submitted', 'rejected'],
+  submitted: ['rejected', 'accepted'],
+  rejected: ['communicated', 'submitted'],
   accepted: ['published'],
   published: [],
 };
