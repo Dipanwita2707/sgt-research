@@ -127,6 +127,9 @@ export interface GrantApplication {
   updatedAt: string;
   consortiumOrganizations?: GrantConsortiumOrganization[];
   investigators?: GrantInvestigator[];
+  statusHistory?: any[];
+  reviews?: any[];
+  editSuggestions?: any[];
   school?: any;
   department?: any;
   applicantUser?: any;
@@ -563,6 +566,11 @@ class ResearchService {
 
   async markGrantCompleted(id: string) {
     const response = await api.post(`/grants/${id}/review/complete`);
+    return response.data;
+  }
+
+  async respondToGrantSuggestion(suggestionId: string, accept: boolean) {
+    const response = await api.post(`/grants/suggestions/${suggestionId}/respond`, { accept });
     return response.data;
   }
 }

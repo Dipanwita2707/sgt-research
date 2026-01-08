@@ -10,6 +10,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -66,6 +67,19 @@ export const useAuthStore = create<AuthState>()(
           set({ user, isAuthenticated: true, isLoading: false });
         } catch (error) {
           console.error('AuthStore - checkAuth error:', error);
+          set({ user: null, isAuthenticated: false, isLoading: false });
+        }
+      },
+
+      refreshUser: async () => {
+        console.log('AuthStore - refreshUser: Fetching fresh user data from server');
+        set({ isLoading: true });
+        try {
+          const user = await authService.getCurrentUser();
+          console.log('AuthStore - refreshUser: Fresh user data received:', user);
+          set({ user, isAuthenticated: true, isLoading: false });
+        } catch (error) {
+          console.error('AuthStore - refreshUser error:', error);
           set({ user: null, isAuthenticated: false, isLoading: false });
         }
       },

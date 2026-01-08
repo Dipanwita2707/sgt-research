@@ -92,8 +92,14 @@ const requireResearchAccess = async (req, res, next) => {
     }
 
     const permissions = userDrdPermission.permissions || {};
-    const hasReviewPerm = permissions.research_review === true;
-    const hasApprovePerm = permissions.research_approve === true;
+    const hasReviewPerm = permissions.research_review === true || 
+                          permissions.book_review === true ||
+                          permissions.conference_review === true ||
+                          permissions.grant_review === true;
+    const hasApprovePerm = permissions.research_approve === true ||
+                           permissions.book_approve === true ||
+                           permissions.conference_approve === true ||
+                           permissions.grant_approve === true;
 
     console.log(`User ${userId} DRD permissions:`, { hasReviewPerm, hasApprovePerm, permissions });
 
@@ -101,7 +107,7 @@ const requireResearchAccess = async (req, res, next) => {
       console.log(`Access denied for user ${userId} - No research permissions`);
       return res.status(403).json({
         success: false,
-        message: 'Access denied - research_review or research_approve permission required'
+        message: 'Access denied - review or approve permission required'
       });
     }
 

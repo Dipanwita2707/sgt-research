@@ -42,6 +42,25 @@ exports.createGrantApplication = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
 
+    // Parse data from either JSON or FormData (if file upload)
+    let requestData = req.body;
+    if (req.body.data && typeof req.body.data === 'string') {
+      try {
+        requestData = JSON.parse(req.body.data);
+        console.log('Parsed FormData JSON successfully');
+      } catch (parseError) {
+        console.error('Error parsing FormData JSON:', parseError);
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid data format' 
+        });
+      }
+    }
+
+    console.log('Request data keys:', Object.keys(requestData));
+    console.log('Title value:', requestData.title);
+    console.log('File uploaded:', req.file ? req.file.filename : 'No file');
+
     const {
       title,
       agencyName,
@@ -67,7 +86,16 @@ exports.createGrantApplication = async (req, res) => {
       status,
       consortiumOrganizations,
       investigators
-    } = req.body;
+    } = requestData;
+    
+    // Validate required field: title
+    if (!title || !title.trim()) {
+      console.error('Title validation failed. Title value:', title);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Title is required' 
+      });
+    }
 
     // Always create as draft first, then submit if requested
     // This ensures proper workflow tracking
@@ -85,6 +113,12 @@ exports.createGrantApplication = async (req, res) => {
       applicantType = 'internal_student';
     } else if (userLogin?.role === 'staff') {
       applicantType = 'internal_staff';
+    }
+
+    // Handle file upload
+    let proposalFilePath = null;
+    if (req.file) {
+      proposalFilePath = `/uploads/research/grants/${req.file.filename}`;
     }
 
     // Create grant application with nested relations
@@ -116,6 +150,7 @@ exports.createGrantApplication = async (req, res) => {
         departmentId: departmentId || null,
         status: createStatus,
         submittedAt: null,
+        proposalFilePath: proposalFilePath,
         // Create consortium organizations
         consortiumOrganizations: projectType === 'international' && consortiumOrganizations?.length > 0 ? {
           create: consortiumOrganizations.map((org, index) => ({
@@ -159,7 +194,7 @@ exports.createGrantApplication = async (req, res) => {
             designation: inv.designation || null,
             affiliation: inv.affiliation || null,
             department: inv.department || null,
-            roleType: inv.roleType || 'co_investigator',
+            roleType: inv.roleType || 'co_pi',
             isInternal: inv.isInternal !== false,
             investigatorType: inv.investigatorType || 'Faculty',
             consortiumOrgId: inv.consortiumOrgId ? orgIdMap[inv.consortiumOrgId] : null,
@@ -343,6 +378,14 @@ exports.getGrantApplicationById = async (req, res) => {
             }
           },
           orderBy: { changedAt: 'desc' }
+        },
+        editSuggestions: {
+          include: {
+            reviewer: {
+              select: { uid: true, employeeDetails: { select: { displayName: true } } }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
         }
       }
     });
@@ -353,6 +396,8 @@ exports.getGrantApplicationById = async (req, res) => {
         message: 'Grant application not found'
       });
     }
+
+    console.log('Grant fetched with', grant.editSuggestions?.length || 0, 'edit suggestions');
 
     res.json({
       success: true,
@@ -502,7 +547,7 @@ exports.updateGrantApplication = async (req, res) => {
             designation: inv.designation || null,
             affiliation: inv.affiliation || null,
             department: inv.department || null,
-            roleType: inv.roleType || 'co_investigator',
+            roleType: inv.roleType || 'co_pi',
             isInternal: inv.isInternal !== false,
             investigatorType: inv.investigatorType || 'Faculty',
             consortiumOrgId: inv.consortiumOrgId ? orgIdMap[inv.consortiumOrgId] : null,
@@ -582,12 +627,16 @@ exports.submitGrantApplication = async (req, res) => {
       applicationNumber = await generateApplicationNumber();
     }
 
+    // Determine new status based on current status
+    const newStatus = grant.status === 'changes_required' ? 'resubmitted' : 'submitted';
+    const statusComment = grant.status === 'changes_required' ? 'Resubmitted after changes' : 'Application submitted for review';
+
     // Update status
     const updatedGrant = await prisma.grantApplication.update({
       where: { id },
       data: {
         applicationNumber,
-        status: 'submitted',
+        status: newStatus,
         submittedAt: new Date(),
         revisionCount: grant.status === 'changes_required' ? grant.revisionCount + 1 : grant.revisionCount
       }
@@ -598,9 +647,9 @@ exports.submitGrantApplication = async (req, res) => {
       data: {
         grantApplicationId: id,
         fromStatus: grant.status,
-        toStatus: 'submitted',
+        toStatus: newStatus,
         changedById: userId,
-        comments: grant.status === 'changes_required' ? 'Resubmitted after changes' : 'Application submitted for review'
+        comments: statusComment
       }
     });
 
@@ -716,9 +765,19 @@ exports.getPendingGrantReviews = async (req, res) => {
                               userDrdPermission.assignedResearchSchoolIds || 
                               [];
 
+    // Define status filter based on user permissions
+    let statusFilter;
+    if (hasApprovePerm) {
+      // Approvers can see: submitted, under_review, resubmitted, AND recommended
+      statusFilter = ['submitted', 'under_review', 'resubmitted', 'recommended'];
+    } else {
+      // Reviewers (without approve permission) see: submitted, under_review, resubmitted
+      statusFilter = ['submitted', 'under_review', 'resubmitted'];
+    }
+
     const whereClause = {
       status: {
-        in: ['submitted', 'under_review', 'resubmitted']
+        in: statusFilter
       }
     };
 
@@ -844,10 +903,10 @@ exports.requestChanges = async (req, res) => {
     const userId = req.user?.id;
     const { comments, suggestions } = req.body;
 
-    if (!comments) {
+    if (!comments && (!suggestions || suggestions.length === 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Comments are required when requesting changes'
+        message: 'Comments or field suggestions are required when requesting changes'
       });
     }
 
@@ -862,10 +921,10 @@ exports.requestChanges = async (req, res) => {
       });
     }
 
-    if (grant.status !== 'under_review') {
+    if (!['under_review', 'resubmitted', 'recommended'].includes(grant.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Changes can only be requested for applications under review'
+        message: 'Changes can only be requested for applications under review, resubmitted, or recommended'
       });
     }
 
@@ -885,19 +944,41 @@ exports.requestChanges = async (req, res) => {
         reviewerId: userId,
         reviewerRole: 'reviewer',
         decision: 'changes_required',
-        comments,
+        comments: comments || 'Field changes suggested',
         reviewedAt: new Date()
       }
     });
+
+    // Save field suggestions if provided
+    if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+      console.log('Saving field suggestions:', suggestions);
+      await Promise.all(suggestions.map(suggestion => 
+        prisma.grantApplicationEditSuggestion.create({
+          data: {
+            grantApplicationId: id,
+            reviewerId: userId,
+            fieldName: suggestion.fieldName,
+            fieldPath: suggestion.fieldPath,
+            originalValue: suggestion.originalValue || '',
+            suggestedValue: suggestion.suggestedValue || '',
+            suggestionNote: suggestion.note || '',
+            status: 'pending'
+          }
+        })
+      ));
+      console.log('Field suggestions saved successfully');
+    } else {
+      console.log('No suggestions to save or suggestions is not an array:', suggestions);
+    }
 
     // Create status history
     await prisma.grantApplicationStatusHistory.create({
       data: {
         grantApplicationId: id,
-        fromStatus: 'under_review',
+        fromStatus: grant.status, // Use the current status before update
         toStatus: 'changes_required',
         changedById: userId,
-        comments
+        comments: comments || 'Field changes suggested'
       }
     });
 
@@ -937,17 +1018,19 @@ exports.recommendForApproval = async (req, res) => {
       });
     }
 
-    if (grant.status !== 'under_review') {
+    if (!['under_review', 'resubmitted'].includes(grant.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only applications under review can be recommended'
+        message: 'Only applications under review or resubmitted can be recommended'
       });
     }
 
-    // Keep status as under_review (waiting for DRD head approval)
+    // Change status to recommended (waiting for DRD head approval)
+    const previousStatus = grant.status;
     const updatedGrant = await prisma.grantApplication.update({
       where: { id },
       data: {
+        status: 'recommended',
         currentReviewerId: null
       }
     });
@@ -968,8 +1051,8 @@ exports.recommendForApproval = async (req, res) => {
     await prisma.grantApplicationStatusHistory.create({
       data: {
         grantApplicationId: id,
-        fromStatus: 'under_review',
-        toStatus: 'under_review',
+        fromStatus: previousStatus,
+        toStatus: 'recommended',
         changedById: userId,
         comments: comments || 'Recommended for approval by reviewer'
       }
@@ -1011,21 +1094,73 @@ exports.approveGrant = async (req, res) => {
       });
     }
 
-    if (grant.status !== 'under_review') {
+    if (!['under_review', 'resubmitted', 'recommended'].includes(grant.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only applications under review can be approved'
+        message: 'Only applications under review, resubmitted, or recommended can be approved'
       });
     }
 
-    // Update status to approved
+    const previousStatus = grant.status;
+
+    // Calculate incentives based on policy
+    let calculatedIncentiveAmount = null;
+    let calculatedPoints = null;
+
+    try {
+      const currentDate = new Date();
+      const policy = await prisma.grantIncentivePolicy.findFirst({
+        where: {
+          projectCategory: grant.projectCategory,
+          projectType: grant.projectType,
+          isActive: true,
+          effectiveFrom: { lte: currentDate },
+          OR: [
+            { effectiveTo: null },
+            { effectiveTo: { gte: currentDate } }
+          ]
+        },
+        orderBy: { effectiveFrom: 'desc' }
+      });
+
+      if (policy) {
+        // Calculate base incentive
+        calculatedIncentiveAmount = parseFloat(policy.baseIncentiveAmount.toString());
+        calculatedPoints = policy.basePoints;
+
+        // Add international bonus if applicable
+        if (grant.projectType === 'international' && policy.internationalBonus) {
+          calculatedIncentiveAmount += parseFloat(policy.internationalBonus.toString());
+        }
+
+        // Add consortium bonus if applicable
+        if (grant.numberOfConsortiumOrgs && grant.numberOfConsortiumOrgs > 0 && policy.consortiumBonus) {
+          calculatedIncentiveAmount += parseFloat(policy.consortiumBonus.toString()) * grant.numberOfConsortiumOrgs;
+        }
+
+        console.log(`Grant ${grant.applicationNumber} - Calculated incentive: ₹${calculatedIncentiveAmount}, Points: ${calculatedPoints}`);
+      } else {
+        console.log(`No active policy found for ${grant.projectCategory} ${grant.projectType} grant`);
+      }
+    } catch (policyError) {
+      console.error('Error calculating grant incentive:', policyError);
+      // Continue with approval even if policy calculation fails
+    }
+
+    // Update status to approved with calculated incentives
     const updatedGrant = await prisma.grantApplication.update({
       where: { id },
       data: {
         status: 'approved',
         approvedAt: new Date(),
         approvedById: userId,
-        currentReviewerId: null
+        currentReviewerId: null,
+        calculatedIncentiveAmount: calculatedIncentiveAmount,
+        calculatedPoints: calculatedPoints,
+        // Initially set incentive amount and points to calculated values
+        // Finance can adjust these later if needed
+        incentiveAmount: calculatedIncentiveAmount,
+        pointsAwarded: calculatedPoints
       }
     });
 
@@ -1045,7 +1180,7 @@ exports.approveGrant = async (req, res) => {
     await prisma.grantApplicationStatusHistory.create({
       data: {
         grantApplicationId: id,
-        fromStatus: 'under_review',
+        fromStatus: previousStatus,
         toStatus: 'approved',
         changedById: userId,
         comments: comments || 'Grant application approved by DRD'
@@ -1095,7 +1230,7 @@ exports.rejectGrant = async (req, res) => {
       });
     }
 
-    if (!['under_review', 'submitted', 'resubmitted'].includes(grant.status)) {
+    if (!['under_review', 'submitted', 'resubmitted', 'recommended'].includes(grant.status)) {
       return res.status(400).json({
         success: false,
         message: 'Grant application cannot be rejected in its current status'
@@ -1209,6 +1344,109 @@ exports.markCompleted = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to mark grant as completed',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Accept or reject a field suggestion for grant application
+ */
+exports.respondToGrantSuggestion = async (req, res) => {
+  try {
+    const { suggestionId } = req.params;
+    const { accept } = req.body;
+    const userId = req.user?.id;
+
+    const suggestion = await prisma.grantApplicationEditSuggestion.findUnique({
+      where: { id: suggestionId },
+      include: {
+        grantApplication: true
+      }
+    });
+
+    if (!suggestion) {
+      return res.status(404).json({
+        success: false,
+        message: 'Suggestion not found'
+      });
+    }
+
+    // Verify applicant is the owner
+    if (suggestion.grantApplication.applicantUserId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to respond to this suggestion'
+      });
+    }
+
+    if (suggestion.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'This suggestion has already been responded to'
+      });
+    }
+
+    // Update suggestion status
+    const updatedSuggestion = await prisma.grantApplicationEditSuggestion.update({
+      where: { id: suggestionId },
+      data: {
+        status: accept ? 'accepted' : 'rejected',
+        respondedAt: new Date()
+      }
+    });
+
+    // If accepted, update the grant field
+    if (accept) {
+      const updateData = {};
+      let value = suggestion.suggestedValue;
+      
+      // Convert value based on field type
+      const fieldName = suggestion.fieldName;
+      
+      // Number fields
+      if (['submittedAmount', 'totalInvestigators', 'numberOfInternalPIs', 'numberOfInternalCoPIs', 'numberOfConsortiumOrgs', 'projectDurationMonths'].includes(fieldName)) {
+        value = parseInt(value, 10);
+      }
+      // Date fields - convert to ISO DateTime
+      else if (['dateOfSubmission', 'projectStartDate', 'projectEndDate'].includes(fieldName)) {
+        // Add time component if not present
+        if (value && !value.includes('T')) {
+          value = new Date(value + 'T00:00:00.000Z').toISOString();
+        }
+      }
+      // Array fields
+      else if (fieldName === 'sdgGoals') {
+        value = value ? value.split(',').filter(Boolean) : [];
+      }
+      // Boolean fields
+      else if (fieldName === 'isPIExternal') {
+        value = value === 'true' || value === true;
+      }
+      // Enum fields - convert to lowercase
+      else if (['fundingAgencyType', 'projectStatus', 'projectCategory'].includes(fieldName)) {
+        value = value ? value.toLowerCase() : value;
+      }
+      
+      updateData[fieldName] = value;
+      
+      await prisma.grantApplication.update({
+        where: { id: suggestion.grantApplicationId },
+        data: updateData
+      });
+    }
+
+    res.json({
+      success: true,
+      message: accept ? 'Suggestion accepted and applied' : 'Suggestion rejected',
+      data: updatedSuggestion
+    });
+
+  } catch (error) {
+    console.error('Error responding to suggestion:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to respond to suggestion',
       error: error.message
     });
   }

@@ -31,7 +31,17 @@ exports.login = async (req, res) => {
         uid: sanitizedUsername
       },
       include: {
-        employeeDetails: true,
+        employeeDetails: {
+          include: {
+            primaryDepartment: {
+              include: {
+                faculty: true
+              }
+            },
+            primarySchool: true,
+            primaryCentralDept: true
+          }
+        },
         studentLogin: {
           include: {
             section: {
@@ -48,7 +58,8 @@ exports.login = async (req, res) => {
               }
             }
           }
-        }
+        },
+        departmentPermissions: true
       }
     });
 
@@ -92,8 +103,12 @@ exports.login = async (req, res) => {
       firstName: null,
       lastName: null,
       uid: user.uid,
-      role: user.role,
-      profileImage: user.profileImage
+      role: {
+        name: user.role,
+        displayName: user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null
+      },
+      profileImage: user.profileImage,
+      permissions: user.departmentPermissions || []
     };
 
     if (user.employeeDetails) {
@@ -103,6 +118,64 @@ exports.login = async (req, res) => {
         empId: user.employeeDetails.empId,
         designation: user.employeeDetails.designation,
         displayName: user.employeeDetails.displayName
+      };
+      
+      // Determine school/department display (same logic as /auth/me)
+      let departmentInfo = null;
+      let schoolInfo = null;
+      
+      // Priority: Use primarySchool if directly assigned
+      if (user.employeeDetails.primarySchool) {
+        schoolInfo = {
+          id: user.employeeDetails.primarySchool.id,
+          name: user.employeeDetails.primarySchool.facultyName
+        };
+      }
+      // Otherwise, use school from department if department exists
+      else if (user.employeeDetails.primaryDepartment?.faculty) {
+        schoolInfo = {
+          id: user.employeeDetails.primaryDepartment.faculty.id,
+          name: user.employeeDetails.primaryDepartment.faculty.facultyName
+        };
+      }
+      
+      // Set department info if exists
+      if (user.employeeDetails.primaryDepartment) {
+        departmentInfo = {
+          id: user.employeeDetails.primaryDepartment.id,
+          name: user.employeeDetails.primaryDepartment.departmentName,
+          school: schoolInfo
+        };
+      }
+      // If no department but has central department, create a special structure
+      else if (user.employeeDetails.primaryCentralDept) {
+        departmentInfo = {
+          id: user.employeeDetails.primaryCentralDept.id,
+          name: user.employeeDetails.primaryCentralDept.departmentName,
+          school: {
+            id: user.employeeDetails.primaryCentralDept.id,
+            name: 'Central Department'
+          }
+        };
+      }
+      // If only school, no department
+      else if (schoolInfo) {
+        departmentInfo = {
+          id: null,
+          name: 'Not Assigned',
+          school: schoolInfo
+        };
+      }
+      
+      userDetails.employeeDetails = {
+        employeeId: user.employeeDetails.empId,
+        phone: user.employeeDetails.phoneNumber,
+        email: user.employeeDetails.email,
+        joiningDate: user.employeeDetails.joinDate,
+        department: departmentInfo,
+        designation: user.employeeDetails.designation ? {
+          name: user.employeeDetails.designation
+        } : null
       };
     }
 

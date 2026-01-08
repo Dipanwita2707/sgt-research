@@ -16,6 +16,16 @@ exports.getPendingReviews = async (req, res) => {
     const userId = req.user.id;
     const { status, publicationType, schoolId } = req.query;
 
+    // Handle grants separately - they use a different table
+    if (publicationType === 'grant') {
+      return exports.getPendingGrantReviews(req, res);
+    }
+
+    // If no publicationType specified, fetch both research contributions AND grants
+    if (!publicationType || publicationType === '') {
+      return exports.getAllPendingReviews(req, res);
+    }
+
     // Get user's DRD permissions and assigned schools
     let userDrdPermission = null;
     try {
@@ -69,10 +79,35 @@ exports.getPendingReviews = async (req, res) => {
     const hasConferenceReview = permissions.conference_review === true;
     const hasConferenceApprove = permissions.conference_approve === true;
 
+    console.log(`User ${userId} DRD permissions:`, {
+      hasReviewPerm: hasReviewPermission,
+      hasApprovePerm: hasApprovePermission,
+      permissions
+    });
+
     if (!hasApprovePermission && !hasReviewPermission) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied - No research review or approve permissions'
+      console.log(`Access denied for user ${userId} - No research permissions`);
+      // Return empty results instead of 403 to allow getAllPendingReviews to work
+      return res.status(200).json({
+        success: true,
+        data: {
+          contributions: [],
+          stats: {
+            submitted: 0,
+            underReview: 0,
+            changesRequired: 0,
+            resubmitted: 0,
+            recommended: 0,
+            approved: 0,
+            total: 0
+          },
+          userPermissions: {
+            hasApprovePermission: false,
+            hasReviewPermission: false,
+            canReview: false,
+            canApprove: false
+          }
+        }
       });
     }
 
@@ -428,54 +463,436 @@ exports.getPendingReviews = async (req, res) => {
 };
 
 /**
+ * Get pending grant reviews for DRD reviewers
+ */
+exports.getPendingGrantReviews = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status, schoolId } = req.query;
+
+    // Get user's DRD permissions and assigned schools
+    let userDrdPermission = null;
+    try {
+      const drdDept = await prisma.centralDepartment.findFirst({
+        where: {
+          OR: [
+            { departmentCode: 'DRD' },
+            { departmentCode: 'drd' },
+            { shortName: 'DRD' }
+          ]
+        }
+      });
+
+      if (drdDept) {
+        userDrdPermission = await prisma.centralDepartmentPermission.findFirst({
+          where: {
+            userId,
+            isActive: true,
+            centralDeptId: drdDept.id
+          },
+          select: {
+            permissions: true,
+            assignedGrantSchoolIds: true
+          }
+        });
+      }
+    } catch (permError) {
+      console.log('Note: Error fetching DRD permissions:', permError.message);
+    }
+
+    const permissions = userDrdPermission?.permissions || {};
+    const assignedSchoolIds = userDrdPermission?.assignedGrantSchoolIds || [];
+
+    // Check grant permissions
+    const hasGrantApprove = permissions.grant_approve === true;
+    const hasGrantReview = permissions.grant_review === true;
+
+    console.log(`User ${userId} DRD grant permissions:`, {
+      hasReviewPerm: hasGrantReview,
+      hasApprovePerm: hasGrantApprove,
+      assignedGrantSchoolIds: assignedSchoolIds,
+      permissions
+    });
+
+    if (!hasGrantApprove && !hasGrantReview) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - No grant review or approve permissions'
+      });
+    }
+
+    // Build where clause for grants based on permission type
+    let whereClause = {};
+
+    if (hasGrantApprove && !hasGrantReview) {
+      // ONLY approve permission: Show recommended grants
+      const pendingStatuses = ['recommended'];
+      
+      // Prepare school filter conditions
+      const schoolOrConditions = [];
+      
+      // Add assigned schools
+      if (assignedSchoolIds && assignedSchoolIds.length > 0) {
+        schoolOrConditions.push({ schoolId: { in: assignedSchoolIds } });
+      }
+      
+      if (schoolOrConditions.length > 0) {
+        whereClause = {
+          AND: [
+            {
+              status: {
+                in: status ? [status] : [...pendingStatuses, 'approved']
+              }
+            },
+            {
+              OR: schoolOrConditions
+            }
+          ]
+        };
+      } else {
+        // No assigned schools - show all recommended and approved
+        whereClause = {
+          status: {
+            in: status ? [status] : [...pendingStatuses, 'approved']
+          }
+        };
+      }
+    } else if (hasGrantReview && !hasGrantApprove) {
+      // ONLY review permission: Show grants in review stages
+      const pendingStatuses = ['submitted', 'under_review', 'changes_required', 'resubmitted'];
+      
+      // Prepare school filter conditions
+      const schoolOrConditions = [];
+      
+      // Add assigned schools
+      if (assignedSchoolIds && assignedSchoolIds.length > 0) {
+        schoolOrConditions.push({ schoolId: { in: assignedSchoolIds } });
+      }
+      
+      if (schoolOrConditions.length > 0) {
+        whereClause = {
+          AND: [
+            {
+              status: {
+                in: status ? [status] : pendingStatuses
+              }
+            },
+            {
+              OR: schoolOrConditions
+            }
+          ]
+        };
+      } else {
+        // No assigned schools - show all in review
+        whereClause = {
+          status: {
+            in: status ? [status] : pendingStatuses
+          }
+        };
+      }
+    } else {
+      // BOTH permissions: Show all stages
+      const pendingStatuses = ['submitted', 'under_review', 'changes_required', 'resubmitted', 'recommended'];
+      
+      // Prepare school filter conditions
+      const schoolOrConditions = [];
+      
+      // Add assigned schools
+      if (assignedSchoolIds && assignedSchoolIds.length > 0) {
+        schoolOrConditions.push({ schoolId: { in: assignedSchoolIds } });
+      }
+      
+      if (schoolOrConditions.length > 0) {
+        whereClause = {
+          AND: [
+            {
+              status: {
+                in: status ? [status] : [...pendingStatuses, 'approved']
+              }
+            },
+            {
+              OR: schoolOrConditions
+            }
+          ]
+        };
+      } else {
+        // No assigned schools - show all
+        whereClause = {
+          status: {
+            in: status ? [status] : [...pendingStatuses, 'approved']
+          }
+        };
+      }
+    }
+
+    // Add school filter
+    if (schoolId) {
+      if (whereClause.AND) {
+        whereClause.AND.push({ schoolId });
+      } else {
+        whereClause.schoolId = schoolId;
+      }
+    }
+
+    const grants = await prisma.grantApplication.findMany({
+      where: whereClause,
+      include: {
+        applicantUser: {
+          select: {
+            id: true,
+            uid: true,
+            email: true,
+            employeeDetails: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                designation: true
+              }
+            }
+          }
+        },
+        school: {
+          select: {
+            id: true,
+            facultyName: true,
+            facultyCode: true,
+            shortName: true
+          }
+        },
+        department: {
+          select: {
+            id: true,
+            departmentName: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    // Transform grants to match research contribution structure
+    const transformedGrants = grants.map(grant => ({
+      id: grant.id,
+      applicationNumber: grant.applicationNumber,
+      title: grant.title,
+      publicationType: 'grant',
+      status: grant.status,
+      applicantUserId: grant.applicantUserId,
+      schoolId: grant.schoolId,
+      departmentId: grant.departmentId,
+      submittedAt: grant.submittedAt,
+      createdAt: grant.createdAt,
+      updatedAt: grant.updatedAt,
+      calculatedIncentiveAmount: grant.calculatedIncentiveAmount,
+      calculatedPoints: grant.calculatedPoints,
+      applicantUser: grant.applicantUser,
+      school: grant.school,
+      department: grant.department,
+      reviews: [], // Grants don't have reviews in the same structure yet
+      awaitingFinalApproval: false,
+      isRecommended: false
+    }));
+
+    // Get statistics
+    const stats = {
+      submitted: grants.filter(g => g.status === 'submitted').length,
+      underReview: grants.filter(g => g.status === 'under_review').length,
+      changesRequired: grants.filter(g => g.status === 'changes_required').length,
+      resubmitted: grants.filter(g => g.status === 'resubmitted').length,
+      recommended: grants.filter(g => g.status === 'recommended').length,
+      approved: grants.filter(g => g.status === 'approved').length,
+      total: grants.length
+    };
+
+    console.log(`Found ${grants.length} grants for user ${userId}`);
+    console.log('Grant IDs:', grants.map(g => ({ id: g.id, title: g.title, status: g.status, schoolId: g.schoolId })));
+    console.log('Transformed grants:', transformedGrants.length);
+
+    // Add cache control headers to prevent caching
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        contributions: transformedGrants, // Use same key as research contributions
+        stats,
+        userPermissions: {
+          hasApprovePermission: hasGrantApprove,
+          hasReviewPermission: hasGrantReview,
+          assignedSchoolIds,
+          canReview: hasGrantReview,
+          canApprove: hasGrantApprove,
+          hasGrantReview,
+          hasGrantApprove
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get pending grant reviews error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get pending grant reviews',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get all pending reviews (both research contributions and grants combined)
+ */
+exports.getAllPendingReviews = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status, schoolId } = req.query;
+
+    // Fetch research contributions (use 'research_paper' to avoid infinite recursion)
+    const researchReq = { ...req, query: { ...req.query, publicationType: 'research_paper' } };
+    const grantReq = { ...req, query: { ...req.query, publicationType: 'grant' } };
+
+    // Get contributions and grants in parallel
+    const [researchResponse, grantResponse] = await Promise.all([
+      new Promise((resolve) => {
+        exports.getPendingReviews(researchReq, {
+          set: () => ({}),  // Mock set() method for cache headers
+          status: (code) => ({ json: (data) => resolve({ code, data }) })
+        });
+      }),
+      new Promise((resolve) => {
+        exports.getPendingGrantReviews(grantReq, {
+          set: () => ({}),  // Mock set() method for cache headers
+          status: (code) => ({ json: (data) => resolve({ code, data }) })
+        });
+      })
+    ]);
+
+    // Combine the results
+    const researchContributions = researchResponse.data?.data?.contributions || [];
+    const grants = grantResponse.data?.data?.contributions || [];
+    const allContributions = [...researchContributions, ...grants];
+
+    // Combine stats
+    const combinedStats = {
+      submitted: (researchResponse.data?.data?.stats?.submitted || 0) + (grantResponse.data?.data?.stats?.submitted || 0),
+      underReview: (researchResponse.data?.data?.stats?.underReview || 0) + (grantResponse.data?.data?.stats?.underReview || 0),
+      changesRequired: (researchResponse.data?.data?.stats?.changesRequired || 0) + (grantResponse.data?.data?.stats?.changesRequired || 0),
+      resubmitted: (researchResponse.data?.data?.stats?.resubmitted || 0) + (grantResponse.data?.data?.stats?.resubmitted || 0),
+      approved: (researchResponse.data?.data?.stats?.approved || 0) + (grantResponse.data?.data?.stats?.approved || 0),
+      total: allContributions.length
+    };
+
+    console.log(`Combined: ${researchContributions.length} research + ${grants.length} grants = ${allContributions.length} total`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        contributions: allContributions,
+        stats: combinedStats,
+        userPermissions: researchResponse.data?.data?.userPermissions || {}
+      }
+    });
+  } catch (error) {
+    console.error('Get all pending reviews error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get all pending reviews',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Start review - move to under_review status
+ * Handles both research contributions and grants
  */
 exports.startReview = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const contribution = await prisma.researchContribution.findUnique({
+    // Try to find as research contribution first
+    let contribution = await prisma.researchContribution.findUnique({
       where: { id }
     });
+
+    let isGrant = false;
+
+    // If not found, try as grant
+    if (!contribution) {
+      contribution = await prisma.grantApplication.findUnique({
+        where: { id }
+      });
+      isGrant = true;
+    }
 
     if (!contribution) {
       return res.status(404).json({
         success: false,
-        message: 'Research contribution not found'
+        message: 'Research contribution or grant not found'
       });
     }
 
     if (!['submitted', 'resubmitted'].includes(contribution.status)) {
       return res.status(400).json({
         success: false,
-        message: `Cannot start review for contribution in status: ${contribution.status}`
+        message: `Cannot start review for ${isGrant ? 'grant' : 'contribution'} in status: ${contribution.status}`
       });
     }
 
-    const updated = await prisma.researchContribution.update({
-      where: { id },
-      data: {
-        status: 'under_review',
-        currentReviewerId: userId
-      }
-    });
+    // Update the appropriate table
+    if (isGrant) {
+      const updated = await prisma.grantApplication.update({
+        where: { id },
+        data: {
+          status: 'under_review',
+          currentReviewerId: userId
+        }
+      });
 
-    await prisma.researchContributionStatusHistory.create({
-      data: {
-        researchContributionId: id,
-        fromStatus: contribution.status,
-        toStatus: 'under_review',
-        changedById: userId,
-        comments: 'Review started'
-      }
-    });
+      // Create status history for grant
+      await prisma.grantApplicationStatusHistory.create({
+        data: {
+          grantApplicationId: id,
+          fromStatus: contribution.status,
+          toStatus: 'under_review',
+          changedById: userId,
+          comments: 'Review started'
+        }
+      });
 
-    res.status(200).json({
-      success: true,
-      message: 'Review started',
-      data: updated
-    });
+      res.status(200).json({
+        success: true,
+        message: 'Grant review started',
+        data: updated
+      });
+    } else {
+      const updated = await prisma.researchContribution.update({
+        where: { id },
+        data: {
+          status: 'under_review',
+          currentReviewerId: userId
+        }
+      });
+
+      await prisma.researchContributionStatusHistory.create({
+        data: {
+          researchContributionId: id,
+          fromStatus: contribution.status,
+          toStatus: 'under_review',
+          changedById: userId,
+          comments: 'Review started'
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Review started',
+        data: updated
+      });
+    }
   } catch (error) {
     console.error('Start review error:', error);
     res.status(500).json({

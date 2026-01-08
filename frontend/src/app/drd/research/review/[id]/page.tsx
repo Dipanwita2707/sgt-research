@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { researchService, ResearchContribution, ResearchPublicationType } from '@/services/research.service';
 import { permissionManagementService } from '@/services/permissionManagement.service';
-import { progressTrackerService, ResearchProgressTracker, StatusHistoryEntry, statusLabels, statusColors } from '@/services/progressTracker.service';
+import progressTrackerService, { ResearchProgressTracker, StatusHistoryEntry, statusLabels, statusColors } from '@/services/progressTracker.service';
 import { useAuthStore } from '@/store/authStore';
 import { History, GitBranch } from 'lucide-react';
 
@@ -83,8 +83,8 @@ const EDITABLE_FIELDS = [
   { key: 'attendedVirtual', label: 'Attended Virtual Conference', type: 'select', options: ['yes', 'no'] },
   { key: 'facultyRemarks', label: 'Faculty Remarks', type: 'textarea' },
   { key: 'confDatesVenue', label: 'Conference Dates & Venue Mentioned', type: 'select', options: ['yes', 'no'] },
-  { key: 'volume', label: 'Volume No', type: 'text' },
   { key: 'pageNumbers', label: 'Page Numbers', type: 'text' },
+  { key: 'paperweblink', label: 'Paper WebLink', type: 'text' },
   { key: 'grantTitle', label: 'Grant Title', type: 'text' },
   { key: 'fundingAgency', label: 'Funding Agency', type: 'text' },
   { key: 'grantAmount', label: 'Grant Amount', type: 'number' },
@@ -918,12 +918,6 @@ export default function ResearchReviewPage() {
                     {renderEditableField('journalName', contribution.journalName || '', 'text')}
                   </div>
                 )}
-                {((contribution as any).volume || isEditMode) && (
-                  <div>
-                    <div className="text-sm text-gray-500">Volume</div>
-                    {renderEditableField('volume', (contribution as any).volume || '', 'text')}
-                  </div>
-                )}
                 {((contribution as any).issue || isEditMode) && (
                   <div>
                     <div className="text-sm text-gray-500">Issue</div>
@@ -1098,16 +1092,16 @@ export default function ResearchReviewPage() {
                         {renderEditableField('issnIsbnIssueNo', (contribution as any).issnIsbnIssueNo || '', 'text')}
                       </div>
                     )}
-                    {((contribution as any).volume || isEditMode) && (
-                      <div>
-                        <div className="text-sm text-gray-500">Volume No</div>
-                        {renderEditableField('volume', (contribution as any).volume || '', 'text')}
-                      </div>
-                    )}
                     {((contribution as any).pageNumbers || isEditMode) && (
                       <div>
                         <div className="text-sm text-gray-500">Page No</div>
                         {renderEditableField('pageNumbers', (contribution as any).pageNumbers || '', 'text')}
+                      </div>
+                    )}
+                    {((contribution as any).paperweblink || isEditMode) && (
+                      <div>
+                        <div className="text-sm text-gray-500">Paper WebLink</div>
+                        {renderEditableField('paperweblink', (contribution as any).paperweblink || '', 'text')}
                       </div>
                     )}
                     {((contribution as any).priorityFundingArea || isEditMode) && (
@@ -1522,7 +1516,7 @@ export default function ResearchReviewPage() {
                                     <span className={`text-sm font-medium ${
                                       idx === 0 ? 'text-indigo-700' : 'text-gray-700'
                                     }`}>
-                                      {statusLabels[history.status]}
+                                      {statusLabels[history.toStatus as keyof typeof statusLabels]}
                                     </span>
                                     <span className="text-xs text-gray-500">
                                       {new Date(history.changedAt).toLocaleString()}

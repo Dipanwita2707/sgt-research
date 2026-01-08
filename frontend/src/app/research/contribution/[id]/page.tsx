@@ -491,9 +491,6 @@ export default function ContributionDetailPage() {
                       {contribution.journalName && (
                         <DetailItem label="Journal Name" value={contribution.journalName} />
                       )}
-                      {contribution.volume && (
-                        <DetailItem label="Volume" value={contribution.volume} />
-                      )}
                       {contribution.issue && (
                         <DetailItem label="Issue" value={contribution.issue} />
                       )}

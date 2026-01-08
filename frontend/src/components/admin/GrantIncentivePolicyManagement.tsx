@@ -20,6 +20,7 @@ import {
   Building2,
   Briefcase,
 } from 'lucide-react';
+import grantPolicyService from '@/services/grantPolicy.service';
 
 // Define types
 interface RolePercentage {
@@ -106,10 +107,20 @@ export default function GrantIncentivePolicyManagement() {
   });
 
   useEffect(() => {
-    // Fetch policies from backend - placeholder for now
-    // fetchPolicies();
-    setLoading(false);
+    fetchPolicies();
   }, []);
+
+  const fetchPolicies = async () => {
+    try {
+      setLoading(true);
+      const data = await grantPolicyService.getAllPolicies();
+      setPolicies(data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to fetch policies');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpenModal = (policy?: GrantIncentivePolicy) => {
     if (policy) {
@@ -188,18 +199,19 @@ export default function GrantIncentivePolicyManagement() {
     setSuccess('');
 
     try {
-      // Implement API call here
-      // if (editingPolicy) {
-      //   await grantPolicyService.updatePolicy(editingPolicy.id, formData);
-      //   setSuccess('Policy updated successfully');
-      // } else {
-      //   await grantPolicyService.createPolicy(formData);
-      //   setSuccess('Policy created successfully');
-      // }
+      if (editingPolicy) {
+        await grantPolicyService.updatePolicy(editingPolicy.id, formData);
+        setSuccess('Policy updated successfully');
+      } else {
+        await grantPolicyService.createPolicy(formData);
+        setSuccess('Policy created successfully');
+      }
       
-      setSuccess(editingPolicy ? 'Policy updated successfully' : 'Policy created successfully');
       setShowModal(false);
-      // fetchPolicies();
+      fetchPolicies();
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save policy');
     } finally {
@@ -211,9 +223,12 @@ export default function GrantIncentivePolicyManagement() {
     if (!confirm('Are you sure you want to delete this policy?')) return;
 
     try {
-      // await grantPolicyService.deletePolicy(id);
+      await grantPolicyService.deletePolicy(id);
       setSuccess('Policy deleted successfully');
-      // fetchPolicies();
+      fetchPolicies();
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to delete policy');
     }

@@ -457,10 +457,16 @@ export default function DrdResearchDashboard() {
                 (review: any) => review.reviewerId === user.id
               );
               
+              // Determine review page URL based on publication type
+              const isGrant = contribution.publicationType === 'grant';
+              const reviewUrl = isGrant 
+                ? `/drd/research/grant-review/${contribution.id}`
+                : `/drd/research/review/${contribution.id}`;
+              
               return (
                 <Link
                   key={contribution.id}
-                  href={`/drd/research/review/${contribution.id}`}
+                  href={reviewUrl}
                   className="block p-6 hover:bg-gray-50 transition-all duration-200 group"
                 >
                   <div className="flex items-start justify-between">

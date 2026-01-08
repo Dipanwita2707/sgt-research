@@ -6,6 +6,9 @@ const { protect, restrictTo } = require('../../middleware/auth');
 // All routes require authentication
 router.use(protect);
 
+// Calculate incentive for a grant (any authenticated user)
+router.post('/calculate', grantPolicyController.calculateIncentive);
+
 // Get all grant policies (admin only)
 router.get('/', restrictTo('admin'), grantPolicyController.getAllGrantPolicies);
 

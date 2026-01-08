@@ -16,11 +16,16 @@ import {
   Users,
   Calendar,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  FileText,
+  Award,
+  Coins,
+  Info
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
 import InvestigatorManager from './InvestigatorManager';
+import grantPolicyService, { GrantIncentivePolicy } from '@/services/grantPolicy.service';
 
 // SDG Goals - Same as research contribution form
 const SDG_GOALS = [
@@ -89,6 +94,16 @@ interface Props {
   onSuccess?: () => void;
 }
 
+interface EditSuggestion {
+  id: string;
+  fieldName: string;
+  originalValue: string;
+  suggestedValue: string;
+  suggestionNote?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  reviewer?: { employeeDetails?: { displayName?: string } };
+}
+
 export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
@@ -96,6 +111,8 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [editSuggestions, setEditSuggestions] = useState<EditSuggestion[]>([]);
+  const [suggestionLoading, setSuggestionLoading] = useState<string | null>(null);
   
   // Schools and departments for selection
   const [schools, setSchools] = useState<any[]>([]);
@@ -145,8 +162,13 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   // Investigators
   const [investigators, setInvestigators] = useState<Investigator[]>([]);
   
+  // Grant Policy and Incentive Calculation
+  const [activePolicy, setActivePolicy] = useState<GrantIncentivePolicy | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  
   // File upload
   const [proposalFile, setProposalFile] = useState<File | null>(null);
+  const [existingProposalPath, setExistingProposalPath] = useState<string>('');
   const [supportingFiles, setSupportingFiles] = useState<File[]>([]);
   
   // Calculate minimum total investigators dynamically
@@ -298,14 +320,122 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
                         (endDate.getMonth() - startDate.getMonth());
       
       // Only update if the calculated duration is different and positive
-      if (monthsDiff > 0 && monthsDiff !== formData.projectDurationMonths) {
+      if (monthsDiff > 0 && monthsDiff !== Number(formData.projectDurationMonths)) {
         setFormData(prev => ({
           ...prev,
-          projectDurationMonths: monthsDiff
+          projectDurationMonths: monthsDiff.toString()
         }));
       }
     }
   }, [formData.projectStartDate, formData.projectEndDate]);
+  
+  // Fetch active grant policy when project category, type, or date of submission changes
+  useEffect(() => {
+    const fetchPolicy = async () => {
+      if (!formData.projectCategory || !formData.projectType) {
+        setActivePolicy(null);
+        return;
+      }
+
+      try {
+        setPolicyLoading(true);
+        const policy = await grantPolicyService.getActivePolicy(
+          formData.projectCategory,
+          formData.projectType
+        );
+        setActivePolicy(policy);
+        console.log('Fetched active grant policy:', policy);
+      } catch (error) {
+        console.error('Error fetching grant policy:', error);
+        setActivePolicy(null);
+      } finally {
+        setPolicyLoading(false);
+      }
+    };
+
+    fetchPolicy();
+  }, [formData.projectCategory, formData.projectType, formData.dateOfSubmission]);
+  
+  /**
+   * Calculate incentive and points for a specific investigator based on active policy
+   * Grants: Students are NOT involved, only internal faculty/employees
+   * Split policies: equal OR percentage_based (PI vs Co-PI split)
+   */
+  const calculateInvestigatorIncentive = (
+    roleType: 'pi' | 'co_pi',
+    investigatorCategory: 'Internal' | 'External'
+  ): { incentive: number; points: number } => {
+    // External investigators get ZERO
+    if (investigatorCategory === 'External') {
+      return { incentive: 0, points: 0 };
+    }
+
+    // No policy loaded yet
+    if (!activePolicy) {
+      return { incentive: 0, points: 0 };
+    }
+
+    // Calculate total base amount with bonuses
+    let totalIncentive = Number(activePolicy.baseIncentiveAmount);
+    const totalPoints = Number(activePolicy.basePoints);
+
+    // Add international bonus
+    if (formData.projectType === 'international' && activePolicy.internationalBonus) {
+      totalIncentive += Number(activePolicy.internationalBonus);
+    }
+
+    // Add consortium bonus
+    if (formData.numberOfConsortiumOrgs > 0 && activePolicy.consortiumBonus) {
+      totalIncentive += Number(activePolicy.consortiumBonus) * formData.numberOfConsortiumOrgs;
+    }
+
+    // Count internal investigators
+    const internalInvestigators = [
+      { roleType: formData.myRole, isInternal: true }, // Applicant (always internal)
+      ...investigators.filter(inv => inv.investigatorCategory === 'Internal')
+    ];
+
+    const totalInternalCount = internalInvestigators.length;
+    
+    if (totalInternalCount === 0) {
+      return { incentive: 0, points: 0 };
+    }
+
+    // Calculate based on split policy
+    if (activePolicy.splitPolicy === 'equal') {
+      // Equal split among all internal investigators (use floor to prevent exceeding total)
+      const perPersonIncentive = Math.floor(totalIncentive / totalInternalCount);
+      const perPersonPoints = Math.floor(totalPoints / totalInternalCount);
+      return { incentive: perPersonIncentive, points: perPersonPoints };
+    } else {
+      // Percentage-based split using role percentages
+      const rolePercentages = activePolicy.rolePercentages || [
+        { role: 'pi', percentage: 45 },
+        { role: 'co_pi', percentage: 55 }
+      ];
+
+      const piPercentage = rolePercentages.find(r => r.role === 'pi')?.percentage || 45;
+      const coPiTotalPercentage = rolePercentages.find(r => r.role === 'co_pi')?.percentage || 55;
+
+      // Count PIs and Co-PIs
+      const piCount = internalInvestigators.filter(inv => inv.roleType === 'pi').length;
+      const coPiCount = internalInvestigators.filter(inv => inv.roleType === 'co_pi').length;
+
+      if (roleType === 'pi') {
+        if (piCount === 0) return { incentive: 0, points: 0 };
+        // PIs share the PI percentage equally (use floor to prevent exceeding total)
+        const piIncentive = Math.floor((totalIncentive * piPercentage) / 100 / piCount);
+        const piPoints = Math.floor((totalPoints * piPercentage) / 100 / piCount);
+        return { incentive: piIncentive, points: piPoints };
+      } else {
+        if (coPiCount === 0) return { incentive: 0, points: 0 };
+        // Co-PIs share the Co-PI percentage equally (use floor to prevent exceeding total)
+        const coPiIncentive = Math.floor((totalIncentive * coPiTotalPercentage) / 100 / coPiCount);
+        const coPiPoints = Math.floor((totalPoints * coPiTotalPercentage) / 100 / coPiCount);
+        return { incentive: coPiIncentive, points: coPiPoints };
+      }
+    }
+  };
   
   const fetchSchools = async () => {
     try {
@@ -336,6 +466,11 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
     try {
       const response = await api.get(`/grants/${id}`);
       const grant = response.data.data;
+      
+      // Load edit suggestions if any
+      if (grant.editSuggestions && grant.editSuggestions.length > 0) {
+        setEditSuggestions(grant.editSuggestions.filter((s: EditSuggestion) => s.status === 'pending'));
+      }
       
       setFormData({
         title: grant.title || '',
@@ -415,6 +550,50 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
     const updated = [...consortiumOrganizations];
     updated[index] = { ...updated[index], [field]: value };
     setConsortiumOrganizations(updated);
+  };
+  
+  const handleAcceptSuggestion = async (suggestion: EditSuggestion) => {
+    try {
+      setSuggestionLoading(suggestion.id);
+      await api.post(`/grants/suggestions/${suggestion.id}/respond`, { accept: true });
+      
+      // Reload grant data to get updated suggestions
+      if (grantId) {
+        await loadGrant(grantId);
+      }
+      
+      setSuccess('Suggestion accepted and applied');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error: any) {
+      console.error('Error accepting suggestion:', error);
+      const message = error.response?.data?.message || 'Failed to accept suggestion';
+      setError(message);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSuggestionLoading(null);
+    }
+  };
+  
+  const handleRejectSuggestion = async (suggestion: EditSuggestion) => {
+    try {
+      setSuggestionLoading(suggestion.id);
+      await api.post(`/grants/suggestions/${suggestion.id}/respond`, { accept: false });
+      
+      // Reload grant data to get updated suggestions
+      if (grantId) {
+        await loadGrant(grantId);
+      }
+      
+      setSuccess('Suggestion rejected');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error: any) {
+      console.error('Error rejecting suggestion:', error);
+      const message = error.response?.data?.message || 'Failed to reject suggestion';
+      setError(message);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSuggestionLoading(null);
+    }
   };
   
   const validateForm = (): boolean => {
@@ -521,7 +700,7 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   };
   
   const prepareSubmissionData = () => {
-    return {
+    const data = {
       ...formData,
       submittedAmount: formData.submittedAmount ? parseFloat(formData.submittedAmount) : null,
       projectDurationMonths: formData.projectDurationMonths ? parseInt(formData.projectDurationMonths) : null,
@@ -532,6 +711,16 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
         displayOrder: index
       }))
     };
+
+    // If there's a file to upload, return FormData
+    if (proposalFile) {
+      const formDataObj = new FormData();
+      formDataObj.append('data', JSON.stringify(data));
+      formDataObj.append('proposalFile', proposalFile);
+      return formDataObj;
+    }
+
+    return data;
   };
   
   const handleSaveDraft = async () => {
@@ -541,11 +730,23 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
     
     try {
       const data = prepareSubmissionData();
+      const isFormData = data instanceof FormData;
       
       if (grantId) {
-        await api.put(`/grants/${grantId}`, data);
+        await api.put(`/grants/${grantId}`, data, {
+          headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+        });
       } else {
-        const response = await api.post('/grants', { ...data, status: 'draft' });
+        const payload = isFormData ? data : { ...data, status: 'draft' };
+        if (!isFormData) {
+          (payload as any).status = 'draft';
+        } else {
+          const jsonData = JSON.parse((data as FormData).get('data') as string);
+          (data as FormData).set('data', JSON.stringify({ ...jsonData, status: 'draft' }));
+        }
+        const response = await api.post('/grants', payload, {
+          headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+        });
         // Redirect to edit mode with new ID
         if (response.data.data?.id && onSuccess) {
           onSuccess();
@@ -553,6 +754,9 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
       }
       
       setSuccess('Draft saved successfully');
+      if (proposalFile) {
+        setProposalFile(null);
+      }
     } catch (error: any) {
       console.error('Error saving draft:', error);
       setError(error.response?.data?.message || 'Failed to save draft');
@@ -570,14 +774,26 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
     
     try {
       const data = prepareSubmissionData();
+      const isFormData = data instanceof FormData;
       
       if (grantId) {
         // Update existing grant and submit
-        await api.put(`/grants/${grantId}`, data);
+        await api.put(`/grants/${grantId}`, data, {
+          headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+        });
         await api.post(`/grants/${grantId}/submit`);
       } else {
         // Create new grant with status 'submitted' - backend will auto-submit
-        await api.post('/grants', { ...data, status: 'submitted' });
+        const payload = isFormData ? data : { ...data, status: 'submitted' };
+        if (!isFormData) {
+          (payload as any).status = 'submitted';
+        } else {
+          const jsonData = JSON.parse((data as FormData).get('data') as string);
+          (data as FormData).set('data', JSON.stringify({ ...jsonData, status: 'submitted' }));
+        }
+        await api.post('/grants', payload, {
+          headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+        });
       }
       
       setSuccess('Grant application submitted successfully!');
@@ -632,6 +848,96 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
               <p className="text-green-700">{success}</p>
+            </div>
+          )}
+          
+          {/* Edit Suggestions */}
+          {editSuggestions.length > 0 && (
+            <div className="space-y-3">
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <h3 className="font-semibold text-orange-900 mb-2">Reviewer Suggestions ({editSuggestions.length})</h3>
+                <p className="text-sm text-orange-700">The reviewer has suggested changes to your application. Review and accept or reject each suggestion below.</p>
+              </div>
+              
+              {editSuggestions.map((suggestion) => {
+                const sdgLabel = suggestion.fieldName === 'sdgGoals' 
+                  ? 'SDG Goals'
+                  : suggestion.fieldName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                
+                return (
+                  <div key={suggestion.id} className="p-4 bg-white border-2 border-orange-200 rounded-lg">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h4 className="font-semibold text-gray-900">{sdgLabel}</h4>
+                        {suggestion.reviewer?.employeeDetails?.displayName && (
+                          <p className="text-xs text-gray-500">Suggested by {suggestion.reviewer.employeeDetails.displayName}</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Current Value</div>
+                        <div className="p-2 bg-red-50 border border-red-200 rounded text-sm">
+                          {suggestion.fieldName === 'sdgGoals' 
+                            ? suggestion.originalValue.split(',').map(sdg => SDG_GOALS.find(s => s.value === sdg)?.label || sdg).join(', ')
+                            : suggestion.originalValue || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Suggested Value</div>
+                        <div className="p-2 bg-green-50 border border-green-200 rounded text-sm">
+                          {suggestion.fieldName === 'sdgGoals'
+                            ? suggestion.suggestedValue.split(',').map(sdg => SDG_GOALS.find(s => s.value === sdg)?.label || sdg).join(', ')
+                            : suggestion.suggestedValue}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {suggestion.suggestionNote && (
+                      <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                        <div className="text-xs text-blue-600 mb-1">Reviewer Note</div>
+                        <div className="text-sm text-blue-900">{suggestion.suggestionNote}</div>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAcceptSuggestion(suggestion)}
+                        disabled={suggestionLoading === suggestion.id}
+                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {suggestionLoading === suggestion.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4" />
+                        )}
+                        Accept & Apply
+                      </button>
+                      <button
+                        onClick={() => handleRejectSuggestion(suggestion)}
+                        disabled={suggestionLoading === suggestion.id}
+                        className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {suggestionLoading === suggestion.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <X className="w-4 h-4" />
+                        )}
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {editSuggestions.length === 0 && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-center">
+                  <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                  <p className="text-green-700 font-medium">All suggestions have been resolved!</p>
+                  <p className="text-sm text-green-600 mt-1">You can now resubmit your application.</p>
+                </div>
+              )}
             </div>
           )}
           
@@ -1178,6 +1484,46 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             {(investigators.length > 0 || formData.totalInvestigators === 1) && (
               <div className="mt-4 overflow-x-auto">
                 <h4 className="text-sm font-medium text-gray-700 mb-2">Team Summary (Total: {investigators.length + 1})</h4>
+                
+                {/* Policy Info Banner */}
+                {activePolicy ? (
+                  <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-green-800">
+                        <p className="font-semibold mb-1">Active Grant Policy: {activePolicy.policyName}</p>
+                        <div className="flex flex-wrap gap-4 text-xs">
+                          <span>Base: ₹{Number(activePolicy.baseIncentiveAmount).toLocaleString()} / {activePolicy.basePoints} pts</span>
+                          {activePolicy.internationalBonus && formData.projectType === 'international' && (
+                            <span>International Bonus: ₹{Number(activePolicy.internationalBonus).toLocaleString()}</span>
+                          )}
+                          {activePolicy.consortiumBonus && formData.numberOfConsortiumOrgs > 0 && (
+                            <span>Consortium Bonus: ₹{Number(activePolicy.consortiumBonus).toLocaleString()} × {formData.numberOfConsortiumOrgs}</span>
+                          )}
+                          <span className="font-medium">
+                            Split: {activePolicy.splitPolicy === 'equal' ? 'Equal among all' : 'Role-based (PI/Co-PI)'}
+                          </span>
+                        </div>
+                        <p className="text-xs mt-1 text-green-700">
+                          * Only <strong>Internal</strong> investigators receive incentives and points
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-yellow-800">
+                        <p className="font-semibold">No active grant policy found</p>
+                        <p className="text-xs mt-1">
+                          Please ensure an active policy exists for <strong>{formData.projectCategory}</strong> category and <strong>{formData.projectType}</strong> type. Contact admin if needed.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <table className="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden">
                   <thead className="bg-orange-50">
                     <tr>
@@ -1186,6 +1532,8 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Designation</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Est. Incentive</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Est. Points</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -1206,41 +1554,133 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
                       <td className="px-4 py-2 text-sm">
                         <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Internal</span>
                       </td>
+                      <td className="px-4 py-2 text-sm text-right">
+                        {(() => {
+                          const calc = calculateInvestigatorIncentive(formData.myRole, 'Internal');
+                          return (
+                            <span className="text-green-600 font-semibold flex items-center justify-end gap-1">
+                              <Coins className="w-3.5 h-3.5" />
+                              ₹{calc.incentive.toLocaleString()}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-right">
+                        {(() => {
+                          const calc = calculateInvestigatorIncentive(formData.myRole, 'Internal');
+                          return (
+                            <span className="text-blue-600 font-semibold flex items-center justify-end gap-1">
+                              <Award className="w-3.5 h-3.5" />
+                              {calc.points}
+                            </span>
+                          );
+                        })()}
+                      </td>
                     </tr>
                     
                     {/* Other Investigators */}
-                    {investigators.map((inv, index) => (
-                      <tr key={index}>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {inv.name}
-                          {inv.isTeamCoordinator && (
-                            <span className="ml-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">Coordinator</span>
-                          )}
+                    {investigators.map((inv, index) => {
+                      const calc = calculateInvestigatorIncentive(inv.roleType, inv.investigatorCategory);
+                      return (
+                        <tr key={index}>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {inv.name}
+                            {inv.isTeamCoordinator && (
+                              <span className="ml-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">Coordinator</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{inv.email || '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{inv.designation || '-'}</td>
+                          <td className="px-4 py-2">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              inv.roleType === 'pi' ? 'bg-purple-100 text-purple-700' :
+                              'bg-orange-100 text-orange-700'
+                            }`}>
+                              {inv.roleType === 'pi' ? 'PI' : 'Co-PI'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-sm">
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              inv.investigatorCategory === 'Internal' 
+                                ? 'bg-green-100 text-green-700' 
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {inv.investigatorCategory}
+                              {inv.consortiumOrgName && ` - ${inv.consortiumOrgName}`}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-sm text-right">
+                            <span className={`font-semibold flex items-center justify-end gap-1 ${
+                              calc.incentive > 0 ? 'text-green-600' : 'text-gray-400'
+                            }`}>
+                              <Coins className="w-3.5 h-3.5" />
+                              ₹{calc.incentive.toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-sm text-right">
+                            <span className={`font-semibold flex items-center justify-end gap-1 ${
+                              calc.points > 0 ? 'text-blue-600' : 'text-gray-400'
+                            }`}>
+                              <Award className="w-3.5 h-3.5" />
+                              {calc.points}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    
+                    {/* Totals Row */}
+                    {activePolicy && (
+                      <tr className="bg-gray-100 font-bold">
+                        <td colSpan={5} className="px-4 py-3 text-sm text-right text-gray-700">
+                          TOTAL (Internal Investigators Only)
                         </td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{inv.email || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{inv.designation || '-'}</td>
-                        <td className="px-4 py-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            inv.roleType === 'pi' ? 'bg-purple-100 text-purple-700' :
-                            'bg-orange-100 text-orange-700'
-                          }`}>
-                            {inv.roleType === 'pi' ? 'PI' : 'Co-PI'}
-                          </span>
+                        <td className="px-4 py-3 text-sm text-right">
+                          {(() => {
+                            const applicantCalc = calculateInvestigatorIncentive(formData.myRole, 'Internal');
+                            const teamTotal = investigators
+                              .filter(inv => inv.investigatorCategory === 'Internal')
+                              .reduce((sum, inv) => {
+                                const calc = calculateInvestigatorIncentive(inv.roleType, inv.investigatorCategory);
+                                return sum + calc.incentive;
+                              }, 0);
+                            const total = applicantCalc.incentive + teamTotal;
+                            return (
+                              <span className="text-green-700 font-bold flex items-center justify-end gap-1">
+                                <Coins className="w-4 h-4" />
+                                ₹{total.toLocaleString()}
+                              </span>
+                            );
+                          })()}
                         </td>
-                        <td className="px-4 py-2 text-sm">
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            inv.investigatorCategory === 'Internal' 
-                              ? 'bg-green-100 text-green-700' 
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {inv.investigatorCategory}
-                            {inv.consortiumOrgName && ` - ${inv.consortiumOrgName}`}
-                          </span>
+                        <td className="px-4 py-3 text-sm text-right">
+                          {(() => {
+                            const applicantCalc = calculateInvestigatorIncentive(formData.myRole, 'Internal');
+                            const teamTotal = investigators
+                              .filter(inv => inv.investigatorCategory === 'Internal')
+                              .reduce((sum, inv) => {
+                                const calc = calculateInvestigatorIncentive(inv.roleType, inv.investigatorCategory);
+                                return sum + calc.points;
+                              }, 0);
+                            const total = applicantCalc.points + teamTotal;
+                            return (
+                              <span className="text-blue-700 font-bold flex items-center justify-end gap-1">
+                                <Award className="w-4 h-4" />
+                                {total}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
+                
+                {!activePolicy && !policyLoading && (
+                  <p className="mt-2 text-xs text-amber-600">
+                    * No active policy found for this project category and type. Incentive calculation will be done upon approval.
+                  </p>
+                )}
               </div>
             )}
           </section>
@@ -1321,7 +1761,93 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             </div>
           </section>
           
-          {/* Section 6: School & Department */}
+          {/* Section 6: Document Upload */}
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 border-b pb-2 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-orange-600" />
+              Document Upload
+            </h2>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Proposal Document (ZIP file) *
+              </label>
+              
+              {/* Existing file display */}
+              {existingProposalPath && !proposalFile && (
+                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Current Document</p>
+                      <p className="text-xs text-gray-500">{existingProposalPath.split('/').pop()}</p>
+                    </div>
+                  </div>
+                  <a
+                    href={`http://localhost:5000${existingProposalPath}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    View
+                  </a>
+                </div>
+              )}
+              
+              {/* File upload input */}
+              <div className="mt-2">
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      if (file.size > 50 * 1024 * 1024) { // 50MB limit
+                        setError('File size must be less than 50MB');
+                        e.target.value = '';
+                        return;
+                      }
+                      setProposalFile(file);
+                      setError(null);
+                    }
+                  }}
+                  className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-lg file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-orange-50 file:text-orange-700
+                    hover:file:bg-orange-100
+                    cursor-pointer"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Upload a ZIP file containing all project documents (Max 50MB)
+                  {existingProposalPath && '. Uploading a new file will replace the existing one.'}
+                </p>
+              </div>
+              
+              {/* Selected file display */}
+              {proposalFile && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-green-600" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{proposalFile.name}</p>
+                      <p className="text-xs text-gray-500">{(proposalFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setProposalFile(null)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+          
+          {/* Section 7: School & Department */}
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">
               Institutional Information

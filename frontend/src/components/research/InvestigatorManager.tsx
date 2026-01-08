@@ -87,13 +87,16 @@ export default function InvestigatorManager({
   }, []);
 
   // Auto-switch to External category when internal limit is reached
+  // And set role to PI if external investigator must be PI
   useEffect(() => {
     if (isInternalLimitReached() && newInvestigator.investigatorCategory === 'Internal') {
+      const mustBePI = mustExternalBePI();
       setNewInvestigator(prev => ({
         ...prev,
         investigatorCategory: 'External',
         affiliation: '',
-        uid: undefined
+        uid: undefined,
+        roleType: mustBePI ? 'pi' : 'co_pi'
       }));
     }
   }, [investigators.length, numberOfInternalPIs]);
@@ -112,6 +115,15 @@ export default function InvestigatorManager({
   // Check if internal investigators limit has been reached
   const isInternalLimitReached = () => {
     return getInternalInvestigatorCount() >= numberOfInternalPIs;
+  };
+
+  // Calculate if external investigator must be PI (only 1 external slot and PI is external)
+  const mustExternalBePI = () => {
+    if (!isPIExternal) return false;
+    const totalExternal = totalInvestigators - numberOfInternalPIs;
+    const addedExternal = investigators.filter(inv => inv.investigatorCategory === 'External').length;
+    // If there's only 1 external slot total and no external PI has been added yet
+    return totalExternal === 1 && addedExternal === 0;
   };
 
   // Get available roles based on current configuration
@@ -134,10 +146,8 @@ export default function InvestigatorManager({
       }
     }
     
-    // Co-PI is always available for internal members (no limit on Co-PIs)
-    if (category === 'Internal (SGT)') {
-      roles.push('co_pi');
-    }
+    // Co-PI is always available for both internal and external members
+    roles.push('co_pi');
     
     return roles;
   };
@@ -456,11 +466,17 @@ export default function InvestigatorManager({
                 value={newInvestigator.roleType}
                 onChange={(e) => setNewInvestigator({ ...newInvestigator, roleType: e.target.value as InvestigatorRole })}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                disabled={newInvestigator.investigatorCategory === 'External' && mustExternalBePI()}
               >
                 {availableRoles.map(role => (
                   <option key={role} value={role}>{ROLE_LABELS[role]}</option>
                 ))}
               </select>
+              {newInvestigator.investigatorCategory === 'External' && mustExternalBePI() && (
+                <p className="mt-1 text-xs text-blue-600">
+                  Only 1 external investigator - must be PI
+                </p>
+              )}
             </div>
 
             {/* Category Selection */}
@@ -473,6 +489,16 @@ export default function InvestigatorManager({
                   const categoryForRoles = category === 'Internal' ? 'Internal (SGT)' : 'External';
                   const rolesForCategory = getAvailableRoles(categoryForRoles);
                   
+                  // If external and must be PI, set to PI; otherwise preserve or pick first available
+                  let newRoleType: InvestigatorRole;
+                  if (category === 'External' && mustExternalBePI()) {
+                    newRoleType = 'pi';
+                  } else if (rolesForCategory.includes(newInvestigator.roleType)) {
+                    newRoleType = newInvestigator.roleType;
+                  } else {
+                    newRoleType = rolesForCategory.length > 0 ? rolesForCategory[0] : 'co_pi';
+                  }
+                  
                   setNewInvestigator({
                     ...newInvestigator,
                     investigatorCategory: category,
@@ -480,8 +506,7 @@ export default function InvestigatorManager({
                     uid: category === 'External' ? undefined : newInvestigator.uid,
                     consortiumOrgId: undefined,
                     consortiumOrgName: undefined,
-                    // Set default role to first available role for this category
-                    roleType: rolesForCategory.length > 0 ? rolesForCategory[0] : 'co_pi'
+                    roleType: newRoleType
                   });
                   setSearchTerm('');
                 }}

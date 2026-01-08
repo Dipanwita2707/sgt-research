@@ -5,9 +5,36 @@
 
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
 const grantController = require('../controllers/grant.controller');
-const { protect, requirePermission } = require('../../middleware/auth');
+const { protect, requirePermission, requireAnyPermission } = require('../../middleware/auth');
 const prisma = require('../../config/database');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/research/grants');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'grant-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.pdf', '.zip', '.doc', '.docx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, ZIP, DOC, and DOCX files are allowed.'));
+    }
+  }
+});
 
 // Helper middleware: Allow either grant_review OR grant_approve permission (or fallback to research permissions)
 const requireGrantAccess = async (req, res, next) => {
@@ -79,7 +106,7 @@ router.use(protect);
  * @desc    Create a new grant application
  * @access  Private
  */
-router.post('/', grantController.createGrantApplication);
+router.post('/', upload.single('proposalFile'), grantController.createGrantApplication);
 
 /**
  * @route   GET /api/grants/my-grants
@@ -113,11 +140,11 @@ router.post(
 /**
  * @route   POST /api/grants/:id/review/request-changes
  * @desc    Request changes on a grant application
- * @access  Private (DRD with grant_review or research_review)
+ * @access  Private (DRD with grant_review, grant_approve, research_review, or research_approve)
  */
 router.post(
   '/:id/review/request-changes',
-  requirePermission('central-department', 'grant_review', 'research_review'),
+  requireAnyPermission('central-department', ['grant_review', 'grant_approve', 'research_review', 'research_approve']),
   grantController.requestChanges
 );
 
@@ -146,11 +173,11 @@ router.post(
 /**
  * @route   POST /api/grants/:id/review/reject
  * @desc    Reject grant application
- * @access  Private (DRD with grant_approve or research_approve)
+ * @access  Private (DRD with grant_review, grant_approve, research_review, or research_approve)
  */
 router.post(
   '/:id/review/reject',
-  requirePermission('central-department', 'grant_approve', 'research_approve'),
+  requireAnyPermission('central-department', ['grant_review', 'grant_approve', 'research_review', 'research_approve']),
   grantController.rejectGrant
 );
 
@@ -185,6 +212,13 @@ router.put('/:id', grantController.updateGrantApplication);
  * @access  Private
  */
 router.post('/:id/submit', grantController.submitGrantApplication);
+
+/**
+ * @route   POST /api/grants/suggestions/:suggestionId/respond
+ * @desc    Accept or reject a field suggestion
+ * @access  Private (Applicant only)
+ */
+router.post('/suggestions/:suggestionId/respond', grantController.respondToGrantSuggestion);
 
 /**
  * @route   DELETE /api/grants/:id

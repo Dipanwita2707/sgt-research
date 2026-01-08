@@ -28,6 +28,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { researchService, ResearchContribution, ResearchPublicationType, GrantApplication } from '@/services/research.service';
+import { grantPolicyService, GrantIncentivePolicy } from '@/services/grantPolicy.service';
 
 type TabType = 'all' | 'action_required' | 'draft' | 'in_progress' | 'completed';
 
@@ -144,17 +145,56 @@ export default function MyContributionsPage() {
       sum + (Number(c.pointsAwarded) || 0), 0
     );
     
-    // Add grant stats
+    // Add grant stats - calculate individual applicant's share
     const completedGrants = grants.filter((g: GrantApplication) => 
       ['approved', 'completed'].includes(g.status)
     );
     
-    const grantIncentives = completedGrants.reduce((sum: number, g: GrantApplication) => 
-      sum + (Number(g.incentiveAmount) || 0), 0
-    );
+    // Calculate individual share for each grant
+    const calculateApplicantShare = (grant: GrantApplication) => {
+      if (!grant.calculatedIncentiveAmount && !grant.calculatedPoints) {
+        return { incentive: 0, points: 0 };
+      }
+      
+      // Determine if applicant is internal
+      const applicantIsInternal = !(grant.isPIExternal && grant.myRole === 'pi');
+      
+      if (!applicantIsInternal) {
+        return { incentive: 0, points: 0 };
+      }
+      
+      // Get internal team members
+      const internalTeamMembers = (grant.investigators || []).filter((inv: any) => 
+        inv.investigatorCategory === 'Internal' || inv.isInternal === true
+      );
+      
+      // Total internal count includes applicant
+      const totalInternal = 1 + internalTeamMembers.length;
+      
+      if (totalInternal === 0) {
+        return { incentive: 0, points: 0 };
+      }
+      
+      // For equal split (default behavior when no rolePercentages)
+      const totalIncentive = Number(grant.calculatedIncentiveAmount) || 0;
+      const totalPoints = Number(grant.calculatedPoints) || 0;
+      
+      // Simple equal division using Math.floor
+      const applicantIncentive = Math.floor(totalIncentive / totalInternal);
+      const applicantPoints = Math.floor(totalPoints / totalInternal);
+      
+      return { incentive: applicantIncentive, points: applicantPoints };
+    };
     
-    const grantPoints = completedGrants.reduce((sum: number, g: GrantApplication) => 
-      sum + (Number(g.pointsAwarded) || 0), 0
+    const { totalGrantIncentives, totalGrantPoints } = completedGrants.reduce(
+      (acc, g) => {
+        const share = calculateApplicantShare(g);
+        return {
+          totalGrantIncentives: acc.totalGrantIncentives + share.incentive,
+          totalGrantPoints: acc.totalGrantPoints + share.points
+        };
+      },
+      { totalGrantIncentives: 0, totalGrantPoints: 0 }
     );
     
     setStats({
@@ -169,8 +209,8 @@ export default function MyContributionsPage() {
                  grants.filter((g: GrantApplication) => ['approved', 'completed'].includes(g.status)).length,
       rejected: contributions.filter((c: ResearchContribution) => c.status === 'rejected').length +
                 grants.filter((g: GrantApplication) => g.status === 'rejected').length,
-      totalIncentives: creditedIncentives + grantIncentives,
-      totalPoints: creditedPoints + grantPoints,
+      totalIncentives: creditedIncentives + totalGrantIncentives,
+      totalPoints: creditedPoints + totalGrantPoints,
     });
   }, [contributions, grants]);
 

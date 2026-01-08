@@ -402,3 +402,99 @@ exports.deleteGrantPolicy = async (req, res) => {
     });
   }
 };
+
+/**
+ * Calculate incentive for a grant based on policy
+ */
+exports.calculateIncentive = async (req, res) => {
+  try {
+    const {
+      projectCategory,
+      projectType,
+      submittedAmount,
+      numberOfConsortiumOrgs
+    } = req.body;
+
+    // Validate required fields
+    if (!projectCategory || !projectType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Project category and project type are required'
+      });
+    }
+
+    // Get active policy for the given category and type
+    const currentDate = new Date();
+    const policy = await prisma.grantIncentivePolicy.findFirst({
+      where: {
+        projectCategory,
+        projectType,
+        isActive: true,
+        effectiveFrom: { lte: currentDate },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: currentDate } }
+        ]
+      },
+      orderBy: { effectiveFrom: 'desc' }
+    });
+
+    if (!policy) {
+      return res.status(404).json({
+        success: false,
+        message: `No active policy found for ${projectCategory} ${projectType} grants`
+      });
+    }
+
+    // Calculate incentives
+    const baseIncentiveAmount = parseFloat(policy.baseIncentiveAmount.toString());
+    const basePoints = policy.basePoints;
+    
+    // Calculate bonuses
+    let internationalBonus = 0;
+    if (projectType === 'international' && policy.internationalBonus) {
+      internationalBonus = parseFloat(policy.internationalBonus.toString());
+    }
+    
+    let consortiumBonus = 0;
+    if (numberOfConsortiumOrgs && numberOfConsortiumOrgs > 0 && policy.consortiumBonus) {
+      consortiumBonus = parseFloat(policy.consortiumBonus.toString()) * numberOfConsortiumOrgs;
+    }
+
+    // Total calculation
+    const totalIncentiveAmount = baseIncentiveAmount + internationalBonus + consortiumBonus;
+    const totalPoints = basePoints;
+
+    const calculation = {
+      baseIncentiveAmount,
+      basePoints,
+      internationalBonus,
+      consortiumBonus,
+      totalIncentiveAmount,
+      totalPoints,
+      breakdown: {
+        base: baseIncentiveAmount,
+        internationalBonus,
+        consortiumBonus
+      },
+      policy: {
+        id: policy.id,
+        policyName: policy.policyName,
+        splitPolicy: policy.splitPolicy,
+        rolePercentages: policy.rolePercentages
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      data: calculation
+    });
+  } catch (error) {
+    console.error('Calculate grant incentive error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to calculate grant incentive',
+      error: error.message
+    });
+  }
+};

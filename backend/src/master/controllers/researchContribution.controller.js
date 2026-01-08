@@ -898,7 +898,6 @@ exports.createResearchContribution = async (req, res) => {
       totalAuthors,
       sgtAffiliatedAuthors,
       internalCoAuthors,
-      volume,
       issue,
       pageNumbers,
       doi,
@@ -937,6 +936,7 @@ exports.createResearchContribution = async (req, res) => {
       issnIsbnIssueNo,
       paperDoi,
       weblink,
+      paperweblink,
       priorityFundingArea,
       conferenceRole,
       indexedIn,
@@ -1143,7 +1143,6 @@ exports.createResearchContribution = async (req, res) => {
         totalAuthors: totalAuthors || 1,
         sgtAffiliatedAuthors: sgtAffiliatedAuthors || 1,
         internalCoAuthors: internalCoAuthors || 0,
-        volume: truncateField(volume, 64),
         issue: truncateField(issue, 64),
         pageNumbers: truncateField(pageNumbers, 64),
         doi: truncateField(doi, 256),
@@ -1182,6 +1181,7 @@ exports.createResearchContribution = async (req, res) => {
         issnIsbnIssueNo: truncateField(issnIsbnIssueNo, 64),
         paperDoi: truncateField(paperDoi, 256),
         weblink: truncateField(weblink, 512),
+        paperweblink: truncateField(paperweblink, 512),
         priorityFundingArea: truncateField(priorityFundingArea, 256),
         conferenceRole: truncateField(conferenceRole, 64),
         indexedIn: truncateField(indexedIn, 32),
@@ -1689,7 +1689,8 @@ exports.getResearchContributionById = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const contribution = await prisma.researchContribution.findUnique({
+    // Try to find as research contribution first
+    let contribution = await prisma.researchContribution.findUnique({
       where: { id },
       include: {
         applicantDetails: true,
@@ -1767,18 +1768,75 @@ exports.getResearchContributionById = async (req, res) => {
       }
     });
 
+    let isGrant = false;
+
+    // If not found, try as grant
+    if (!contribution) {
+      contribution = await prisma.grantApplication.findUnique({
+        where: { id },
+        include: {
+          applicantUser: {
+            select: {
+              id: true,
+              uid: true,
+              email: true,
+              employeeDetails: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  displayName: true,
+                  designation: true
+                }
+              }
+            }
+          },
+          school: true,
+          investigators: true,
+          reviews: true,
+          statusHistory: {
+            include: {
+              changedBy: {
+                select: {
+                  id: true,
+                  uid: true,
+                  employeeDetails: {
+                    select: {
+                      firstName: true,
+                      lastName: true,
+                      displayName: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: { changedAt: 'desc' }
+          }
+        }
+      });
+      isGrant = true;
+    }
+
     if (!contribution) {
       return res.status(404).json({
         success: false,
-        message: 'Research contribution not found'
+        message: 'Research contribution or grant not found'
       });
     }
 
     // Check if user has access
     const isApplicant = contribution.applicantUserId === userId;
-    const isAuthor = contribution.authors.some(
-      a => a.userId === userId || a.uid === req.user.uid || a.registrationNo === req.user.uid
-    );
+    
+    let isAuthor = false;
+    if (!isGrant) {
+      isAuthor = contribution.authors?.some(
+        a => a.userId === userId || a.uid === req.user.uid || a.registrationNo === req.user.uid
+      );
+    } else {
+      // For grants, check investigators
+      isAuthor = contribution.investigators?.some(
+        inv => inv.userId === userId || inv.uid === req.user.uid
+      );
+    }
 
     // For now, allow access if user is applicant, author, or has review/approve permissions
     // Permission check will be handled by middleware
@@ -1789,7 +1847,9 @@ exports.getResearchContributionById = async (req, res) => {
         ...contribution,
         isApplicant,
         isAuthor,
-        hasPendingSuggestions: contribution.editSuggestions.some(s => s.status === 'pending')
+        isGrant,
+        publicationType: isGrant ? 'grant' : contribution.publicationType,
+        hasPendingSuggestions: contribution.editSuggestions?.some(s => s.status === 'pending') || false
       }
     });
   } catch (error) {

@@ -72,7 +72,7 @@ export default function EditContributionPage() {
     journalName: '',
     sdgGoals: [] as string[],
     weblink: '',
-    volume: '',
+    paperweblink: '',
     issue: '',
     pageNumbers: '',
     doi: '',
@@ -162,7 +162,7 @@ export default function EditContributionPage() {
           journalName: response.data.journalName || '',
           sdgGoals: sdgArray,
           weblink: (response.data as any).weblink || response.data.publisherName || '',
-          volume: response.data.volume || '',
+          paperweblink: (response.data as any).paperweblink || '',
           issue: response.data.issue || '',
           pageNumbers: response.data.pageNumbers || '',
           doi: response.data.doi || '',
@@ -1915,19 +1915,6 @@ export default function EditContributionPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Volume No</label>
-                    <input
-                      type="text"
-                      name="volume"
-                      value={formData.volume}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="e.g. Vol 5"
-                    />
-                    {renderSuggestionCard('volume')}
-                  </div>
-
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">ISSN/ISBN/Issue No</label>
                     <input
                       type="text"
@@ -1977,6 +1964,19 @@ export default function EditContributionPage() {
                       placeholder="https://..."
                     />
                     {renderSuggestionCard('weblink')}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Paper WebLink</label>
+                    <input
+                      type="url"
+                      name="paperweblink"
+                      value={formData.paperweblink}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="https://..."
+                    />
+                    {renderSuggestionCard('paperweblink')}
                   </div>
 
                   <div>

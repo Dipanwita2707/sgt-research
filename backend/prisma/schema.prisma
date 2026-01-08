@@ -58,6 +58,7 @@ model UserLogin {
   researchContributionEditSuggestions ResearchContributionEditSuggestion[] @relation("ResearchContributionEditSuggestions")
   researchContributionReviews         ResearchContributionReview[]         @relation("ResearchContributionReviews")
   researchContributionStatusChanges   ResearchContributionStatusHistory[]  @relation("ResearchContributionStatusChanges")
+  grantApplicationEditSuggestions     GrantApplicationEditSuggestion[]     @relation("GrantApplicationEditSuggestions")
   createdResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyCreatedBy")
   updatedResearchPolicies             ResearchIncentivePolicy[]            @relation("ResearchPolicyUpdatedBy")
   createdBookPolicies                 BookIncentivePolicy[]                @relation("BookPolicyCreatedBy")
@@ -419,6 +420,7 @@ model CentralDepartmentPermission {
   assignedResearchSchoolIds   Json?             @default("[]") @map("assigned_research_school_ids")
   assignedBookSchoolIds       Json?             @default("[]") @map("assigned_book_school_ids")
   assignedConferenceSchoolIds Json?             @default("[]") @map("assigned_conference_school_ids")
+  assignedGrantSchoolIds      Json?             @default("[]") @map("assigned_grant_school_ids")
   assignedByUser              UserLogin?        @relation("AssignedCentralDeptPermissions", fields: [assignedBy], references: [id])
   centralDept                 CentralDepartment @relation(fields: [centralDeptId], references: [id], onDelete: Cascade)
   user                        UserLogin         @relation("UserCentralDeptPermissions", fields: [userId], references: [id], onDelete: Cascade)
@@ -1127,7 +1129,6 @@ model ResearchContribution {
   totalAuthors               Int?                                  @default(1) @map("total_authors")
   sgtAffiliatedAuthors       Int?                                  @default(1) @map("sgt_affiliated_authors")
   internalCoAuthors          Int?                                  @default(0) @map("internal_co_authors")
-  volume                     String?                               @db.VarChar(64)
   issue                      String?                               @db.VarChar(64)
   pageNumbers                String?                               @map("page_numbers") @db.VarChar(64)
   doi                        String?                               @db.VarChar(256)
@@ -1186,6 +1187,7 @@ model ResearchContribution {
   issnIsbnIssueNo            String?                               @map("issn_isbn_issue_no") @db.VarChar(64)
   paperDoi                   String?                               @map("paper_doi") @db.VarChar(256)
   weblink                    String?                               @db.VarChar(512)
+  paperweblink               String?                               @db.VarChar(512)
   priorityFundingArea        String?                               @map("priority_funding_area") @db.VarChar(256)
   conferenceRole             String?                               @map("conference_role") @db.VarChar(64)
   indexedIn                  String?                               @map("indexed_in") @db.VarChar(32)
@@ -1662,6 +1664,7 @@ model GrantApplication {
   investigators            GrantInvestigator[]
   reviews                  GrantApplicationReview[]
   statusHistory            GrantApplicationStatusHistory[]
+  editSuggestions          GrantApplicationEditSuggestion[]
 
   @@index([applicantUserId])
   @@index([status])
@@ -1774,6 +1777,29 @@ model GrantApplicationStatusHistory {
   @@map("grant_application_status_history")
 }
 
+model GrantApplicationEditSuggestion {
+  id                   String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantApplicationId   String                   @map("grant_application_id") @db.Uuid
+  reviewerId           String                   @map("reviewer_id") @db.Uuid
+  fieldName            String                   @map("field_name") @db.VarChar(128)
+  fieldPath            String?                  @map("field_path") @db.VarChar(256)
+  originalValue        String?                  @map("original_value")
+  suggestedValue       String?                  @map("suggested_value")
+  suggestionNote       String?                  @map("suggestion_note")
+  status               EditSuggestionStatusEnum @default(pending)
+  applicantResponse    String?                  @map("applicant_response")
+  reviewedAt           DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  respondedAt          DateTime?                @map("responded_at") @db.Timestamptz(6)
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  grantApplication     GrantApplication         @relation(fields: [grantApplicationId], references: [id], onDelete: Cascade)
+  reviewer             UserLogin                @relation("GrantApplicationEditSuggestions", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([reviewerId])
+  @@index([grantApplicationId])
+  @@map("grant_application_edit_suggestion")
+}
+
 // Grant Enums
 enum GrantProjectTypeEnum {
   indian
@@ -1821,6 +1847,7 @@ enum GrantApplicationStatusEnum {
   under_review
   changes_required
   resubmitted
+  recommended
   approved
   rejected
   completed
