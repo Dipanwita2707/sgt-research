@@ -2,7 +2,7 @@
 
 import { useAuthStore } from '@/store/authStore';
 import StudentDashboard from '@/components/dashboard/StudentDashboard';
-import StaffDashboard from '@/components/dashboard/StaffDashboard';
+import ModernStaffDashboard from '@/components/dashboard/ModernStaffDashboard';
 import AdminDashboard from '@/components/dashboard/AdminDashboard';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useEffect } from 'react';
@@ -33,11 +33,11 @@ export default function DashboardPage() {
     return <StudentDashboard />;
   }
 
-  // Admin gets separate admin dashboard
-  if (user?.userType === 'admin' || user?.role?.name === 'admin') {
-    return <AdminDashboard />;
+  // Admin and Staff use the modern dashboard
+  if (user?.userType === 'admin' || user?.role?.name === 'admin' || user?.userType === 'staff' || user?.userType === 'faculty') {
+    return <ModernStaffDashboard />;
   }
 
-  // Staff/Faculty use the staff dashboard
-  return <StaffDashboard />;
+  // Default fallback
+  return <ModernStaffDashboard />;
 }

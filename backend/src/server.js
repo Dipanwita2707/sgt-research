@@ -15,6 +15,7 @@ const masterRoutes = require('./master/routes');
 
 // Import module routes  
 const researchPatentRoutes = require('./modules/research-patent/routes');
+const analyticsRoutes = require('./routes/analytics.routes');
 
 const app = express();
 
@@ -82,6 +83,9 @@ app.use(`${API_PREFIX}`, masterRoutes);
 
 // Module routes
 app.use(`${API_PREFIX}/modules/research-patent`, researchPatentRoutes);
+
+// Analytics routes
+app.use(`${API_PREFIX}/analytics`, analyticsRoutes);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
