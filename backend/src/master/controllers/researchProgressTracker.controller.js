@@ -544,8 +544,10 @@ const updateTrackerStatus = async (req, res) => {
 
     // Validate status transition (allow same status for monthly reports)
     const validTransitions = {
-      communicated: ['communicated', 'rejected', 'accepted'], // Can stay communicated for updates, reject, or accept
-      rejected: ['communicated'], // Can restart from rejected
+      writing: ['writing', 'communicated'], // Can stay in writing or move to communicated
+      communicated: ['communicated', 'writing', 'submitted', 'rejected'], // Can update, go back to writing, or move forward
+      submitted: ['submitted', 'rejected', 'accepted'], // Can stay submitted, get rejected, or accepted
+      rejected: ['writing', 'communicated', 'submitted'], // Can restart from any earlier stage
       accepted: ['accepted', 'published'], // Can stay accepted or move to published
       published: ['published'] // Final status
     };

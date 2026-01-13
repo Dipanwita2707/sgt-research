@@ -421,6 +421,9 @@ model CentralDepartmentPermission {
   assignedBookSchoolIds       Json?             @default("[]") @map("assigned_book_school_ids")
   assignedConferenceSchoolIds Json?             @default("[]") @map("assigned_conference_school_ids")
   assignedGrantSchoolIds      Json?             @default("[]") @map("assigned_grant_school_ids")
+  // Monthly Report Scope - school and department IDs for viewing progress tracker reports
+  assignedMonthlyReportSchoolIds      Json?             @default("[]") @map("assigned_monthly_report_school_ids")
+  assignedMonthlyReportDepartmentIds  Json?             @default("[]") @map("assigned_monthly_report_department_ids")
   assignedByUser              UserLogin?        @relation("AssignedCentralDeptPermissions", fields: [assignedBy], references: [id])
   centralDept                 CentralDepartment @relation(fields: [centralDeptId], references: [id], onDelete: Cascade)
   user                        UserLogin         @relation("UserCentralDeptPermissions", fields: [userId], references: [id], onDelete: Cascade)
@@ -1508,7 +1511,7 @@ model ResearchProgressTracker {
   userId                 String                              @map("user_id") @db.Uuid
   publicationType        ResearchPublicationTypeEnum         @map("publication_type")
   title                  String                              @db.VarChar(512)
-  currentStatus          ResearchTrackerStatusEnum           @default(communicated) @map("current_status")
+  currentStatus          ResearchTrackerStatusEnum           @default(writing) @map("current_status")
   schoolId               String?                             @map("school_id") @db.Uuid
   departmentId           String?                             @map("department_id") @db.Uuid
 
@@ -1573,7 +1576,9 @@ model ResearchProgressStatusHistory {
 }
 
 enum ResearchTrackerStatusEnum {
+  writing
   communicated
+  submitted
   rejected
   accepted
   published
@@ -1593,7 +1598,6 @@ model GrantApplication {
   
   // Project Basic Information
   title                    String                     @db.VarChar(512)
-  agencyName               String?                    @map("agency_name") @db.VarChar(256)
   submittedAmount          Decimal?                   @map("submitted_amount") @db.Decimal(15, 2)
   sdgGoals                 String[]                   @map("sdg_goals")
   

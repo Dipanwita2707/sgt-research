@@ -122,7 +122,6 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   const [formData, setFormData] = useState({
     // Basic Info
     title: '',
-    agencyName: '',
     submittedAmount: '',
     sdgGoals: [] as string[],
     
@@ -474,7 +473,6 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
       
       setFormData({
         title: grant.title || '',
-        agencyName: grant.agencyName || '',
         submittedAmount: grant.submittedAmount?.toString() || '',
         sdgGoals: grant.sdgGoals || [],
         projectType: grant.projectType || 'indian',
@@ -599,11 +597,6 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
   const validateForm = (): boolean => {
     if (!formData.title.trim()) {
       setError('Project title is required');
-      return false;
-    }
-    
-    if (!formData.agencyName.trim()) {
-      setError('Agency name is required');
       return false;
     }
     
@@ -941,7 +934,136 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             </div>
           )}
           
-          {/* Section 1: Basic Project Information */}
+          {/* Section 1: Project Status & Category - MOVED TO TOP */}
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">
+              Project Status & Category
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Research Project Status *
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="projectStatus"
+                      value="submitted"
+                      checked={formData.projectStatus === 'submitted'}
+                      onChange={handleInputChange}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Submitted</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="projectStatus"
+                      value="approved"
+                      checked={formData.projectStatus === 'approved'}
+                      onChange={handleInputChange}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Approved</span>
+                  </label>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Project Category *
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="projectCategory"
+                      value="govt"
+                      checked={formData.projectCategory === 'govt'}
+                      onChange={(e) => {
+                        handleInputChange(e);
+                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
+                      }}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Government</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="projectCategory"
+                      value="non_govt"
+                      checked={formData.projectCategory === 'non_govt'}
+                      onChange={(e) => {
+                        handleInputChange(e);
+                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
+                      }}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Non-Govt</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="projectCategory"
+                      value="industry"
+                      checked={formData.projectCategory === 'industry'}
+                      onChange={(e) => {
+                        handleInputChange(e);
+                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
+                      }}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Industry</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            {/* Funding Agency - Conditional */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {formData.projectCategory === 'govt' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Funding Agency *
+                  </label>
+                  <select
+                    name="fundingAgencyType"
+                    value={formData.fundingAgencyType}
+                    onChange={handleInputChange}
+                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
+                  >
+                    <option value="">Select Funding Agency</option>
+                    {FUNDING_AGENCY_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {(formData.fundingAgencyType === 'other' || 
+                formData.projectCategory === 'non_govt' || 
+                formData.projectCategory === 'industry') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Funding Agency Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="fundingAgencyName"
+                    value={formData.fundingAgencyName}
+                    onChange={handleInputChange}
+                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
+                    placeholder="Enter funding agency name"
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+          
+          {/* Section 2: Basic Project Information */}
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900 border-b pb-2 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-orange-600" />
@@ -960,20 +1082,6 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
                   onChange={handleInputChange}
                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
                   placeholder="Enter full project title"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title of Research Project Agency *
-                </label>
-                <input
-                  type="text"
-                  name="agencyName"
-                  value={formData.agencyName}
-                  onChange={handleInputChange}
-                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                  placeholder="Agency name"
                 />
               </div>
               
@@ -1155,136 +1263,7 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             )}
           </section>
           
-          {/* Section 3: Project Status & Category */}
-          <section className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">
-              Project Status & Category
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Research Project Status *
-                </label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="projectStatus"
-                      value="submitted"
-                      checked={formData.projectStatus === 'submitted'}
-                      onChange={handleInputChange}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <span>Submitted</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="projectStatus"
-                      value="approved"
-                      checked={formData.projectStatus === 'approved'}
-                      onChange={handleInputChange}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <span>Approved</span>
-                  </label>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Project Category *
-                </label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="projectCategory"
-                      value="govt"
-                      checked={formData.projectCategory === 'govt'}
-                      onChange={(e) => {
-                        handleInputChange(e);
-                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
-                      }}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <span>Government</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="projectCategory"
-                      value="non_govt"
-                      checked={formData.projectCategory === 'non_govt'}
-                      onChange={(e) => {
-                        handleInputChange(e);
-                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
-                      }}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <span>Non-Govt</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="projectCategory"
-                      value="industry"
-                      checked={formData.projectCategory === 'industry'}
-                      onChange={(e) => {
-                        handleInputChange(e);
-                        setFormData(prev => ({ ...prev, fundingAgencyType: '', fundingAgencyName: '' }));
-                      }}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <span>Industry</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-            
-            {/* Funding Agency - Conditional */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {formData.projectCategory === 'govt' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Funding Agency *
-                  </label>
-                  <select
-                    name="fundingAgencyType"
-                    value={formData.fundingAgencyType}
-                    onChange={handleInputChange}
-                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                  >
-                    <option value="">Select Funding Agency</option>
-                    {FUNDING_AGENCY_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {(formData.fundingAgencyType === 'other' || 
-                formData.projectCategory === 'non_govt' || 
-                formData.projectCategory === 'industry') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Funding Agency Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="fundingAgencyName"
-                    value={formData.fundingAgencyName}
-                    onChange={handleInputChange}
-                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                    placeholder="Enter funding agency name"
-                  />
-                </div>
-              )}
-            </div>
-          </section>
-          
-          {/* Section 4: Investigator Configuration */}
+          {/* Section 3: Investigator Configuration */}
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900 border-b pb-2 flex items-center gap-2">
               <Users className="w-5 h-5 text-orange-600" />
@@ -1847,46 +1826,38 @@ export default function GrantApplicationForm({ grantId, onSuccess }: Props) {
             </div>
           </section>
           
-          {/* Section 7: School & Department */}
+          {/* Section 7: School & Department - Auto-filled from user profile */}
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">
               Institutional Information
             </h2>
+            <p className="text-sm text-gray-600 italic">
+              Auto-filled from your profile
+            </p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   School/Faculty *
                 </label>
-                <select
-                  name="schoolId"
-                  value={formData.schoolId}
-                  onChange={handleInputChange}
-                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                >
-                  <option value="">Select School</option>
-                  {schools.map(school => (
-                    <option key={school.id} value={school.id}>{school.facultyName}</option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={schools.find(s => s.id === formData.schoolId)?.facultyName || 'Not set'}
+                  readOnly
+                  className="w-full rounded-lg border-gray-300 bg-gray-50 shadow-sm cursor-not-allowed text-gray-600"
+                />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Department
                 </label>
-                <select
-                  name="departmentId"
-                  value={formData.departmentId}
-                  onChange={handleInputChange}
-                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                  disabled={!formData.schoolId}
-                >
-                  <option value="">Select Department</option>
-                  {departments.map(dept => (
-                    <option key={dept.id} value={dept.id}>{dept.departmentName}</option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={departments.find(d => d.id === formData.departmentId)?.departmentName || 'Not set'}
+                  readOnly
+                  className="w-full rounded-lg border-gray-300 bg-gray-50 shadow-sm cursor-not-allowed text-gray-600"
+                />
               </div>
             </div>
           </section>

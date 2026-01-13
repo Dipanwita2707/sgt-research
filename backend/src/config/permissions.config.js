@@ -119,6 +119,20 @@ const CONFERENCE_PERMISSIONS = {
   }
 };
 
+// Monthly Report Permissions - View progress tracker reports by school/department
+const MONTHLY_REPORT_PERMISSIONS = {
+  MONTHLY_REPORT_CORE: {
+    category: 'Monthly Report Permissions',
+    permissions: {
+      monthly_report_view: {
+        key: 'monthly_report_view',
+        label: 'View Monthly Reports',
+        description: 'Can view progress tracker reports for assigned schools/departments'
+      }
+    }
+  }
+};
+
 // Flat list of all permission keys for validation
 const ALL_IPR_PERMISSION_KEYS = Object.values(IPR_PERMISSIONS)
   .flatMap(category => Object.keys(category.permissions));
@@ -132,7 +146,10 @@ const ALL_BOOK_PERMISSION_KEYS = Object.values(BOOK_PERMISSIONS)
 const ALL_CONFERENCE_PERMISSION_KEYS = Object.values(CONFERENCE_PERMISSIONS)
   .flatMap(category => Object.keys(category.permissions));
 
-const ALL_PERMISSION_KEYS = [...ALL_IPR_PERMISSION_KEYS, ...ALL_RESEARCH_PERMISSION_KEYS, ...ALL_BOOK_PERMISSION_KEYS, ...ALL_CONFERENCE_PERMISSION_KEYS];
+const ALL_MONTHLY_REPORT_PERMISSION_KEYS = Object.values(MONTHLY_REPORT_PERMISSIONS)
+  .flatMap(category => Object.keys(category.permissions));
+
+const ALL_PERMISSION_KEYS = [...ALL_IPR_PERMISSION_KEYS, ...ALL_RESEARCH_PERMISSION_KEYS, ...ALL_BOOK_PERMISSION_KEYS, ...ALL_CONFERENCE_PERMISSION_KEYS, ...ALL_MONTHLY_REPORT_PERMISSION_KEYS];
 
 // Get all permissions as flat array for API response
 const getPermissionsForUI = () => {
@@ -160,7 +177,13 @@ const getPermissionsForUI = () => {
     permissions: Object.values(group.permissions)
   }));
   
-  return [...iprPerms, ...researchPerms, ...bookPerms, ...conferencePerms];
+  const monthlyReportPerms = Object.entries(MONTHLY_REPORT_PERMISSIONS).map(([groupKey, group]) => ({
+    groupKey,
+    category: group.category,
+    permissions: Object.values(group.permissions)
+  }));
+  
+  return [...iprPerms, ...researchPerms, ...bookPerms, ...conferencePerms, ...monthlyReportPerms];
 };
 
 // Validate permission keys
@@ -267,7 +290,11 @@ const ROUTE_PERMISSION_MAP = {
   
   // Conference School Assignment Routes (DRD Head)
   'POST /api/v1/conference-member/assign-schools': ['conference_assign_school'],
-  'PUT /api/v1/conference-member/assign-schools/:userId': ['conference_assign_school']
+  'PUT /api/v1/conference-member/assign-schools/:userId': ['conference_assign_school'],
+  
+  // Monthly Report Routes
+  'GET /api/v1/progress-tracker/monthly-reports': ['monthly_report_view'],
+  'GET /api/v1/progress-tracker/all': ['monthly_report_view']
 };
 
 module.exports = {
@@ -275,11 +302,13 @@ module.exports = {
   RESEARCH_PERMISSIONS,
   BOOK_PERMISSIONS,
   CONFERENCE_PERMISSIONS,
+  MONTHLY_REPORT_PERMISSIONS,
   ALL_PERMISSION_KEYS,
   ALL_IPR_PERMISSION_KEYS,
   ALL_RESEARCH_PERMISSION_KEYS,
   ALL_BOOK_PERMISSION_KEYS,
   ALL_CONFERENCE_PERMISSION_KEYS,
+  ALL_MONTHLY_REPORT_PERMISSION_KEYS,
   getPermissionsForUI,
   isValidPermission,
   getDefaultPermissions,

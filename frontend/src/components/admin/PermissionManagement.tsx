@@ -31,6 +31,10 @@ export default function PermissionManagement() {
   // Form state
   const [selectedPermissions, setSelectedPermissions] = useState<Record<string, boolean>>({});
   const [isPrimary, setIsPrimary] = useState(false);
+  
+  // Monthly report scope state
+  const [selectedMonthlyReportSchools, setSelectedMonthlyReportSchools] = useState<string[]>([]);
+  const [selectedMonthlyReportDepartments, setSelectedMonthlyReportDepartments] = useState<string[]>([]);
 
   // Department permission definitions
   const departmentPermissions: Record<string, Record<string, Permission[]>> = {
@@ -65,6 +69,9 @@ export default function PermissionManagement() {
         { key: 'grant_review', label: 'Grant Review', category: 'Grant Permissions', description: 'DRD Member - Can review grant/funding applications from assigned schools' },
         { key: 'grant_approve', label: 'Grant Approve', category: 'Grant Permissions', description: 'DRD Head - Can give final approval/rejection on grant/funding applications' },
         { key: 'grant_assign_school', label: 'Assign Schools to DRD Members (Grant)', category: 'Grant Permissions', description: 'DRD Head - Can assign schools to DRD member reviewers for Grant/Funding' },
+        
+        // Monthly Report Permissions
+        { key: 'monthly_report_view', label: 'View Monthly Reports', category: 'Monthly Report Permissions', description: 'Can view progress tracker reports for assigned schools/departments. Select schools and departments below to define scope.' },
       ],
       HR: [
         { key: 'hr_view_employees', label: 'View Employees', category: 'HR' },
@@ -171,12 +178,17 @@ export default function PermissionManagement() {
     // Load existing permissions for this user and department
     let existingPermissions: Record<string, boolean> = {};
     let isCurrentlyPrimary = false;
+    let existingMonthlyReportSchools: string[] = [];
+    let existingMonthlyReportDepartments: string[] = [];
     
     if (selectedDepartmentType === 'central') {
       const existingPerm = user.centralDeptPermissions.find(perm => perm.centralDeptId === selectedDepartmentId);
       if (existingPerm) {
         existingPermissions = existingPerm.permissions;
         isCurrentlyPrimary = existingPerm.isPrimary;
+        // Load monthly report scope if available
+        existingMonthlyReportSchools = (existingPerm as any).assignedMonthlyReportSchoolIds || [];
+        existingMonthlyReportDepartments = (existingPerm as any).assignedMonthlyReportDepartmentIds || [];
       }
     } else {
       const existingPerm = user.schoolDeptPermissions.find(perm => perm.departmentId === selectedDepartmentId);
@@ -188,6 +200,8 @@ export default function PermissionManagement() {
     
     setSelectedPermissions(existingPermissions);
     setIsPrimary(isCurrentlyPrimary);
+    setSelectedMonthlyReportSchools(existingMonthlyReportSchools);
+    setSelectedMonthlyReportDepartments(existingMonthlyReportDepartments);
     setShowPermissionModal(true);
   };
 
@@ -223,9 +237,15 @@ export default function PermissionManagement() {
           centralDeptId: selectedDepartmentId,
           permissions: selectedPermissions,
           isPrimary,
+          // Include monthly report scope if the permission is enabled
+          assignedMonthlyReportSchoolIds: selectedPermissions['monthly_report_view'] ? selectedMonthlyReportSchools : [],
+          assignedMonthlyReportDepartmentIds: selectedPermissions['monthly_report_view'] ? selectedMonthlyReportDepartments : [],
         });
       }
       setShowPermissionModal(false);
+      // Reset monthly report scope state
+      setSelectedMonthlyReportSchools([]);
+      setSelectedMonthlyReportDepartments([]);
       fetchData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to grant permissions');
@@ -751,6 +771,92 @@ export default function PermissionManagement() {
                     )}
                   </div>
                 </div>
+
+                {/* Monthly Report Scope Selection - Only show when monthly_report_view is selected */}
+                {selectedPermissions['monthly_report_view'] && (
+                  <div className="border border-purple-200 rounded-xl p-4 bg-purple-50">
+                    <h4 className="font-semibold text-purple-800 mb-4 flex items-center gap-2">
+                      📊 Monthly Report Scope
+                      <span className="text-xs font-normal text-purple-600">(Select which schools/departments this user can view reports for)</span>
+                    </h4>
+                    
+                    {/* School Selection */}
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Schools (can view all trackers from these schools)
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-40 overflow-y-auto bg-white p-3 rounded-lg border border-purple-100">
+                        {schools.map((school) => (
+                          <label
+                            key={school.id}
+                            className="flex items-center gap-2 text-sm text-gray-700 hover:bg-purple-50 p-2 rounded cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMonthlyReportSchools.includes(school.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMonthlyReportSchools([...selectedMonthlyReportSchools, school.id]);
+                                } else {
+                                  setSelectedMonthlyReportSchools(selectedMonthlyReportSchools.filter(id => id !== school.id));
+                                }
+                              }}
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="truncate">{school.facultyName}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {selectedMonthlyReportSchools.length} school(s) selected
+                      </p>
+                    </div>
+                    
+                    {/* Department Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Departments (can view trackers from specific departments only)
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-40 overflow-y-auto bg-white p-3 rounded-lg border border-purple-100">
+                        {schools.flatMap((school) =>
+                          (school.departments || []).map((dept) => (
+                            <label
+                              key={dept.id}
+                              className="flex items-center gap-2 text-sm text-gray-700 hover:bg-purple-50 p-2 rounded cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedMonthlyReportDepartments.includes(dept.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedMonthlyReportDepartments([...selectedMonthlyReportDepartments, dept.id]);
+                                  } else {
+                                    setSelectedMonthlyReportDepartments(selectedMonthlyReportDepartments.filter(id => id !== dept.id));
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                              />
+                              <span className="truncate" title={`${school.facultyName} - ${dept.departmentName}`}>
+                                {dept.departmentName}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {selectedMonthlyReportDepartments.length} department(s) selected
+                      </p>
+                    </div>
+                    
+                    {selectedMonthlyReportSchools.length === 0 && selectedMonthlyReportDepartments.length === 0 && (
+                      <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-xs text-yellow-700">
+                          ⚠️ Please select at least one school or department to define the scope for monthly report viewing.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h4 className="text-sm font-medium text-gray-700 mb-2">Permission Summary</h4>

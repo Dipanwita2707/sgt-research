@@ -10,11 +10,65 @@ interface ConferencePaperStatusFormProps {
 }
 
 export default function ConferencePaperStatusForm({ status, data, onChange, conferenceSubType }: ConferencePaperStatusFormProps) {
+  // Ensure all values default to empty string to prevent controlled/uncontrolled warnings
+  const getValue = (field: string, defaultValue: string = ''): string => {
+    const value = data[field];
+    return (value as string) ?? defaultValue;
+  };
+
   const handleChange = (field: string, value: unknown) => {
     onChange({ ...data, [field]: value });
   };
 
+  // Reusable Author Section - Only for paper conferences
+  const AuthorSection = () => {
+    if (conferenceSubType !== 'paper_not_indexed' && conferenceSubType !== 'paper_indexed_scopus') {
+      return null;
+    }
+    return (
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <h4 className="text-sm font-semibold text-purple-900 mb-3">Author Information</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Total Authors <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={(data.totalAuthors as number) || 1}
+              onChange={(e) => {
+                const val = parseInt(e.target.value) || 1;
+                handleChange('totalAuthors', val);
+                if ((data.sgtAffiliatedAuthors as number) > val) {
+                  handleChange('sgtAffiliatedAuthors', val);
+                }
+              }}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="1"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              SGT Authors <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              max={(data.totalAuthors as number) || 1}
+              value={(data.sgtAffiliatedAuthors as number) || 1}
+              onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="1"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   switch (status) {
+    case 'writing':
     case 'communicated':
       return (
         <div className="space-y-4">
@@ -37,7 +91,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               <label className="block text-sm font-medium text-gray-700 mb-1">Conference Date (From)</label>
               <input
                 type="date"
-                value={(data.conferenceDateFrom as string) || ''}
+                value={getValue('conferenceDateFrom')}
                 onChange={(e) => handleChange('conferenceDateFrom', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
@@ -46,7 +100,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               <label className="block text-sm font-medium text-gray-700 mb-1">Conference Date (To)</label>
               <input
                 type="date"
-                value={(data.conferenceDateTo as string) || ''}
+                value={getValue('conferenceDateTo')}
                 onChange={(e) => handleChange('conferenceDateTo', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
@@ -60,7 +114,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
                 <label className="block text-sm font-medium text-gray-700 mb-1">Title of the Proceedings</label>
                 <input
                   type="text"
-                  value={(data.proceedingsTitle as string) || ''}
+                  value={getValue('proceedingsTitle')}
                   onChange={(e) => handleChange('proceedingsTitle', e.target.value)}
                   className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="Enter proceedings title"
@@ -72,7 +126,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
                     Proceedings Quartile <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={(data.proceedingsQuartile as string) || 'na'}
+                    value={getValue('proceedingsQuartile', 'na')}
                     onChange={(e) => handleChange('proceedingsQuartile', e.target.value)}
                     className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   >
@@ -100,7 +154,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
                       type="radio"
                       name="conferenceType"
                       value={v}
-                      checked={((data.conferenceType as string) || '') === v}
+                      checked={getValue('conferenceType') === v}
                       onChange={(e) => handleChange('conferenceType', e.target.value)}
                       className="w-4 h-4 text-indigo-600"
                     />
@@ -118,7 +172,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
                       type="radio"
                       name="virtualConference"
                       value={v}
-                      checked={((data.virtualConference as string) || '') === v}
+                      checked={getValue('virtualConference') === v}
                       onChange={(e) => handleChange('virtualConference', e.target.value)}
                       className="w-4 h-4 text-indigo-600"
                     />
@@ -129,12 +183,54 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
             </div>
           </div>
 
+          {/* Author Section - Only for paper conferences */}
+          {(conferenceSubType === 'paper_not_indexed' || conferenceSubType === 'paper_indexed_scopus') && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-purple-900 mb-3">Author Information</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Total Authors <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={(data.totalAuthors as number) || 1}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 1;
+                      handleChange('totalAuthors', val);
+                      if ((data.sgtAffiliatedAuthors as number) > val) {
+                        handleChange('sgtAffiliatedAuthors', val);
+                      }
+                    }}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    placeholder="1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    SGT Authors <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={(data.totalAuthors as number) || 1}
+                    value={(data.sgtAffiliatedAuthors as number) || 1}
+                    onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Submission Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Submission Date</label>
             <input
               type="date"
-              value={(data.submissionDate as string) || ''}
+              value={getValue('submissionDate')}
               onChange={(e) => handleChange('submissionDate', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
@@ -145,6 +241,9 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'submitted':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           {/* Submission Date & Paper ID */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -153,7 +252,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               </label>
               <input
                 type="date"
-                value={(data.submissionDate as string) || ''}
+                value={getValue('submissionDate')}
                 onChange={(e) => handleChange('submissionDate', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
@@ -162,7 +261,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               <label className="block text-sm font-medium text-gray-700 mb-1">Paper/Manuscript ID</label>
               <input
                 type="text"
-                value={(data.manuscriptId as string) || ''}
+                value={getValue('manuscriptId')}
                 onChange={(e) => handleChange('manuscriptId', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 placeholder="Conference assigned ID"
@@ -175,7 +274,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
             <label className="block text-sm font-medium text-gray-700 mb-1">Submission Portal/Link</label>
             <input
               type="url"
-              value={(data.submissionPortal as string) || ''}
+              value={getValue('submissionPortal')}
               onChange={(e) => handleChange('submissionPortal', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               placeholder="https://..."
@@ -186,7 +285,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Progress Notes</label>
             <textarea
-              value={(data.progressNotes as string) || ''}
+              value={getValue('progressNotes')}
               onChange={(e) => handleChange('progressNotes', e.target.value)}
               rows={3}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -214,11 +313,14 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'accepted':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Acceptance Date</label>
             <input
               type="date"
-              value={(data.acceptanceDate as string) || ''}
+              value={getValue('acceptanceDate')}
               onChange={(e) => handleChange('acceptanceDate', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
@@ -226,7 +328,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Presentation Type</label>
             <select
-              value={(data.presentationType as string) || ''}
+              value={getValue('presentationType')}
               onChange={(e) => handleChange('presentationType', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             >
@@ -241,7 +343,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
             <label className="block text-sm font-medium text-gray-700 mb-1">Session/Track</label>
             <input
               type="text"
-              value={(data.sessionTrack as string) || ''}
+              value={getValue('sessionTrack')}
               onChange={(e) => handleChange('sessionTrack', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               placeholder="e.g., Track 2: Machine Learning"
@@ -251,7 +353,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
             <label className="block text-sm font-medium text-gray-700 mb-1">Presentation Date/Time</label>
             <input
               type="datetime-local"
-              value={(data.presentationDateTime as string) || ''}
+              value={getValue('presentationDateTime')}
               onChange={(e) => handleChange('presentationDateTime', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
@@ -262,6 +364,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'published':
       return (
         <div className="space-y-4">
+          <AuthorSection />
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -269,7 +372,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               </label>
               <input
                 type="date"
-                value={(data.publicationDate as string) || ''}
+                value={getValue('publicationDate')}
                 onChange={(e) => handleChange('publicationDate', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
@@ -278,7 +381,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
               <label className="block text-sm font-medium text-gray-700 mb-1">ISBN/ISSN</label>
               <input
                 type="text"
-                value={(data.isbn as string) || ''}
+                value={getValue('isbn')}
                 onChange={(e) => handleChange('isbn', e.target.value)}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 placeholder="Proceedings ISBN/ISSN"
@@ -307,7 +410,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Faculty Remarks</label>
             <textarea
-              value={(data.facultyRemarks as string) || ''}
+              value={getValue('facultyRemarks')}
               onChange={(e) => handleChange('facultyRemarks', e.target.value)}
               rows={3}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -320,10 +423,11 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'rejected':
       return (
         <div className="space-y-4">
+          <AuthorSection />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
             <select
-              value={(data.rejectionReason as string) || ''}
+              value={getValue('rejectionReason')}
               onChange={(e) => handleChange('rejectionReason', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             >
@@ -337,7 +441,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Summary</label>
             <textarea
-              value={(data.feedbackSummary as string) || ''}
+              value={getValue('feedbackSummary')}
               onChange={(e) => handleChange('feedbackSummary', e.target.value)}
               rows={3}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -347,7 +451,7 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Plan to Resubmit?</label>
             <select
-              value={(data.planToResubmit as string) || ''}
+              value={getValue('planToResubmit')}
               onChange={(e) => handleChange('planToResubmit', e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             >

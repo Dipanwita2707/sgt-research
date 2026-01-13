@@ -166,6 +166,8 @@ class PermissionManagementService {
     centralDeptId: string;
     permissions: Record<string, boolean>;
     isPrimary?: boolean;
+    assignedMonthlyReportSchoolIds?: string[];
+    assignedMonthlyReportDepartmentIds?: string[];
   }) {
     const response = await api.post<{
       success: boolean;

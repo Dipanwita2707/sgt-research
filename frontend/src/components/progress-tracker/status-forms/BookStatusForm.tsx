@@ -13,7 +13,53 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
     onChange({ ...data, [field]: value });
   };
 
+  // Reusable Author Section Component
+  const AuthorSection = () => (
+    <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+      <h4 className="text-sm font-semibold text-teal-900 mb-3">Author Information</h4>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Total Authors <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            min="1"
+            value={(data.totalAuthors as number) || 1}
+            onChange={(e) => {
+              const val = parseInt(e.target.value) || 1;
+              handleChange('totalAuthors', val);
+              if ((data.sgtAffiliatedAuthors as number) > val) {
+                handleChange('sgtAffiliatedAuthors', val);
+              }
+            }}
+            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            placeholder="1"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            SGT Authors <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            min="1"
+            max={(data.totalAuthors as number) || 1}
+            value={(data.sgtAffiliatedAuthors as number) || 1}
+            onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
+            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            placeholder="1"
+          />
+        </div>
+      </div>
+      <p className="text-xs text-teal-700 mt-2">
+        💡 Incentive will be distributed equally among all SGT authors
+      </p>
+    </div>
+  );
+
   switch (status) {
+    case 'writing':
     case 'communicated':
       return (
         <div className="space-y-4">
@@ -111,6 +157,49 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
             </div>
           </div>
 
+          {/* Author Section */}
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-teal-900 mb-3">Author Information</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Authors <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={(data.totalAuthors as number) || 1}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 1;
+                    handleChange('totalAuthors', val);
+                    if ((data.sgtAffiliatedAuthors as number) > val) {
+                      handleChange('sgtAffiliatedAuthors', val);
+                    }
+                  }}
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  placeholder="1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  SGT Authors <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={(data.totalAuthors as number) || 1}
+                  value={(data.sgtAffiliatedAuthors as number) || 1}
+                  onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  placeholder="1"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-teal-700 mt-2">
+              💡 Incentive will be distributed equally among all SGT authors
+            </p>
+          </div>
+
           {/* Official ID Communication */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -154,6 +243,9 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
     case 'submitted':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           {/* Submission Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -223,6 +315,9 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
     case 'accepted':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Acceptance Date</label>
             <input
@@ -256,6 +351,9 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
     case 'published':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -316,6 +414,9 @@ export default function BookStatusForm({ status, data, onChange }: BookStatusFor
     case 'rejected':
       return (
         <div className="space-y-4">
+          {/* Author Section */}
+          <AuthorSection />
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
             <select

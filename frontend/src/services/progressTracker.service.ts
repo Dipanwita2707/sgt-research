@@ -2,6 +2,7 @@ import api from '@/lib/api';
 
 // TypeScript Types
 export type ResearchTrackerStatus = 
+  | 'writing'
   | 'communicated'
   | 'submitted'
   | 'rejected'
@@ -365,6 +366,7 @@ const progressTrackerService = {
 
 // Status display helpers
 export const statusLabels: Record<ResearchTrackerStatus, string> = {
+  writing: 'Writing',
   communicated: 'Communicated',
   submitted: 'Submitted',
   rejected: 'Rejected',
@@ -373,6 +375,7 @@ export const statusLabels: Record<ResearchTrackerStatus, string> = {
 };
 
 export const statusColors: Record<ResearchTrackerStatus, string> = {
+  writing: 'bg-gray-100 text-gray-800',
   communicated: 'bg-blue-100 text-blue-800',
   submitted: 'bg-indigo-100 text-indigo-800',
   rejected: 'bg-red-100 text-red-800',
@@ -396,11 +399,12 @@ export const publicationTypeIcons: Record<TrackerPublicationType, string> = {
 
 // Valid status transitions
 export const validTransitions: Record<ResearchTrackerStatus, ResearchTrackerStatus[]> = {
-  communicated: ['submitted', 'rejected'],
-  submitted: ['rejected', 'accepted'],
-  rejected: ['communicated', 'submitted'],
-  accepted: ['published'],
-  published: [],
+  writing: ['writing', 'communicated'],
+  communicated: ['communicated', 'writing', 'submitted', 'rejected'],
+  submitted: ['submitted', 'rejected', 'accepted'],
+  rejected: ['writing', 'communicated', 'submitted'],
+  accepted: ['accepted', 'published'],
+  published: ['published'],
 };
 
 export default progressTrackerService;

@@ -63,7 +63,6 @@ exports.createGrantApplication = async (req, res) => {
 
     const {
       title,
-      agencyName,
       submittedAmount,
       sdgGoals,
       projectType,
@@ -128,7 +127,6 @@ exports.createGrantApplication = async (req, res) => {
         applicantUserId: userId,
         applicantType,
         title,
-        agencyName,
         submittedAmount: submittedAmount ? parseFloat(submittedAmount) : null,
         sdgGoals: sdgGoals || [],
         projectType: projectType || 'indian',
@@ -452,7 +450,6 @@ exports.updateGrantApplication = async (req, res) => {
 
     const {
       title,
-      agencyName,
       submittedAmount,
       sdgGoals,
       projectType,
@@ -489,7 +486,6 @@ exports.updateGrantApplication = async (req, res) => {
       where: { id },
       data: {
         title,
-        agencyName,
         submittedAmount: submittedAmount ? parseFloat(submittedAmount) : null,
         sdgGoals: sdgGoals || [],
         projectType: projectType || 'indian',

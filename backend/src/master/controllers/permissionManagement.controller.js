@@ -239,7 +239,14 @@ exports.grantSchoolDeptPermissions = async (req, res) => {
  */
 exports.grantCentralDeptPermissions = async (req, res) => {
   try {
-    const { userId, centralDeptId, permissions, isPrimary } = req.body;
+    const { 
+      userId, 
+      centralDeptId, 
+      permissions, 
+      isPrimary,
+      assignedMonthlyReportSchoolIds,
+      assignedMonthlyReportDepartmentIds 
+    } = req.body;
 
     if (!userId || !centralDeptId || !permissions) {
       return res.status(400).json({
@@ -273,6 +280,35 @@ exports.grantCentralDeptPermissions = async (req, res) => {
       });
     }
 
+    // Prepare data for upsert with optional monthly report scope fields
+    const updateData = {
+      permissions,
+      isPrimary: isPrimary || false,
+      isActive: true,
+      assignedBy: req.user.id,
+      assignedAt: new Date(),
+    };
+
+    const createData = {
+      userId,
+      centralDeptId,
+      permissions,
+      isPrimary: isPrimary || false,
+      isActive: true,
+      assignedBy: req.user.id,
+    };
+
+    // Add monthly report scope if provided
+    if (assignedMonthlyReportSchoolIds !== undefined) {
+      updateData.assignedMonthlyReportSchoolIds = assignedMonthlyReportSchoolIds || [];
+      createData.assignedMonthlyReportSchoolIds = assignedMonthlyReportSchoolIds || [];
+    }
+
+    if (assignedMonthlyReportDepartmentIds !== undefined) {
+      updateData.assignedMonthlyReportDepartmentIds = assignedMonthlyReportDepartmentIds || [];
+      createData.assignedMonthlyReportDepartmentIds = assignedMonthlyReportDepartmentIds || [];
+    }
+
     const permission = await prisma.centralDepartmentPermission.upsert({
       where: {
         userId_centralDeptId: {
@@ -280,21 +316,8 @@ exports.grantCentralDeptPermissions = async (req, res) => {
           centralDeptId,
         },
       },
-      update: {
-        permissions,
-        isPrimary: isPrimary || false,
-        isActive: true,
-        assignedBy: req.user.id,
-        assignedAt: new Date(),
-      },
-      create: {
-        userId,
-        centralDeptId,
-        permissions,
-        isPrimary: isPrimary || false,
-        isActive: true,
-        assignedBy: req.user.id,
-      },
+      update: updateData,
+      create: createData,
       include: {
         centralDept: {
           select: {
@@ -312,7 +335,14 @@ exports.grantCentralDeptPermissions = async (req, res) => {
         action: 'GRANT_CENTRAL_DEPT_PERMISSIONS',
         targetTable: 'central_department_permission',
         targetId: permission.id,
-        details: { userId, centralDeptId, permissions, isPrimary },
+        details: { 
+          userId, 
+          centralDeptId, 
+          permissions, 
+          isPrimary,
+          assignedMonthlyReportSchoolIds,
+          assignedMonthlyReportDepartmentIds 
+        },
       },
     });
 

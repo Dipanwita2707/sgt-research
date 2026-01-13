@@ -14,11 +14,11 @@ import progressTrackerService, {
   publicationTypeIcons,
 } from '@/services/progressTracker.service';
 
-// Import the writing form components
-import ResearchPaperWritingForm from '@/components/progress-tracker/forms/ResearchPaperWritingForm';
-import BookWritingForm from '@/components/progress-tracker/forms/BookWritingForm';
-import BookChapterWritingForm from '@/components/progress-tracker/forms/BookChapterWritingForm';
-import ConferencePaperWritingForm from '@/components/progress-tracker/forms/ConferencePaperWritingForm';
+// Import the status form components
+import ResearchPaperStatusForm from '@/components/progress-tracker/status-forms/ResearchPaperStatusForm';
+import BookStatusForm from '@/components/progress-tracker/status-forms/BookStatusForm';
+import BookChapterStatusForm from '@/components/progress-tracker/status-forms/BookChapterStatusForm';
+import ConferencePaperStatusForm from '@/components/progress-tracker/status-forms/ConferencePaperStatusForm';
 
 export default function TrackerDetailPage() {
   const router = useRouter();
@@ -88,7 +88,12 @@ export default function TrackerDetailPage() {
         const sortedHistory = [...tracker.statusHistory].reverse(); // oldest first
         sortedHistory.forEach((entry: any) => {
           if (entry.statusData && typeof entry.statusData === 'object') {
-            mergedStatusData = { ...mergedStatusData, ...entry.statusData };
+            // Handle nested initialData structure from backend
+            if (entry.statusData.initialData && typeof entry.statusData.initialData === 'object') {
+              mergedStatusData = { ...mergedStatusData, ...entry.statusData.initialData };
+            } else {
+              mergedStatusData = { ...mergedStatusData, ...entry.statusData };
+            }
           }
         });
       }
@@ -105,6 +110,8 @@ export default function TrackerDetailPage() {
       };
       
       console.log('Initializing form with data:', initialData);
+      console.log('Type data:', typeData);
+      console.log('Merged status data:', mergedStatusData);
       setFormData(initialData);
       setOriginalData(initialData);
     }
@@ -173,35 +180,32 @@ export default function TrackerDetailPage() {
           notes: `Status changed from ${statusLabels[tracker!.currentStatus]} to ${statusLabels[formData.currentStatus as ResearchTrackerStatus]}. Changes: ${Object.keys(changes).join(', ')}`,
           statusData: typeData,
         });
-      } else if (Object.keys(changes).length > 0) {
-        console.log('Fields changed, calling updateTracker');
-        // Regular update with field changes - update tracker and create history
-        await progressTrackerService.updateTracker(id, updatePayload);
+      } else if (Object.keys(changes).length > 0 || uploadedDocuments.length > 0) {
+        console.log('Fields/documents changed, calling single update with history');
         
-        // Create a history entry for monthly report
+        // Build comprehensive notes
+        let updateNotes = '';
+        if (Object.keys(changes).length > 0) {
+          updateNotes = `Monthly update. Changes: ${Object.keys(changes).join(', ')}`;
+        }
+        if (uploadedDocuments.length > 0) {
+          if (updateNotes) updateNotes += '. ';
+          updateNotes += documentNotes || `${uploadedDocuments.length} document(s) uploaded`;
+        }
+        
+        // Single update call that handles both tracker update and history entry
         await progressTrackerService.updateTrackerWithStatus(id, {
           ...updatePayload,
           toStatus: tracker!.currentStatus, // Same status
           reportedDate: new Date().toISOString(),
           actualDate: new Date().toISOString(),
-          notes: `Monthly update. Changes: ${Object.keys(changes).join(', ')}`,
-          statusData: typeData,
-          isMonthlyReport: true,
-        });
-      } else if (uploadedDocuments.length > 0) {
-        // Only documents uploaded, no field changes - just create a note in history
-        await progressTrackerService.updateTrackerWithStatus(id, {
-          ...updatePayload,
-          toStatus: tracker!.currentStatus,
-          reportedDate: new Date().toISOString(),
-          actualDate: new Date().toISOString(),
-          notes: documentNotes || 'Documents uploaded',
+          notes: updateNotes,
           statusData: typeData,
           isMonthlyReport: true,
         });
       }
 
-      // Upload documents if any
+      // Upload documents if any (after the main update)
       if (uploadedDocuments.length > 0) {
         const uploadFormData = new FormData();
         uploadedDocuments.forEach((file) => {
@@ -278,11 +282,10 @@ export default function TrackerDetailPage() {
       // If it's an array of author objects
       if (typeof value[0] === 'object' && value[0]?.name) {
         return value.map((author: any) => {
-          const category = author.authorCategory === 'Internal' ? '🏢' : '🌍';
-          const role = author.authorRole === 'first_author' ? '1st' : 
-                      author.authorRole === 'corresponding_author' ? '📧' : 'Co';
-          return `${category} ${role} ${author.name}`;
-        }).join(', ');
+          const category = author.authorCategory === 'Internal' ? 'Internal' : 'External';
+          const role = author.authorRole || 'Co-Author';
+          return `${author.name} (${category}, ${role})`;
+        }).join('; ');
       }
       return value.join(', ');
     }
@@ -316,6 +319,9 @@ export default function TrackerDetailPage() {
       </div>
     );
   }
+
+  // Check if tracker is locked (cannot be edited after rejected or published)
+  const isLocked = tracker.currentStatus === 'rejected' || tracker.currentStatus === 'published';
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
@@ -381,18 +387,18 @@ export default function TrackerDetailPage() {
         {/* Progress Bar */}
         <div className="px-6 py-4 bg-gray-50 border-b">
           <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-            {['writing', 'submitted', 'under_review', 'accepted', 'published'].map((status) => {
-              const statusOrder = ['writing', 'submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'];
+            {['writing', 'communicated', 'submitted', 'accepted', 'published'].map((status, idx) => {
+              const statusOrder = ['writing', 'communicated', 'submitted', 'accepted', 'published'];
               const currentIndex = statusOrder.indexOf(tracker.currentStatus);
-              const thisIndex = statusOrder.indexOf(status);
-              const isComplete = thisIndex <= currentIndex;
-              const isCurrent = status === tracker.currentStatus || 
-                (status === 'under_review' && ['revision_requested', 'revised'].includes(tracker.currentStatus));
+              const thisIndex = idx;
+              const isComplete = thisIndex <= currentIndex && tracker.currentStatus !== 'rejected';
+              const isCurrent = status === tracker.currentStatus;
+              const isRejected = tracker.currentStatus === 'rejected';
               
               return (
                 <div 
                   key={status} 
-                  className={`text-center flex-1 ${isComplete ? 'text-indigo-600 font-medium' : ''} ${isCurrent ? 'font-bold text-indigo-700' : ''}`}
+                  className={`text-center flex-1 ${isComplete ? 'text-indigo-600 font-medium' : ''} ${isCurrent ? 'font-bold text-indigo-700' : ''} ${isRejected && status === tracker.currentStatus ? 'text-red-600 font-bold' : ''}`}
                 >
                   {statusLabels[status as ResearchTrackerStatus]}
                 </div>
@@ -401,9 +407,9 @@ export default function TrackerDetailPage() {
           </div>
           <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
             {(() => {
-              const statusOrder = ['communicated', 'accepted', 'published'];
+              const statusOrder = ['writing', 'communicated', 'submitted', 'accepted', 'published'];
               const currentIndex = statusOrder.indexOf(tracker.currentStatus);
-              const progress = tracker.currentStatus === 'rejected' ? 0 : ((currentIndex + 1) / 3) * 100;
+              const progress = tracker.currentStatus === 'rejected' ? 0 : ((currentIndex + 1) / statusOrder.length) * 100;
               return (
                 <div 
                   className={`h-full ${tracker.currentStatus === 'rejected' ? 'bg-red-500' : 'bg-indigo-600'} transition-all duration-500`}
@@ -416,6 +422,21 @@ export default function TrackerDetailPage() {
 
         {/* Editable Form Section */}
         <div className="p-6 border-b space-y-4">
+          {/* Locked Banner */}
+          {isLocked && (
+            <div className="p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg text-yellow-800 text-sm flex items-center">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+              </svg>
+              <div>
+                <strong>This tracker is locked.</strong>
+                <p className="text-xs mt-1">
+                  Trackers with '{statusLabels[tracker.currentStatus]}' status cannot be edited.
+                </p>
+              </div>
+            </div>
+          )}
+          
           {/* Alert Messages */}
           {updateError && (
             <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-800 text-sm flex items-center">
@@ -462,7 +483,8 @@ export default function TrackerDetailPage() {
                     type="text"
                     value={(formData.title as string) || ''}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    disabled={isLocked}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="Enter publication title"
                   />
                 </div>
@@ -473,10 +495,13 @@ export default function TrackerDetailPage() {
                     <select
                       value={formData.currentStatus as string}
                       onChange={(e) => setFormData({ ...formData, currentStatus: e.target.value })}
-                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      disabled={isLocked}
+                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     >
                       <option value="">Select</option>
+                      <option value="writing">Writing</option>
                       <option value="communicated">Communicated</option>
+                      <option value="submitted">Submitted</option>
                       <option value="rejected">Rejected</option>
                       <option value="accepted">Accepted</option>
                       <option value="published">Published</option>
@@ -489,7 +514,8 @@ export default function TrackerDetailPage() {
                       type="date"
                       value={(formData.expectedCompletionDate as string)?.split('T')[0] || ''}
                       onChange={(e) => setFormData({ ...formData, expectedCompletionDate: e.target.value })}
-                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      disabled={isLocked}
+                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -500,7 +526,8 @@ export default function TrackerDetailPage() {
                     value={(formData.notes as string) || ''}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     rows={3}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    disabled={isLocked}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="Any additional notes or comments..."
                   />
                 </div>
@@ -508,226 +535,249 @@ export default function TrackerDetailPage() {
             )}
           </div>
 
-          {/* Publication Details Section */}
+          {/* Research Classification Section */}
           <div className="bg-white border rounded-lg overflow-hidden">
             <button
               type="button"
               onClick={() => toggleSection('publicationDetails')}
-              className="w-full px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b flex items-center justify-between hover:bg-gray-50 transition-colors"
+              className="w-full px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b flex items-center justify-between hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                 </svg>
-                <h3 className="text-lg font-semibold text-gray-900">Publication Details</h3>
-                <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">{publicationTypeLabels[tracker.publicationType]}</span>
+                <h3 className="text-lg font-semibold text-gray-900">Research Classification</h3>
+                <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full">For reporting & ranking</span>
               </div>
               <svg className={`w-5 h-5 text-gray-500 transition-transform ${expandedSections.publicationDetails ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             {expandedSections.publicationDetails && (
-              <div className="p-4 bg-gray-50">
-                {tracker.publicationType === 'research_paper' && (
-                  <ResearchPaperWritingForm
-                    data={formData}
-                    onChange={setFormData}
-                  />
-                )}
-                {tracker.publicationType === 'book' && (
-                  <BookWritingForm
-                    data={formData}
-                    onChange={setFormData}
-                  />
-                )}
-                {tracker.publicationType === 'book_chapter' && (
-                  <BookChapterWritingForm
-                    data={formData}
-                    onChange={setFormData}
-                  />
-                )}
-                {tracker.publicationType === 'conference_paper' && (
-                  <ConferencePaperWritingForm
-                    data={formData}
-                    onChange={setFormData}
-                  />
-                )}
+              <div className="p-4 bg-gray-50 space-y-4">
+                {/* Interdisciplinary */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Interdisciplinary (SGT) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex gap-4">
+                    {['yes', 'no'].map((v) => (
+                      <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="interdisciplinary"
+                          value={v}
+                          checked={(formData.interdisciplinary as string) === v}
+                          onChange={(e) => setFormData({ ...formData, interdisciplinary: e.target.value })}
+                          disabled={isLocked}
+                          className="w-4 h-4 text-purple-600 disabled:opacity-50"
+                        />
+                        <span className="ml-1.5 capitalize text-gray-700">{v === 'yes' ? 'Yes' : 'No'}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* UN SDGs */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    UN Sustainable Development Goals (SDGs)
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-white">
+                    {[
+                      { value: '1', label: '1. No Poverty' },
+                      { value: '2', label: '2. Zero Hunger' },
+                      { value: '3', label: '3. Good Health' },
+                      { value: '4', label: '4. Quality Education' },
+                      { value: '5', label: '5. Gender Equality' },
+                      { value: '6', label: '6. Clean Water' },
+                      { value: '7', label: '7. Clean Energy' },
+                      { value: '8', label: '8. Decent Work' },
+                      { value: '9', label: '9. Industry Innovation' },
+                      { value: '10', label: '10. Reduced Inequalities' },
+                      { value: '11', label: '11. Sustainable Cities' },
+                      { value: '12', label: '12. Responsible Consumption' },
+                      { value: '13', label: '13. Climate Action' },
+                      { value: '14', label: '14. Life Below Water' },
+                      { value: '15', label: '15. Life on Land' },
+                      { value: '16', label: '16. Peace & Justice' },
+                      { value: '17', label: '17. Partnerships' },
+                    ].map((sdg) => (
+                      <label key={sdg.value} className="flex items-center gap-2 text-sm text-gray-700 hover:bg-purple-50 p-2 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={((formData.sdgs as string[]) || []).includes(sdg.value)}
+                          onChange={(e) => {
+                            const currentSdgs = (formData.sdgs as string[]) || [];
+                            if (e.target.checked) {
+                              setFormData({ ...formData, sdgs: [...currentSdgs, sdg.value] });
+                            } else {
+                              setFormData({ ...formData, sdgs: currentSdgs.filter((s: string) => s !== sdg.value) });
+                            }
+                          }}
+                          disabled={isLocked}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 disabled:opacity-50"
+                        />
+                        <span className="text-xs">{sdg.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{((formData.sdgs as string[]) || []).length} goal(s) selected</p>
+                </div>
+
+                {/* Targeted Research Category */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Targeted Research Category <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={(formData.targetedResearch as string) || (formData.targetedResearchType as string) || 'scopus'}
+                    onChange={(e) => setFormData({ ...formData, targetedResearch: e.target.value, targetedResearchType: e.target.value })}
+                    disabled={isLocked}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="scopus">Scopus</option>
+                    <option value="sci_scie">SCI/SCIE (WoS)</option>
+                    <option value="both">Both (Scopus & SCI/SCIE)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">This determines the indexing category for your research</p>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Status-Specific Fields */}
-          {formData.currentStatus !== 'writing' && (
-            <div className="bg-white border rounded-lg overflow-hidden">
-              <button
-                type="button"
-                onClick={() => toggleSection('statusFields')}
-                className="w-full px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b flex items-center justify-between hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {statusLabels[formData.currentStatus as ResearchTrackerStatus]} Stage Details
-                  </h3>
-                  {formData.currentStatus === 'published' && <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Final Stage</span>}
-                </div>
-                <svg className={`w-5 h-5 text-gray-500 transition-transform ${expandedSections.statusFields ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          {/* Current Progress Status & Research Metrics Section */}
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('statusFields')}
+              className="w-full px-4 py-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-              </button>
-              {expandedSections.statusFields && (
-                <div className="p-4 bg-gray-50 space-y-4">
-                {/* Submitted Status Fields */}
-                {['submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'].includes(formData.currentStatus as string) && (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Submission Date {['submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'].includes(formData.currentStatus as string) && '*'}
-                        </label>
-                        <input
-                          type="date"
-                          value={(formData.submissionDate as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, submissionDate: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Manuscript ID</label>
-                        <input
-                          type="text"
-                          value={(formData.manuscriptId as string) || ''}
-                          onChange={(e) => setFormData({ ...formData, manuscriptId: e.target.value })}
-                          placeholder="e.g., MS-2024-12345"
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Under Review Status Fields */}
-                {['under_review', 'revision_requested', 'revised', 'accepted', 'published'].includes(formData.currentStatus as string) && (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Review Start Date</label>
-                        <input
-                          type="date"
-                          value={(formData.reviewStartDate as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, reviewStartDate: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Expected Review Completion</label>
-                        <input
-                          type="date"
-                          value={(formData.expectedReviewDate as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, expectedReviewDate: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Revision Requested Fields */}
-                {['revision_requested', 'revised', 'accepted', 'published'].includes(formData.currentStatus as string) && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Reviewer Comments</label>
-                      <textarea
-                        value={(formData.reviewerComments as string) || ''}
-                        onChange={(e) => setFormData({ ...formData, reviewerComments: e.target.value })}
-                        rows={3}
-                        placeholder="Summary of reviewer feedback..."
-                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Revision Deadline</label>
-                        <input
-                          type="date"
-                          value={(formData.revisionDeadline as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, revisionDeadline: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                      {formData.currentStatus === 'revised' && (
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {statusLabels[formData.currentStatus as ResearchTrackerStatus]} Stage Details
+                </h3>
+                {formData.currentStatus === 'published' && <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Final Stage</span>}
+              </div>
+              <svg className={`w-5 h-5 text-gray-500 transition-transform ${expandedSections.statusFields ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {expandedSections.statusFields && (
+              <div className="p-4 bg-gray-50 space-y-4">
+                {/* Research Metrics - For Research Papers */}
+                {tracker.publicationType === 'research_paper' && (
+                  <div className="pb-4 border-b border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-4">📊 Research Metrics</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Quartile */}
+                      {((formData.targetedResearch as string) === 'scopus' || (formData.targetedResearch as string) === 'both' || (formData.targetedResearchType as string) === 'scopus' || (formData.targetedResearchType as string) === 'both') && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Revision Submitted Date</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Quartile <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            value={(formData.quartile as string) || ''}
+                            onChange={(e) => setFormData({ ...formData, quartile: e.target.value })}
+                            disabled={isLocked}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                          >
+                            <option value="">Select Quartile</option>
+                            <option value="Top 1%">Top 1%</option>
+                            <option value="Top 5%">Top 5%</option>
+                            <option value="Q1">Q1</option>
+                            <option value="Q2">Q2</option>
+                            <option value="Q3">Q3</option>
+                            <option value="Q4">Q4</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* SJR */}
+                      {((formData.targetedResearch as string) === 'scopus' || (formData.targetedResearch as string) === 'both' || (formData.targetedResearchType as string) === 'scopus' || (formData.targetedResearchType as string) === 'both') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">SJR</label>
                           <input
-                            type="date"
-                            value={(formData.revisionSubmittedDate as string)?.split('T')[0] || ''}
-                            onChange={(e) => setFormData({ ...formData, revisionSubmittedDate: e.target.value })}
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            type="number"
+                            step="0.01"
+                            value={(formData.sjr as number) || ''}
+                            onChange={(e) => setFormData({ ...formData, sjr: parseFloat(e.target.value) || 0 })}
+                            disabled={isLocked}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            placeholder="e.g., 0.5"
+                          />
+                        </div>
+                      )}
+
+                      {/* Impact Factor */}
+                      {((formData.targetedResearch as string) === 'sci_scie' || (formData.targetedResearch as string) === 'both' || (formData.targetedResearchType as string) === 'sci_scie' || (formData.targetedResearchType as string) === 'both') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Impact Factor <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={(formData.impactFactor as number) || ''}
+                            onChange={(e) => setFormData({ ...formData, impactFactor: parseFloat(e.target.value) || 0 })}
+                            disabled={isLocked}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            placeholder="e.g., 2.5"
                           />
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
 
-                {/* Accepted Status Fields */}
-                {['accepted', 'published'].includes(formData.currentStatus as string) && (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Acceptance Date {formData.currentStatus === 'accepted' && '*'}
-                        </label>
-                        <input
-                          type="date"
-                          value={(formData.acceptanceDate as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, acceptanceDate: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Expected Publication Date</label>
-                        <input
-                          type="date"
-                          value={(formData.expectedPublicationDate as string)?.split('T')[0] || ''}
-                          onChange={(e) => setFormData({ ...formData, expectedPublicationDate: e.target.value })}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  </>
+                {/* Status-Specific Fields */}
+                {tracker.publicationType === 'research_paper' && (
+                  <ResearchPaperStatusForm
+                    status={formData.currentStatus as ResearchTrackerStatus}
+                    data={formData}
+                    onChange={isLocked ? () => {} : setFormData}
+                  />
                 )}
-
-                {/* Rejected Status Fields */}
-                {formData.currentStatus === 'rejected' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Date *</label>
-                      <input
-                        type="date"
-                        value={(formData.rejectionDate as string)?.split('T')[0] || ''}
-                        onChange={(e) => setFormData({ ...formData, rejectionDate: e.target.value })}
-                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
-                      <textarea
-                        value={(formData.rejectionReason as string) || ''}
-                        onChange={(e) => setFormData({ ...formData, rejectionReason: e.target.value })}
-                        rows={3}
-                        placeholder="Brief summary of rejection reason..."
-                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </>
+                {tracker.publicationType === 'book' && (
+                  <BookStatusForm
+                    status={formData.currentStatus as ResearchTrackerStatus}
+                    data={formData}
+                    onChange={isLocked ? () => {} : setFormData}
+                  />
+                )}
+                {tracker.publicationType === 'book_chapter' && (
+                  <BookChapterStatusForm
+                    status={formData.currentStatus as ResearchTrackerStatus}
+                    data={formData}
+                    onChange={isLocked ? () => {} : setFormData}
+                  />
+                )}
+                {tracker.publicationType === 'conference_paper' && (
+                  <ConferencePaperStatusForm
+                    status={formData.currentStatus as ResearchTrackerStatus}
+                    data={formData}
+                    onChange={isLocked ? () => {} : setFormData}
+                  />
                 )}
               </div>
             )}
           </div>
-          )}
+
+          {/* OLD HARDCODED FIELDS - KEEPING COMMENTED FOR REFERENCE
+          {expandedSections.statusFields && (
+                <div className="p-4 bg-gray-50 space-y-4">
+                
+                {/* Communicated Status Fields 
+                {['communicated', 'submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'].includes(formData.currentStatus as string) && (
+                  ... OLD FIELDS REMOVED - NOW USING STATUS FORM COMPONENTS ABOVE ...
+                )}
+              </div>
+            )}
+          </div>
+          )} END OF OLD HARDCODED FIELDS */}
 
           {/* Document Upload Section - Always Available */}
           <div className="bg-white border rounded-lg overflow-hidden">
@@ -805,12 +855,13 @@ export default function TrackerDetailPage() {
                   type="file"
                   multiple
                   accept=".zip"
+                  disabled={isLocked}
                   onChange={(e) => {
                     if (e.target.files) {
                       setUploadedDocuments(Array.from(e.target.files));
                     }
                   }}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Upload ZIP files containing your documents (max 50MB per file)
@@ -852,8 +903,9 @@ export default function TrackerDetailPage() {
                   value={documentNotes}
                   onChange={(e) => setDocumentNotes(e.target.value)}
                   rows={2}
+                  disabled={isLocked}
                   placeholder="Add any notes about the documents you're uploading..."
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -885,14 +937,15 @@ export default function TrackerDetailPage() {
                     setUpdateError('');
                     setUpdateSuccess('');
                   }}
-                  className="px-6 py-2.5 text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                  disabled={isLocked}
+                  className="px-6 py-2.5 text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Reset
                 </button>
                 <button
                   type="button"
                   onClick={handleUpdate}
-                  disabled={updating}
+                  disabled={updating || isLocked}
                   className="px-8 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md hover:shadow-lg transition-all flex items-center gap-2"
                 >
                   {updating ? (
@@ -902,6 +955,13 @@ export default function TrackerDetailPage() {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Saving...
+                    </>
+                  ) : isLocked ? (
+                    <>
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                      </svg>
+                      Locked
                     </>
                   ) : (
                     <>
@@ -952,6 +1012,8 @@ export default function TrackerDetailPage() {
               <div className="space-y-4">
                 {tracker.statusHistory.map((entry: StatusHistoryEntry, index: number) => {
                   const isMonthlyReport = entry.fromStatus === entry.toStatus;
+                  const totalEntries = tracker.statusHistory?.length || 0;
+                  const reversedIndex = totalEntries - index; // Reverse numbering: newest = 1
                   
                   return (
                   <div key={entry.id} className="relative flex gap-4">
@@ -970,7 +1032,7 @@ export default function TrackerDetailPage() {
                       {isMonthlyReport ? '📝' :
                        entry.toStatus === 'rejected' ? '✗' :
                        entry.toStatus === 'published' ? '✓' :
-                       index + 1}
+                       reversedIndex}
                     </div>
                     
                     {/* Content */}
