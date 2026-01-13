@@ -143,12 +143,23 @@ const getPendingDrdReviews = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
+    // OPTIMIZED QUERY - Use select instead of deep includes to reduce data transfer
     const [applications, total] = await Promise.all([
       prisma.iprApplication.findMany({
         where,
         skip,
         take,
-        include: {
+        select: {
+          id: true,
+          applicationNumber: true,
+          title: true,
+          iprType: true,
+          filingType: true,
+          projectType: true,
+          status: true,
+          createdAt: true,
+          submittedAt: true,
+          // Lean applicant info - only what's needed for list view
           applicantUser: {
             select: {
               uid: true,
@@ -156,61 +167,51 @@ const getPendingDrdReviews = async (req, res) => {
               role: true,
               employeeDetails: {
                 select: {
-                  firstName: true,
-                  lastName: true,
                   displayName: true,
-                  phoneNumber: true,
                   designation: true,
-                  primaryDepartment: {
-                    select: {
-                      departmentName: true,
-                    },
-                  },
+                  phoneNumber: true,
                 },
               },
               studentLogin: {
                 select: {
-                  firstName: true,
-                  lastName: true,
                   displayName: true,
                   registrationNo: true,
-                  phone: true,
-                  program: {
-                    select: {
-                      programName: true,
-                    },
-                  },
                 },
               },
             },
           },
-          applicantDetails: true,
-          sdgs: true,
-          contributors: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-              userId: true,
-              department: true,
-              employeeCategory: true,
-            }
-          },
+          // Basic school/department info
           school: {
             select: {
+              id: true,
               facultyName: true,
               facultyCode: true,
             },
           },
           department: {
             select: {
+              id: true,
               departmentName: true,
               departmentCode: true,
             },
           },
+          // Counts instead of full arrays for better performance
+          _count: {
+            select: {
+              contributors: true,
+              sdgs: true,
+              reviews: true,
+            },
+          },
+          // Only latest review for list view
           reviews: {
-            include: {
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              remarks: true,
+              createdAt: true,
               reviewer: {
                 select: {
                   uid: true,
@@ -221,9 +222,6 @@ const getPendingDrdReviews = async (req, res) => {
                   },
                 },
               },
-            },
-            orderBy: {
-              createdAt: 'desc',
             },
           },
         },
@@ -576,8 +574,7 @@ const getDrdReviewStatistics = async (req, res) => {
 };
 
 // Calculate incentive points
-// isStudent parameter: if true, returns 0 points (students get only incentives)
-const calculateIncentivePoints = (iprType, projectType, isStudent = false) => {
+const calculateIncentivePoints = (iprType, projectType) => {
   const pointMatrix = {
     patent: {
       phd: { points: 100, amount: 50000 },
@@ -605,14 +602,7 @@ const calculateIncentivePoints = (iprType, projectType, isStudent = false) => {
     }
   };
 
-  const result = pointMatrix[iprType]?.[projectType] || { points: 0, amount: 0 };
-  
-  // Students get only incentives, no points
-  if (isStudent) {
-    return { points: 0, amount: result.amount };
-  }
-  
-  return result;
+  return pointMatrix[iprType]?.[projectType] || { points: 0, amount: 0 };
 };
 
 // DRD Head Final Approval - sends to Finance directly (no Dean)
@@ -1320,7 +1310,6 @@ const creditIncentivesToInventors = async (application, userId) => {
           select: {
             id: true,
             uid: true,
-            userType: true,
             employeeDetails: {
               select: { firstName: true, lastName: true, displayName: true }
             }
@@ -1336,16 +1325,10 @@ const creditIncentivesToInventors = async (application, userId) => {
     if (application.applicantUserId) {
       const applicantInList = inventors.some(i => i.userId === application.applicantUserId);
       if (!applicantInList) {
-        // Get applicant user info to check if student
-        const applicantUser = await prisma.userLogin.findUnique({
-          where: { id: application.applicantUserId },
-          select: { userType: true }
-        });
         inventors.push({
           userId: application.applicantUserId,
           name: 'Applicant',
-          role: 'primary_inventor',
-          user: { userType: applicantUser?.userType }
+          role: 'primary_inventor'
         });
       }
     }
@@ -1359,31 +1342,20 @@ const creditIncentivesToInventors = async (application, userId) => {
     // Notify and track each inventor
     for (const inventor of inventors) {
       if (inventor.userId) {
-        // Check if inventor is a student - students get only incentive, no points
-        const isStudent = inventor.user?.userType === 'student' || 
-                         inventor.employeeType === 'student' ||
-                         (inventor.applicantDetails?.employeeType === 'student');
-        
-        const inventorPoints = isStudent ? 0 : perInventorPoints;
-        const pointsMessage = isStudent 
-          ? `₹${perInventorIncentive.toLocaleString()} has been credited (students receive incentives only, no points)` 
-          : `₹${perInventorIncentive.toLocaleString()} and ${perInventorPoints} research points have been credited`;
-        
         // Notify the inventor about their credited incentive
         await prisma.notification.create({
           data: {
             userId: inventor.userId,
             type: 'incentive_credited',
             title: 'Incentive Credited! 💰',
-            message: `Congratulations! ${pointsMessage} for your contribution to "${application.title}".`,
+            message: `Congratulations! ₹${perInventorIncentive.toLocaleString()} and ${perInventorPoints} research points have been credited for your contribution to "${application.title}".`,
             referenceType: 'ipr_application',
             referenceId: application.id,
             metadata: {
               incentiveAmount: perInventorIncentive,
-              pointsAwarded: inventorPoints,
+              pointsAwarded: perInventorPoints,
               publicationId: application.publicationId,
-              totalInventors: inventorCount,
-              isStudent: isStudent
+              totalInventors: inventorCount
             }
           }
         });

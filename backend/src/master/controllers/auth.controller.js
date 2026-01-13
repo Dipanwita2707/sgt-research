@@ -2,6 +2,7 @@ const prisma = require('../../config/database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../../config/app.config');
+const cache = require('../../config/redis');
 const { isValidEmail, sanitizeInput } = require('../../utils/validators');
 
 // Generate JWT token
@@ -25,41 +26,64 @@ exports.login = async (req, res) => {
 
     const sanitizedUsername = sanitizeInput(username);
 
-    // Get user from database using Prisma (UID or Registration Number only)
+    // OPTIMIZED: Lean login query - only essential fields to reduce load time
     const user = await prisma.userLogin.findFirst({
       where: {
         uid: sanitizedUsername
       },
-      include: {
+      select: {
+        id: true,
+        uid: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        status: true,
+        profileImage: true,
+        lastLoginAt: true,
         employeeDetails: {
-          include: {
+          select: {
+            empId: true,
+            displayName: true,
+            designation: true,
+            phoneNumber: true,
+            email: true,
+            primaryDepartmentId: true,
+            primarySchoolId: true,
+            primaryCentralDeptId: true,
             primaryDepartment: {
-              include: {
-                faculty: true
+              select: {
+                id: true,
+                departmentName: true,
+                departmentCode: true,
+                facultyId: true,
               }
             },
-            primarySchool: true,
-            primaryCentralDept: true
-          }
-        },
-        studentLogin: {
-          include: {
-            section: {
-              include: {
-                program: {
-                  include: {
-                    department: {
-                      include: {
-                        faculty: true
-                      }
-                    }
-                  }
-                }
+            primarySchool: {
+              select: {
+                id: true,
+                facultyName: true,
+                facultyCode: true,
+              }
+            },
+            primaryCentralDept: {
+              select: {
+                id: true,
+                departmentName: true,
               }
             }
           }
         },
-        departmentPermissions: true
+        studentLogin: {
+          select: {
+            studentId: true,
+            registrationNo: true,
+            displayName: true,
+            currentSemester: true,
+            programId: true,
+            sectionId: true,
+          }
+        },
+        // Load permissions separately below for better performance
       }
     });
 
@@ -94,6 +118,16 @@ exports.login = async (req, res) => {
       data: { lastLoginAt: new Date() }
     });
 
+    // OPTIMIZATION: Load permissions separately (lazy loading)
+    const departmentPermissions = await prisma.departmentPermission.findMany({
+      where: { userId: user.id, isActive: true },
+      select: {
+        departmentId: true,
+        permissions: true,
+        isPrimary: true
+      }
+    });
+
     // Prepare user details (match frontend User interface)
     const userDetails = {
       id: user.id,
@@ -108,7 +142,7 @@ exports.login = async (req, res) => {
         displayName: user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null
       },
       profileImage: user.profileImage,
-      permissions: user.departmentPermissions || []
+      permissions: departmentPermissions || []
     };
 
     if (user.employeeDetails) {
@@ -259,174 +293,180 @@ exports.logout = async (req, res) => {
   }
 };
 
-// Get current user
+// Get current user - OPTIMIZED WITH CACHING
 exports.getMe = async (req, res) => {
   try {
-    const user = await prisma.userLogin.findUnique({
-      where: { id: req.user.id },
-      include: {
-        employeeDetails: {
-          include: {
-            primaryDepartment: {
-              include: {
-                faculty: true
-              }
-            },
-            primarySchool: true,
-            primaryCentralDept: true
-          }
-        },
-        studentLogin: {
-          include: {
-            section: {
-              include: {
-                program: {
-                  include: {
-                    department: {
-                      include: {
-                        faculty: true
+    const userId = req.user.id;
+    const cacheKey = `${cache.CACHE_KEYS.USER}profile:${userId}`;
+
+    // Try cache first for faster response
+    const { data: cachedData, fromCache } = await cache.getOrSet(
+      cacheKey,
+      async () => {
+        // OPTIMIZED: Parallel queries instead of deep includes
+        const [user, permissions, studentProgram] = await Promise.all([
+          // Basic user with employee details
+          prisma.userLogin.findUnique({
+            where: { id: userId },
+            select: {
+              id: true,
+              uid: true,
+              email: true,
+              role: true,
+              profileImage: true,
+              employeeDetails: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  empId: true,
+                  designation: true,
+                  displayName: true,
+                  phoneNumber: true,
+                  email: true,
+                  joinDate: true,
+                  primarySchoolId: true,
+                  primaryDepartmentId: true,
+                  primaryCentralDeptId: true,
+                  primarySchool: {
+                    select: { id: true, facultyName: true }
+                  },
+                  primaryDepartment: {
+                    select: {
+                      id: true,
+                      departmentName: true,
+                      faculty: {
+                        select: { id: true, facultyName: true }
                       }
                     }
+                  },
+                  primaryCentralDept: {
+                    select: { id: true, departmentName: true }
                   }
+                }
+              },
+              studentLogin: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  studentId: true,
+                  registrationNo: true,
+                  currentSemester: true,
+                  displayName: true,
+                  programId: true
                 }
               }
             }
+          }),
+          // Permissions separately
+          prisma.departmentPermission.findMany({
+            where: { userId, isActive: true },
+            select: { departmentId: true, permissions: true }
+          }),
+          // Student program (only if student)
+          prisma.studentDetails.findUnique({
+            where: { userLoginId: userId },
+            select: {
+              program: {
+                select: { programName: true }
+              }
+            }
+          }).catch(() => null)
+        ]);
+
+        if (!user) return null;
+
+        // Format user data
+        const userDetails = {
+          id: user.id,
+          username: user.uid,
+          email: user.email,
+          userType: user.role,
+          firstName: null,
+          lastName: null,
+          uid: user.uid,
+          role: {
+            name: user.role,
+            displayName: user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null
+          },
+          profileImage: user.profileImage,
+          permissions: permissions || []
+        };
+
+        if (user.employeeDetails) {
+          userDetails.firstName = user.employeeDetails.firstName;
+          userDetails.lastName = user.employeeDetails.lastName;
+          userDetails.employee = {
+            empId: user.employeeDetails.empId,
+            designation: user.employeeDetails.designation,
+            displayName: user.employeeDetails.displayName
+          };
+          
+          let departmentInfo = null;
+          let schoolInfo = null;
+          
+          if (user.employeeDetails.primarySchool) {
+            schoolInfo = {
+              id: user.employeeDetails.primarySchool.id,
+              name: user.employeeDetails.primarySchool.facultyName
+            };
+          } else if (user.employeeDetails.primaryDepartment?.faculty) {
+            schoolInfo = {
+              id: user.employeeDetails.primaryDepartment.faculty.id,
+              name: user.employeeDetails.primaryDepartment.faculty.facultyName
+            };
           }
-        },
-        departmentPermissions: true
-      }
-    });
+          
+          if (user.employeeDetails.primaryDepartment) {
+            departmentInfo = {
+              id: user.employeeDetails.primaryDepartment.id,
+              name: user.employeeDetails.primaryDepartment.departmentName,
+              school: schoolInfo
+            };
+          } else if (user.employeeDetails.primaryCentralDept) {
+            departmentInfo = {
+              id: user.employeeDetails.primaryCentralDept.id,
+              name: user.employeeDetails.primaryCentralDept.departmentName,
+              school: { id: user.employeeDetails.primaryCentralDept.id, name: 'Central Department' }
+            };
+          } else if (schoolInfo) {
+            departmentInfo = { id: null, name: 'Not Assigned', school: schoolInfo };
+          }
+          
+          userDetails.employeeDetails = {
+            employeeId: user.employeeDetails.empId,
+            phone: user.employeeDetails.phoneNumber,
+            email: user.employeeDetails.email,
+            joiningDate: user.employeeDetails.joinDate,
+            department: departmentInfo,
+            designation: user.employeeDetails.designation ? { name: user.employeeDetails.designation } : null
+          };
+        }
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
+        if (user.studentLogin) {
+          userDetails.firstName = user.studentLogin.firstName;
+          userDetails.lastName = user.studentLogin.lastName;
+          userDetails.student = {
+            studentId: user.studentLogin.studentId,
+            registrationNo: user.studentLogin.registrationNo,
+            program: studentProgram?.program?.programName,
+            semester: user.studentLogin.currentSemester,
+            displayName: user.studentLogin.displayName
+          };
+        }
 
-    console.log('\n=== /auth/me DEBUG ===');
-    console.log('User ID:', user.id);
-    console.log('Has employeeDetails:', !!user.employeeDetails);
-    if (user.employeeDetails) {
-      console.log('primarySchoolId:', user.employeeDetails.primarySchoolId);
-      console.log('primaryDepartmentId:', user.employeeDetails.primaryDepartmentId);
-      console.log('Has primarySchool relation:', !!user.employeeDetails.primarySchool);
-      console.log('Has primaryDepartment relation:', !!user.employeeDetails.primaryDepartment);
-      console.log('primarySchool:', user.employeeDetails.primarySchool);
-      console.log('primaryDepartment:', user.employeeDetails.primaryDepartment);
-    }
-
-    // Format user data to match frontend expectations
-    // Note: user.role is a scalar enum field (UserRoleEnum), not a relation
-    const userDetails = {
-      id: user.id,
-      username: user.uid,
-      email: user.email,
-      userType: user.role, // This is the enum value like 'faculty', 'staff', etc.
-      firstName: null,
-      lastName: null,
-      uid: user.uid,
-      role: {
-        name: user.role, // The enum value
-        displayName: user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null
+        return userDetails;
       },
-      profileImage: user.profileImage,
-      permissions: user.departmentPermissions || []
-    };
+      cache.CACHE_TTL.USER_PROFILE
+    );
 
-    if (user.employeeDetails) {
-      userDetails.firstName = user.employeeDetails.firstName;
-      userDetails.lastName = user.employeeDetails.lastName;
-      userDetails.employee = {
-        empId: user.employeeDetails.empId,
-        designation: user.employeeDetails.designation,
-        displayName: user.employeeDetails.displayName
-      };
-      
-      // Determine school/department display
-      let departmentInfo = null;
-      let schoolInfo = null;
-      
-      // Priority: Use primarySchool if directly assigned
-      if (user.employeeDetails.primarySchool) {
-        schoolInfo = {
-          id: user.employeeDetails.primarySchool.id,
-          name: user.employeeDetails.primarySchool.facultyName
-        };
-      }
-      // Otherwise, use school from department if department exists
-      else if (user.employeeDetails.primaryDepartment?.faculty) {
-        schoolInfo = {
-          id: user.employeeDetails.primaryDepartment.faculty.id,
-          name: user.employeeDetails.primaryDepartment.faculty.facultyName
-        };
-      }
-      
-      // Set department info if exists
-      if (user.employeeDetails.primaryDepartment) {
-        departmentInfo = {
-          id: user.employeeDetails.primaryDepartment.id,
-          name: user.employeeDetails.primaryDepartment.departmentName,
-          school: schoolInfo
-        };
-      }
-      // If no department but has central department, create a special structure
-      else if (user.employeeDetails.primaryCentralDept) {
-        departmentInfo = {
-          id: user.employeeDetails.primaryCentralDept.id,
-          name: user.employeeDetails.primaryCentralDept.departmentName,
-          school: {
-            id: user.employeeDetails.primaryCentralDept.id,
-            name: 'Central Department'
-          }
-        };
-      }
-      // If only school, no department
-      else if (schoolInfo) {
-        departmentInfo = {
-          id: null,
-          name: 'Not Assigned',
-          school: schoolInfo
-        };
-      }
-      
-      userDetails.employeeDetails = {
-        employeeId: user.employeeDetails.empId,
-        phone: user.employeeDetails.phoneNumber,
-        email: user.employeeDetails.email,
-        joiningDate: user.employeeDetails.joinDate,
-        department: departmentInfo,
-        designation: user.employeeDetails.designation ? {
-          name: user.employeeDetails.designation
-        } : null
-      };
-
-      console.log('=== AUTH /me RETURNING ===');
-      console.log('Department:', JSON.stringify(departmentInfo, null, 2));
+    if (!cachedData) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (user.studentLogin) {
-      userDetails.firstName = user.studentLogin.firstName;
-      userDetails.lastName = user.studentLogin.lastName;
-      userDetails.student = {
-        studentId: user.studentLogin.studentId,
-        registrationNo: user.studentLogin.registrationNo,
-        program: user.studentLogin.section?.program?.programName,
-        semester: user.studentLogin.currentSemester,
-        displayName: user.studentLogin.displayName
-      };
-    }
-
-    res.status(200).json({
-      success: true,
-      user: userDetails
-    });
+    res.status(200).json({ success: true, user: cachedData, cached: fromCache });
   } catch (error) {
     console.error('Get user error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching user data'
-    });
+    res.status(500).json({ success: false, message: 'Server error fetching user data' });
   }
 };
 

@@ -60,6 +60,18 @@ app.use(compression());
 // Logging
 if (config.env === 'development') {
   app.use(morgan('dev'));
+  
+  // Response time logging for performance monitoring
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (duration > 500) { // Log slow requests (>500ms)
+        console.warn(`⚠️ SLOW REQUEST: ${req.method} ${req.path} - ${duration}ms`);
+      }
+    });
+    next();
+  });
 }
 
 // Static file serving for uploads
@@ -72,6 +84,40 @@ app.get('/health', (req, res) => {
     message: 'Server is running',
     timestamp: new Date().toISOString()
   });
+});
+
+// Cache stats endpoint
+app.get('/cache/stats', async (req, res) => {
+  try {
+    const cache = require('./config/redis');
+    const stats = await cache.getStats();
+    res.status(200).json({ 
+      success: true,
+      data: stats 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Cache flush endpoint (admin only - no auth for now)
+app.post('/cache/flush', async (req, res) => {
+  try {
+    const cache = require('./config/redis');
+    await cache.flush();
+    res.status(200).json({ 
+      success: true,
+      message: 'Cache flushed successfully' 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
 });
 
 // API routes
@@ -97,10 +143,15 @@ const startServer = async () => {
     const prisma = require('./config/database');
     await prisma.$connect();
     
+    // Initialize Redis cache (with fallback to memory cache)
+    const cache = require('./config/redis');
+    await cache.initRedis();
+    
     app.listen(config.port, () => {
       console.log(`✅ Server running in ${config.env} mode on port ${config.port}`);
       console.log(`🔗 API available at http://localhost:${config.port}${API_PREFIX}`);
       console.log(`🗄️  Database connected via Prisma`);
+      console.log(`📦 Cache initialized (${cache.isConnected() ? 'Redis' : 'Memory fallback'})`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error.message);

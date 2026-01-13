@@ -733,6 +733,30 @@ export default function TrackerDetailPage() {
                   </div>
                 )}
 
+                {/* Conference Sub-Type - For Conference Papers */}
+                {tracker.publicationType === 'conference_paper' && (
+                  <div className="pb-4 border-b border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-4">🎤 Conference Type</h4>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Conference Sub-Type <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={(formData.conferenceSubType as string) || ''}
+                        onChange={(e) => setFormData({ ...formData, conferenceSubType: e.target.value })}
+                        disabled={isLocked}
+                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      >
+                        <option value="">-- Select Conference Type --</option>
+                        <option value="paper_not_indexed">Papers in Conferences (not Indexed) / Seminars / Workshops</option>
+                        <option value="paper_indexed_scopus">Paper in conference proceeding indexed in Scopus</option>
+                        <option value="keynote_speaker_invited_talks">Keynote Speaker / Session chair / Invited Talks</option>
+                        <option value="organizer_coordinator_member">Organizer / Coordinator / Member of conference</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
                 {/* Status-Specific Fields */}
                 {tracker.publicationType === 'research_paper' && (
                   <ResearchPaperStatusForm
@@ -760,6 +784,7 @@ export default function TrackerDetailPage() {
                     status={formData.currentStatus as ResearchTrackerStatus}
                     data={formData}
                     onChange={isLocked ? () => {} : setFormData}
+                    conferenceSubType={(formData.conferenceSubType as string) || (tracker.conferencePaperData?.conferenceSubType as string) || ''}
                   />
                 )}
               </div>

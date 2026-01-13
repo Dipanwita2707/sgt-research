@@ -1,61 +1,68 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const cache = require('../../config/redis');
 
 /**
- * Get all schools/faculties
+ * Get all schools/faculties - OPTIMIZED WITH CACHING
  */
 exports.getAllSchools = async (req, res) => {
   try {
     const { isActive, facultyType } = req.query;
     
-    const where = {};
-    if (isActive !== undefined) {
-      where.isActive = isActive === 'true';
-    }
-    if (facultyType) {
-      where.facultyType = facultyType;
-    }
+    // Create cache key based on filters
+    const cacheKey = `${cache.CACHE_KEYS.SCHOOL}list:${isActive || 'all'}:${facultyType || 'all'}`;
+    
+    const { data: schools, fromCache } = await cache.getOrSet(
+      cacheKey,
+      async () => {
+        const where = {};
+        if (isActive !== undefined) {
+          where.isActive = isActive === 'true';
+        }
+        if (facultyType) {
+          where.facultyType = facultyType;
+        }
 
-    const schools = await prisma.facultySchoolList.findMany({
-      where,
-      include: {
-        headOfFaculty: {
+        return await prisma.facultySchoolList.findMany({
+          where,
           select: {
             id: true,
-            uid: true,
-            employeeDetails: {
+            facultyCode: true,
+            facultyName: true,
+            shortName: true,
+            facultyType: true,
+            isActive: true,
+            createdAt: true,
+            headOfFaculty: {
               select: {
-                firstName: true,
-                lastName: true,
-                displayName: true,
-                empId: true,
+                id: true,
+                uid: true,
+                employeeDetails: {
+                  select: {
+                    displayName: true,
+                    empId: true,
+                  },
+                },
+              },
+            },
+            _count: {
+              select: {
+                departments: true,
               },
             },
           },
-        },
-        departments: {
-          select: {
-            id: true,
-            departmentCode: true,
-            departmentName: true,
-            shortName: true,
-            isActive: true,
+          orderBy: {
+            createdAt: 'desc',
           },
-        },
-        _count: {
-          select: {
-            departments: true,
-          },
-        },
+        });
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+      cache.CACHE_TTL.SCHOOLS
+    );
 
     res.json({
       success: true,
-      data: schools,
+      data: schools || [],
+      cached: fromCache
     });
   } catch (error) {
     console.error('Get schools error:', error);

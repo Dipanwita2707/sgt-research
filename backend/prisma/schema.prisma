@@ -1545,6 +1545,8 @@ model ResearchProgressTracker {
   @@index([currentStatus])
   @@index([schoolId])
   @@index([departmentId])
+  @@index([title])
+  @@index([trackingNumber])
   @@map("research_progress_tracker")
 }
 

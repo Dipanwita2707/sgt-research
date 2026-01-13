@@ -178,7 +178,7 @@ const createTracker = async (req, res) => {
 const getMyTrackers = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, publicationType, page = 1, limit = 10 } = req.query;
+    const { status, publicationType, page = 1, limit = 10, search } = req.query;
 
     const where = { userId };
 
@@ -188,6 +188,14 @@ const getMyTrackers = async (req, res) => {
 
     if (publicationType) {
       where.publicationType = publicationType;
+    }
+
+    // Add search functionality
+    if (search && search.trim()) {
+      where.OR = [
+        { title: { contains: search.trim(), mode: 'insensitive' } },
+        { trackingNumber: { contains: search.trim(), mode: 'insensitive' } }
+      ];
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);

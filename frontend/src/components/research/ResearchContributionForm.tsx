@@ -1186,13 +1186,13 @@ export default function ResearchContributionForm({ publicationType, contribution
           }
         }
       } else if (publicationType === 'book') {
-        const response = await api.get('/book-policies/active');
+        const response = await api.get('/book-policies/active/book');
         if (response.data.success && response.data.data) {
           setBookPolicy(response.data.data);
           console.log('Book policy loaded:', response.data.data);
         }
       } else if (publicationType === 'book_chapter') {
-        const response = await api.get('/book-chapter-policies/active');
+        const response = await api.get('/book-policies/active/book_chapter');
         if (response.data.success && response.data.data) {
           setBookChapterPolicy(response.data.data);
           console.log('Book chapter policy loaded:', response.data.data);
@@ -3988,7 +3988,7 @@ export default function ResearchContributionForm({ publicationType, contribution
           <>
           <div className="border-t border-gray-200"></div>
           
-          {/* Row 2: Additional Author Information - Only for Research Papers and Conference Papers */}
+          {/* Row 2: Additional Author Information */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             {/* International Author - Only show when there are external authors (Total > SGT) */}
             {totalAuthors > totalInternalAuthors && (
@@ -4524,14 +4524,27 @@ export default function ResearchContributionForm({ publicationType, contribution
         </div>
         )}
         
-        {/* Incentive Preview Table - Show for Research Papers with quartile/sjr OR Conference Papers with proceedings quartile */}
+        {/* Incentive Preview Table - Show for Research Papers with quartile/sjr OR Conference Papers with proceedings quartile OR Books/Book Chapters */}
         {((formData.publicationType === 'research_paper' && (formData.quartile || formData.sjr)) || 
-          (formData.publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus' && formData.proceedingsQuartile)) && (
+          (formData.publicationType === 'conference_paper' && formData.conferenceSubType === 'paper_indexed_scopus' && formData.proceedingsQuartile) ||
+          formData.publicationType === 'book' ||
+          formData.publicationType === 'book_chapter') && (
           <div className="mt-6">
             <h3 className="text-md font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <Award className={`w-5 h-5 ${formData.publicationType === 'conference_paper' ? 'text-purple-600' : 'text-blue-600'}`} />
+              <Award className={`w-5 h-5 ${
+                formData.publicationType === 'conference_paper' ? 'text-purple-600' : 
+                formData.publicationType === 'book' || formData.publicationType === 'book_chapter' ? 'text-teal-600' :
+                'text-blue-600'
+              }`} />
               Incentive & Points Preview
             </h3>
+            {/* Show loading message if policy not yet loaded */}
+            {((formData.publicationType === 'book' && !bookPolicy) || 
+              (formData.publicationType === 'book_chapter' && !bookChapterPolicy)) && (
+              <div className="text-sm text-gray-500 italic mb-3">
+                Loading incentive policy...
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                 <thead className="bg-gray-50">
@@ -4580,10 +4593,12 @@ export default function ResearchContributionForm({ publicationType, contribution
                       'Internal',
                       userAuthorType
                     );
-                    const roleLabel = 
-                      userAuthorType === 'first_and_corresponding' ? 'First & Corresponding' :
-                      userAuthorType === 'corresponding' ? 'Corresponding' :
-                      userAuthorType === 'first' ? 'First Author' : 'Co-Author';
+                    // For books and book chapters, all authors are equal (no First/Corresponding roles)
+                    const roleLabel = (formData.publicationType === 'book' || formData.publicationType === 'book_chapter') 
+                      ? 'Author'
+                      : userAuthorType === 'first_and_corresponding' ? 'First & Corresponding' :
+                        userAuthorType === 'corresponding' ? 'Corresponding' :
+                        userAuthorType === 'first' ? 'First Author' : 'Co-Author';
                     
                     return (
                       <tr className="bg-blue-50">
@@ -4630,10 +4645,12 @@ export default function ResearchContributionForm({ publicationType, contribution
                       coAuthor.authorCategory,
                       coAuthor.authorRole || 'co_author'
                     );
-                    const roleLabel = 
-                      (coAuthor.authorRole === 'first_and_corresponding' || coAuthor.authorRole === 'first_and_corresponding_author') ? 'First & Corresponding' :
-                      (coAuthor.authorRole === 'corresponding' || coAuthor.authorRole === 'corresponding_author') ? 'Corresponding' :
-                      (coAuthor.authorRole === 'first' || coAuthor.authorRole === 'first_author') ? 'First Author' : 'Co-Author';
+                    // For books and book chapters, all authors are equal (no First/Corresponding roles)
+                    const roleLabel = (formData.publicationType === 'book' || formData.publicationType === 'book_chapter')
+                      ? 'Author'
+                      : (coAuthor.authorRole === 'first_and_corresponding' || coAuthor.authorRole === 'first_and_corresponding_author') ? 'First & Corresponding' :
+                        (coAuthor.authorRole === 'corresponding' || coAuthor.authorRole === 'corresponding_author') ? 'Corresponding' :
+                        (coAuthor.authorRole === 'first' || coAuthor.authorRole === 'first_author') ? 'First Author' : 'Co-Author';
                     
                     return (
                       <tr key={actualIndex}>
@@ -4732,14 +4749,25 @@ export default function ResearchContributionForm({ publicationType, contribution
             </div>
             <p className="mt-2 text-xs text-gray-500">
               <span className="font-medium">Incentive Distribution Rules:</span><br/>
-              • <strong>Single Author:</strong> Gets 100%<br/>
-              • <strong>Exactly 2 Authors (no co-authors):</strong> Split 50-50<br/>
-              • <strong>Same Person = First + Corresponding:</strong> Gets both percentages combined<br/>
-              • <strong>Internal Faculty/Employees:</strong> Receive both Incentives (₹) and Points<br/>
-              • <strong>Internal Students:</strong> Receive Incentives only (no Points)<br/>
-              • <strong>External Authors:</strong> Receive neither Incentives nor Points<br/>
-              • <strong>External First/Corresponding Author:</strong> Their share is forfeited (not redistributed)<br/>
-              • <strong>External Co-Authors:</strong> Their share goes to Internal Co-Authors
+              {(formData.publicationType === 'book' || formData.publicationType === 'book_chapter') ? (
+                <>
+                  • <strong>Books & Book Chapters:</strong> Total incentive and points are divided equally among all authors<br/>
+                  • <strong>Internal Faculty/Employees:</strong> Receive both Incentives (₹) and Points<br/>
+                  • <strong>Internal Students:</strong> Receive Incentives only (no Points)<br/>
+                  • <strong>External Authors:</strong> Receive neither Incentives nor Points
+                </>
+              ) : (
+                <>
+                  • <strong>Single Author:</strong> Gets 100%<br/>
+                  • <strong>Exactly 2 Authors (no co-authors):</strong> Split 50-50<br/>
+                  • <strong>Same Person = First + Corresponding:</strong> Gets both percentages combined<br/>
+                  • <strong>Internal Faculty/Employees:</strong> Receive both Incentives (₹) and Points<br/>
+                  • <strong>Internal Students:</strong> Receive Incentives only (no Points)<br/>
+                  • <strong>External Authors:</strong> Receive neither Incentives nor Points<br/>
+                  • <strong>External First/Corresponding Author:</strong> Their share is forfeited (not redistributed)<br/>
+                  • <strong>External Co-Authors:</strong> Their share goes to Internal Co-Authors
+                </>
+              )}
             </p>
           </div>
         )}

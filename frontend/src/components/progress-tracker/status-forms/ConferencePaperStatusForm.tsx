@@ -1,68 +1,605 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { ResearchTrackerStatus } from '@/services/progressTracker.service';
+import { researchService } from '@/services/research.service';
+import { X, Search, AlertCircle, Plus } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
+
+interface CoAuthor {
+  uid?: string;
+  name: string;
+  authorType: 'Faculty' | 'Student' | 'Academic' | 'Industry' | 'International Author';
+  authorCategory: 'Internal' | 'External';
+  authorRole: string;
+  email?: string;
+  affiliation: string;
+  designation?: string;
+}
 
 interface ConferencePaperStatusFormProps {
   status: ResearchTrackerStatus;
   data: Record<string, unknown>;
   onChange: (data: Record<string, unknown>) => void;
-  conferenceSubType?: string;
 }
 
-export default function ConferencePaperStatusForm({ status, data, onChange, conferenceSubType }: ConferencePaperStatusFormProps) {
-  // Ensure all values default to empty string to prevent controlled/uncontrolled warnings
-  const getValue = (field: string, defaultValue: string = ''): string => {
-    const value = data[field];
-    return (value as string) ?? defaultValue;
-  };
+export default function ConferencePaperStatusForm({ status, data, onChange }: ConferencePaperStatusFormProps) {
+  const { user } = useAuthStore();
+  
+  const [coAuthors, setCoAuthors] = useState<CoAuthor[]>((data.coAuthors as CoAuthor[]) || []);
+  const [newAuthor, setNewAuthor] = useState<CoAuthor>({
+    name: '',
+    authorType: 'Faculty',
+    authorCategory: 'Internal',
+    authorRole: 'co_author',
+    affiliation: 'SGT University',
+    email: '',
+    uid: '',
+    designation: '',
+  });
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showAuthorForm, setShowAuthorForm] = useState(false);
+  const [error, setError] = useState('');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const handleChange = (field: string, value: unknown) => {
     onChange({ ...data, [field]: value });
   };
 
-  // Reusable Author Section - Only for paper conferences
-  const AuthorSection = () => {
-    if (conferenceSubType !== 'paper_not_indexed' && conferenceSubType !== 'paper_indexed_scopus') {
-      return null;
+  // Update coAuthors in parent data when it changes
+  useEffect(() => {
+    if (JSON.stringify(coAuthors) !== JSON.stringify(data.coAuthors)) {
+      handleChange('coAuthors', coAuthors);
     }
+  }, [coAuthors]);
+
+  // Search for internal SGT users
+  const handleSearch = async (query: string) => {
+    setSearchTerm(query);
+    setNewAuthor({ ...newAuthor, name: query });
+    
+    if (query.length < 2 || newAuthor.authorCategory === 'External') {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    try {
+      const response = await researchService.searchUsers(query);
+      setSearchSuggestions(response.data || []);
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Error searching users:', error);
+    }
+  };
+
+  const selectUser = async (userData: any) => {
+    try {
+      const authorType = userData.type === 'employee' ? 'Faculty' : 'Student';
+      const userName = userData.displayName || userData.name;
+      
+      const fullData = await researchService.lookupByRegistration(userData.uid);
+      const fullUser = fullData.data || fullData;
+      const userEmail = fullUser?.email || fullUser?.employeeDetails?.email || fullUser?.studentProfile?.email || '';
+
+      setNewAuthor({
+        ...newAuthor,
+        uid: userData.uid,
+        name: userName,
+        authorType: authorType,
+        email: userEmail,
+        designation: userData.designation || '',
+      });
+
+      setSearchTerm(userName);
+      setShowSuggestions(false);
+      setSearchSuggestions([]);
+    } catch (error) {
+      console.error('Error fetching author details:', error);
+    }
+  };
+
+  const validateAuthor = (): string | null => {
+    if (!newAuthor.name.trim()) {
+      return 'Author name is required';
+    }
+
+    // Check for duplicate
+    if (editingIndex === null && coAuthors.some(a => a.name.toLowerCase() === newAuthor.name.toLowerCase())) {
+      return 'This author has already been added';
+    }
+
+    const totalAuthors = (data.totalAuthors as number) || 1;
+    const sgtAuthors = (data.sgtAuthors as number) || 1;
+    const internalCoAuthors = (data.internalCoAuthors as number) || 0;
+
+    if (newAuthor.authorCategory === 'Internal') {
+      const internalAdded = coAuthors.filter(a => a.authorCategory === 'Internal').length;
+      const maxInternal = sgtAuthors - 1; // Exclude current user
+      
+      if (editingIndex === null && internalAdded >= maxInternal) {
+        return `You can only add ${maxInternal} internal author(s). You've already added ${internalAdded}.`;
+      }
+
+      // Check internal co-author limit
+      if (newAuthor.authorRole === 'co_author') {
+        const internalCoAuthorsAdded = coAuthors.filter(a => a.authorCategory === 'Internal' && a.authorRole === 'co_author').length;
+        if (editingIndex === null && internalCoAuthorsAdded >= internalCoAuthors) {
+          return `You can only add ${internalCoAuthors} internal co-author(s). You've already added ${internalCoAuthorsAdded}.`;
+        }
+      }
+    } else {
+      const externalAdded = coAuthors.filter(a => a.authorCategory === 'External').length;
+      const maxExternal = totalAuthors - sgtAuthors;
+      
+      if (editingIndex === null && externalAdded >= maxExternal) {
+        return `You can only add ${maxExternal} external author(s). You've already added ${externalAdded}.`;
+      }
+    }
+
+    if (newAuthor.authorCategory === 'Internal' && !newAuthor.uid) {
+      return 'Please select an internal author from the search results';
+    }
+
+    if (newAuthor.authorCategory === 'External' && !newAuthor.email) {
+      return 'Email is required for external authors';
+    }
+
+    return null;
+  };
+
+  const addOrUpdateAuthor = () => {
+    setError('');
+    const validationError = validateAuthor();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (editingIndex !== null) {
+      const updated = [...coAuthors];
+      updated[editingIndex] = newAuthor;
+      setCoAuthors(updated);
+      setEditingIndex(null);
+    } else {
+      setCoAuthors([...coAuthors, newAuthor]);
+    }
+
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setNewAuthor({
+      name: '',
+      authorType: 'Faculty',
+      authorCategory: 'Internal',
+      authorRole: 'co_author',
+      affiliation: 'SGT University',
+      email: '',
+      uid: '',
+      designation: '',
+    });
+    setSearchTerm('');
+    setShowAddForm(false);
+    setError('');
+  };
+
+  const removeAuthor = (index: number) => {
+    setCoAuthors(coAuthors.filter((_, i) => i !== index));
+  };
+
+  const editAuthor = (index: number) => {
+    setNewAuthor(coAuthors[index]);
+    setSearchTerm(coAuthors[index].name);
+    setEditingIndex(index);
+    setShowAddForm(true);
+  };
+
+  const getAvailableRoles = () => {
+    const totalAuthors = (data.totalAuthors as number) || 1;
+    const sgtAuthors = (data.sgtAuthors as number) || 1;
+    const internalCoAuthors = (data.internalCoAuthors as number) || 0;
+
+    const roles = [
+      { value: 'co_author', label: 'Co-Author' },
+    ];
+
+    // For Internal authors, check if they can be first or corresponding
+    if (newAuthor.authorCategory === 'Internal' && internalCoAuthors === 0 && sgtAuthors > 1) {
+      roles.unshift(
+        { value: 'first', label: 'First Author' },
+        { value: 'corresponding', label: 'Corresponding Author' }
+      );
+    }
+
+    return roles;
+  };
+
+  // Authors Summary Component - shown in all stages except writing/communicated with edit/delete
+  const AuthorsSummary = () => {
+    const totalAuthors = (data.totalAuthors as number) || 1;
+    const sgtAuthors = (data.sgtAuthors as number) || 1;
+    if (totalAuthors === 0 && coAuthors.length === 0) return null;
+    
+    const handleEditAuthor = (realIndex: number) => {
+      const author = coAuthors[realIndex];
+      setEditingIndex(realIndex);
+      setNewAuthor({
+        uid: author.uid || '',
+        name: author.name || '',
+        authorType: author.authorType || 'Faculty',
+        authorCategory: author.authorCategory || 'Internal',
+        email: author.email || '',
+        affiliation: author.affiliation || 'SGT University',
+        authorRole: author.authorRole || 'co_author',
+        designation: author.designation || '',
+      });
+      setShowAuthorForm(true);
+      setShowAddForm(true);
+    };
+
+    const handleDeleteAuthor = (realIndex: number) => {
+      if (confirm('Are you sure you want to remove this author?')) {
+        const updatedAuthors = coAuthors.filter((_, i) => i !== realIndex);
+        onChange({ ...data, internalCoAuthors: updatedAuthors });
+      }
+    };
+    
+    const validAuthors = coAuthors
+      .map((author, index) => ({ author, realIndex: index }))
+      .filter(item => item.author && item.author.name);
+    
     return (
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-purple-900 mb-3">Author Information</h4>
-        <div className="grid grid-cols-2 gap-4">
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+        <h4 className="text-sm font-semibold text-purple-900 mb-3">Authors Summary</h4>
+        <div className="grid grid-cols-2 gap-4 mb-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Total Authors <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={(data.totalAuthors as number) || 1}
-              onChange={(e) => {
-                const val = parseInt(e.target.value) || 1;
-                handleChange('totalAuthors', val);
-                if ((data.sgtAffiliatedAuthors as number) > val) {
-                  handleChange('sgtAffiliatedAuthors', val);
-                }
-              }}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="1"
-            />
+            <span className="text-xs text-gray-600">Total Authors:</span>
+            <span className="ml-2 font-medium text-gray-900">{totalAuthors}</span>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              SGT Authors <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              max={(data.totalAuthors as number) || 1}
-              value={(data.sgtAffiliatedAuthors as number) || 1}
-              onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="1"
-            />
+            <span className="text-xs text-gray-600">SGT Authors:</span>
+            <span className="ml-2 font-medium text-gray-900">{sgtAuthors}</span>
           </div>
         </div>
+        
+        {validAuthors.length > 0 && (
+          <div className="mt-3">
+            <h5 className="text-xs font-semibold text-gray-700 mb-2">Co-Authors ({validAuthors.length}):</h5>
+            <div className="space-y-2">
+              {validAuthors.map(({ author, realIndex }) => (
+                <div key={realIndex} className="bg-white border border-gray-200 rounded p-2">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm text-gray-900">{author.name}</div>
+                      <div className="text-xs text-gray-600">
+                        {author.authorCategory} • {author.authorType} • {author.authorRole === 'first' ? 'First' : author.authorRole === 'corresponding' ? 'Corresponding' : 'Co-Author'}
+                        {author.uid && ` • ${author.uid}`}
+                      </div>
+                      <div className="text-xs text-gray-500">{author.affiliation}</div>
+                    </div>
+                    <div className="flex gap-2 ml-3">
+                      <button
+                        type="button"
+                        onClick={() => handleEditAuthor(realIndex)}
+                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAuthor(realIndex)}
+                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render Add Other Authors section
+  const renderAddOtherAuthorsSection = () => {
+    if (((data.totalAuthors as number) || 1) <= 1) return null;
+
+    return (
+      <div className="mt-4 border border-purple-300 bg-purple-50 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-gray-900">
+            Add Other Authors {editingIndex !== null && <span className="text-xs text-blue-600">(Editing)</span>}
+          </h4>
+          {!showAddForm && (
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs hover:bg-purple-700 transition-colors"
+            >
+              + Add Author
+            </button>
+          )}
+        </div>
+
+        {/* Author Count Summary */}
+        <p className="text-xs text-gray-600 mb-3">
+          {(() => {
+            const totalAuthors = (data.totalAuthors as number) || 1;
+            const sgtAuthors = (data.sgtAuthors as number) || 1;
+            const internalAdded = coAuthors.filter(a => a.authorCategory === 'Internal').length;
+            const externalAdded = coAuthors.filter(a => a.authorCategory === 'External').length;
+            const maxInternal = sgtAuthors - 1;
+            const maxExternal = totalAuthors - sgtAuthors;
+
+            const parts = [];
+            if (maxInternal > 0) {
+              parts.push(`${maxInternal} SGT author(s) [${internalAdded} added]`);
+            }
+            if (maxExternal > 0) {
+              parts.push(`${maxExternal} external author(s) [${externalAdded} added]`);
+            }
+
+            if (parts.length === 0) {
+              return 'You are the only author.';
+            }
+
+            return `You need to add ${parts.join(' and ')}.`;
+          })()}
+        </p>
+
+        {error && (
+          <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Add Author Form */}
+        {showAddForm && (
+          <div className="space-y-3 mb-4 p-3 bg-white rounded-lg border border-gray-200">
+            <div className="grid grid-cols-2 gap-3">
+              {/* Author Category */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Category <span className="text-red-500">*</span></label>
+                <div className="flex gap-4">
+                  {(() => {
+                    const totalAuthors = (data.totalAuthors as number) || 1;
+                    const sgtAuthors = (data.sgtAuthors as number) || 1;
+                    const internalAdded = coAuthors.filter(a => a.authorCategory === 'Internal').length;
+                    const externalAdded = coAuthors.filter(a => a.authorCategory === 'External').length;
+                    const maxInternal = sgtAuthors - 1;
+                    const maxExternal = totalAuthors - sgtAuthors;
+                    const internalSlotsFull = internalAdded >= maxInternal;
+                    const externalSlotsFull = externalAdded >= maxExternal;
+                    const allInternal = totalAuthors === sgtAuthors;
+
+                    return (
+                      <>
+                        {!allInternal && (maxInternal > 0 || !internalSlotsFull) && (
+                          <label className="inline-flex items-center text-xs cursor-pointer">
+                            <input
+                              type="radio"
+                              value="Internal"
+                              checked={newAuthor.authorCategory === 'Internal'}
+                              onChange={(e) => {
+                                setNewAuthor({
+                                  ...newAuthor,
+                                  authorCategory: 'Internal',
+                                  authorType: 'Faculty',
+                                  affiliation: 'SGT University',
+                                });
+                                setSearchTerm('');
+                              }}
+                              disabled={internalSlotsFull}
+                              className="w-3 h-3 text-purple-600"
+                            />
+                            <span className="ml-1.5">Internal (SGT) {internalSlotsFull && <span className="text-red-600">(Full)</span>}</span>
+                          </label>
+                        )}
+                        {!allInternal && maxExternal > 0 && (
+                          <label className="inline-flex items-center text-xs cursor-pointer">
+                            <input
+                              type="radio"
+                              value="External"
+                              checked={newAuthor.authorCategory === 'External'}
+                              onChange={(e) => {
+                                setNewAuthor({
+                                  ...newAuthor,
+                                  authorCategory: 'External',
+                                  authorType: 'Academic',
+                                  affiliation: '',
+                                  uid: '',
+                                });
+                                setSearchTerm('');
+                              }}
+                              disabled={externalSlotsFull}
+                              className="w-3 h-3 text-purple-600"
+                            />
+                            <span className="ml-1.5">External {internalSlotsFull && <span className="text-green-600">(Auto-selected)</span>}</span>
+                          </label>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Author Type */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Type <span className="text-red-500">*</span></label>
+                <select
+                  value={newAuthor.authorType}
+                  onChange={(e) => setNewAuthor({ ...newAuthor, authorType: e.target.value as any })}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500"
+                >
+                  {newAuthor.authorCategory === 'Internal' ? (
+                    <>
+                      <option value="Faculty">Faculty</option>
+                      <option value="Student">Student</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Academic">Academic</option>
+                      <option value="Industry">Industry</option>
+                      <option value="International Author">International Author</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {/* Author Name/Search */}
+            <div className="relative">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Name <span className="text-red-500">*</span>
+                {newAuthor.authorCategory === 'Internal' && <span className="text-xs text-gray-500 ml-1">(Search by name or UID)</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  className="w-full px-2 py-1.5 pr-8 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500"
+                  placeholder={newAuthor.authorCategory === 'Internal' ? 'Type to search SGT users...' : 'Enter full name'}
+                />
+                {newAuthor.authorCategory === 'Internal' && <Search className="absolute right-2 top-2 w-4 h-4 text-gray-400" />}
+              </div>
+              
+              {/* Search Suggestions */}
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {searchSuggestions.map((user, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => selectUser(user)}
+                      className="w-full px-3 py-2 text-left hover:bg-purple-50 text-xs border-b border-gray-100 last:border-0"
+                    >
+                      <div className="font-medium text-gray-900">{user.displayName || user.name}</div>
+                      <div className="text-gray-600">{user.uid} • {user.designation || user.role || 'User'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Email - For External Authors */}
+            {newAuthor.authorCategory === 'External' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
+                <input
+                  type="email"
+                  value={newAuthor.email}
+                  onChange={(e) => setNewAuthor({ ...newAuthor, email: e.target.value })}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500"
+                  placeholder="email@example.com"
+                />
+              </div>
+            )}
+
+            {/* Affiliation */}
+            {newAuthor.authorCategory === 'External' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Organization/Institute <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={newAuthor.affiliation}
+                  onChange={(e) => setNewAuthor({ ...newAuthor, affiliation: e.target.value })}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500"
+                  placeholder="Enter organization name"
+                />
+              </div>
+            )}
+
+            {/* Designation - For External Authors */}
+            {newAuthor.authorCategory === 'External' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Designation</label>
+                <input
+                  type="text"
+                  value={newAuthor.designation}
+                  onChange={(e) => setNewAuthor({ ...newAuthor, designation: e.target.value })}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g., Professor, Researcher"
+                />
+              </div>
+            )}
+
+            {/* Author Role */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Author Role <span className="text-red-500">*</span></label>
+              <select
+                value={newAuthor.authorRole}
+                onChange={(e) => setNewAuthor({ ...newAuthor, authorRole: e.target.value })}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500"
+              >
+                {getAvailableRoles().map(role => (
+                  <option key={role.value} value={role.value}>{role.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addOrUpdateAuthor}
+                className="px-3 py-1.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700"
+              >
+                {editingIndex !== null ? 'Update' : 'Add'} Author
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Added Authors List */}
+        {coAuthors.length > 0 && (
+          <div className="space-y-2">
+            <h5 className="text-xs font-semibold text-gray-900">Added Authors:</h5>
+            {coAuthors.map((author, index) => (
+              <div key={index} className="flex items-start justify-between bg-white rounded-lg p-2 border border-gray-200">
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-gray-900">{author.name}</div>
+                  <div className="text-xs text-gray-600">
+                    {author.authorCategory} • {author.authorType} • {author.authorRole === 'first' ? 'First Author' : author.authorRole === 'corresponding' ? 'Corresponding' : 'Co-Author'}
+                    {author.uid && ` • ${author.uid}`}
+                  </div>
+                  <div className="text-xs text-gray-500">{author.affiliation}</div>
+                </div>
+                <div className="flex gap-1 ml-2">
+                  <button
+                    type="button"
+                    onClick={() => editAuthor(index)}
+                    className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeAuthor(index)}
+                    className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -72,240 +609,194 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'communicated':
       return (
         <div className="space-y-4">
-          {/* Show conference type info banner */}
-          {conferenceSubType && (
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-              <p className="text-sm text-purple-800">
-                <span className="font-semibold">Conference Type:</span>{' '}
-                {conferenceSubType === 'paper_not_indexed' && 'Papers in Conferences (not Indexed) / Seminars / Workshops'}
-                {conferenceSubType === 'paper_indexed_scopus' && 'Paper in conference proceeding indexed in Scopus'}
-                {conferenceSubType === 'keynote_speaker_invited_talks' && 'Keynote Speaker / Session chair / Invited Talks'}
-                {conferenceSubType === 'organizer_coordinator_member' && 'Organizer / Coordinator / Member of conference'}
-              </p>
-            </div>
-          )}
-
-          {/* Conference Date Range */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Conference Date (From)</label>
-              <input
-                type="date"
-                value={getValue('conferenceDateFrom')}
-                onChange={(e) => handleChange('conferenceDateFrom', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Conference Date (To)</label>
-              <input
-                type="date"
-                value={getValue('conferenceDateTo')}
-                onChange={(e) => handleChange('conferenceDateTo', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-
-          {/* Proceedings Title & Quartile (for paper conferences only) */}
-          {(conferenceSubType === 'paper_not_indexed' || conferenceSubType === 'paper_indexed_scopus') && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title of the Proceedings</label>
-                <input
-                  type="text"
-                  value={getValue('proceedingsTitle')}
-                  onChange={(e) => handleChange('proceedingsTitle', e.target.value)}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  placeholder="Enter proceedings title"
-                />
-              </div>
-              {conferenceSubType === 'paper_indexed_scopus' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Proceedings Quartile <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={getValue('proceedingsQuartile', 'na')}
-                    onChange={(e) => handleChange('proceedingsQuartile', e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  >
-                    <option value="na">NA</option>
-                    <option value="q1">Q1</option>
-                    <option value="q2">Q2</option>
-                    <option value="q3">Q3</option>
-                    <option value="q4">Q4</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* National/International & Virtual */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Conference Information Section */}
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-purple-900 mb-3">Conference Information</h4>
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                National / International <span className="text-red-500">*</span>
+                Conference Name <span className="text-red-500">*</span>
               </label>
-              <div className="flex gap-4 mt-2">
-                {['national', 'international'].map(v => (
-                  <label key={v} className="inline-flex items-center cursor-pointer">
-                    <input
-                      type="radio"
-                      name="conferenceType"
-                      value={v}
-                      checked={getValue('conferenceType') === v}
-                      onChange={(e) => handleChange('conferenceType', e.target.value)}
-                      className="w-4 h-4 text-indigo-600"
-                    />
-                    <span className="ml-2 capitalize">{v}</span>
-                  </label>
-                ))}
-              </div>
+              <input
+                type="text"
+                value={(data.conferenceName as string) || ''}
+                onChange={(e) => handleChange('conferenceName', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+                placeholder="Enter conference name"
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Virtual Conference?</label>
-              <div className="flex gap-4 mt-2">
-                {['yes', 'no'].map(v => (
-                  <label key={v} className="inline-flex items-center cursor-pointer">
-                    <input
-                      type="radio"
-                      name="virtualConference"
-                      value={v}
-                      checked={getValue('virtualConference') === v}
-                      onChange={(e) => handleChange('virtualConference', e.target.value)}
-                      className="w-4 h-4 text-indigo-600"
-                    />
-                    <span className="ml-2 capitalize">{v}</span>
-                  </label>
-                ))}
-              </div>
+
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Conference Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={(data.conferenceType as string) || 'national'}
+                onChange={(e) => handleChange('conferenceType', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              >
+                <option value="national">National</option>
+                <option value="international">International</option>
+              </select>
+            </div>
+
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Conference Date</label>
+              <input
+                type="date"
+                value={(data.conferenceDate as string) || ''}
+                onChange={(e) => handleChange('conferenceDate', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              />
             </div>
           </div>
 
-          {/* Author Section - Only for paper conferences */}
-          {(conferenceSubType === 'paper_not_indexed' || conferenceSubType === 'paper_indexed_scopus') && (
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-purple-900 mb-3">Author Information</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Total Authors <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={(data.totalAuthors as number) || 1}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 1;
-                      handleChange('totalAuthors', val);
-                      if ((data.sgtAffiliatedAuthors as number) > val) {
-                        handleChange('sgtAffiliatedAuthors', val);
-                      }
-                    }}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    placeholder="1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    SGT Authors <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={(data.totalAuthors as number) || 1}
-                    value={(data.sgtAffiliatedAuthors as number) || 1}
-                    onChange={(e) => handleChange('sgtAffiliatedAuthors', parseInt(e.target.value) || 1)}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    placeholder="1"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Author Information */}
+          {renderAddOtherAuthorsSection()}
 
-          {/* Submission Date */}
+          {/* Paper Details */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Paper Title <span className="text-red-500">*</span>
+            </label>
             <input
-              type="date"
-              value={getValue('submissionDate')}
-              onChange={(e) => handleChange('submissionDate', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              type="text"
+              value={(data.paperTitle as string) || ''}
+              onChange={(e) => handleChange('paperTitle', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              placeholder="Enter paper title"
             />
           </div>
+
+          <div>
+            <label className="inline-flex items-center">
+              <input
+                type="checkbox"
+                checked={(data.virtualConference as boolean) || false}
+                onChange={(e) => handleChange('virtualConference', e.target.checked)}
+                className="rounded border-gray-300 text-purple-600 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700">Virtual Conference</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Interdisciplinary (SGT) <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-4">
+              {['yes', 'no'].map(v => (
+                <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="isInterdisciplinary"
+                    value={v}
+                    checked={(data.isInterdisciplinary as string) === v}
+                    onChange={(e) => handleChange('isInterdisciplinary', e.target.value)}
+                    className="w-4 h-4 text-purple-600"
+                  />
+                  <span className="ml-1.5 capitalize">{v}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Have you communicated the publication with official ID? <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-4">
+              {['yes', 'no'].map(v => (
+                <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="communicatedWithOfficialId"
+                    value={v}
+                    checked={(data.communicatedWithOfficialId as string) === v}
+                    onChange={(e) => handleChange('communicatedWithOfficialId', e.target.value)}
+                    className="w-4 h-4 text-purple-600"
+                  />
+                  <span className="ml-1.5 capitalize">{v}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {(data.communicatedWithOfficialId as string) === 'no' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Personal Email Used <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                value={(data.personalEmail as string) || ''}
+                onChange={(e) => handleChange('personalEmail', e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+                placeholder="your.email@example.com"
+              />
+            </div>
+          )}
         </div>
       );
 
     case 'submitted':
       return (
         <div className="space-y-4">
-          {/* Author Section */}
-          <AuthorSection />
-
-          {/* Submission Date & Paper ID */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Submission Date <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={getValue('submissionDate')}
-                onChange={(e) => handleChange('submissionDate', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Paper/Manuscript ID</label>
-              <input
-                type="text"
-                value={getValue('manuscriptId')}
-                onChange={(e) => handleChange('manuscriptId', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="Conference assigned ID"
-              />
-            </div>
-          </div>
-
-          {/* Submission Portal/Link */}
+          {/* Authors Summary - Read Only */}
+          <AuthorsSummary />
+          
+          {!showAuthorForm && (
+            <button
+              type="button"
+              onClick={() => setShowAuthorForm(true)}
+              className="mb-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Author
+            </button>
+          )}
+          
+          {showAuthorForm && renderAddOtherAuthorsSection()}
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Portal/Link</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Date</label>
             <input
-              type="url"
-              value={getValue('submissionPortal')}
-              onChange={(e) => handleChange('submissionPortal', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="https://..."
+              type="date"
+              value={(data.submissionDate as string) || ''}
+              onChange={(e) => handleChange('submissionDate', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
             />
           </div>
-
-          {/* Progress Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Manuscript ID</label>
+            <input
+              type="text"
+              value={(data.manuscriptId as string) || ''}
+              onChange={(e) => handleChange('manuscriptId', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              placeholder="e.g., CONF-2024-001"
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Progress Notes</label>
             <textarea
-              value={getValue('progressNotes')}
+              value={(data.progressNotes as string) || ''}
               onChange={(e) => handleChange('progressNotes', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
               rows={3}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="Brief update on submission status..."
+              placeholder="Add any notes about the submission..."
             />
           </div>
-
-          {/* Upload Document */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Upload Submission Confirmation</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Submission Document</label>
             <input
               type="file"
-              accept=".pdf,.doc,.docx"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleChange('submissionDocument', file);
               }}
-              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+              className="w-full"
             />
-            <p className="text-xs text-gray-500 mt-1">Upload submission confirmation email or receipt (PDF, DOC, DOCX)</p>
           </div>
         </div>
       );
@@ -313,49 +804,49 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'accepted':
       return (
         <div className="space-y-4">
-          {/* Author Section */}
-          <AuthorSection />
-
+          {/* Authors Summary - Read Only */}
+          <AuthorsSummary />
+          
+          {!showAuthorForm && (
+            <button
+              type="button"
+              onClick={() => setShowAuthorForm(true)}
+              className="mb-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Author
+            </button>
+          )}
+          
+          {showAuthorForm && renderAddOtherAuthorsSection()}
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Acceptance Date</label>
             <input
               type="date"
-              value={getValue('acceptanceDate')}
+              value={(data.acceptanceDate as string) || ''}
               onChange={(e) => handleChange('acceptanceDate', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Presentation Type</label>
-            <select
-              value={getValue('presentationType')}
-              onChange={(e) => handleChange('presentationType', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            >
-              <option value="">Select</option>
-              <option value="oral">Oral Presentation</option>
-              <option value="poster">Poster Presentation</option>
-              <option value="keynote">Keynote</option>
-              <option value="invited">Invited Talk</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Session/Track</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Presentation Date</label>
             <input
-              type="text"
-              value={getValue('sessionTrack')}
-              onChange={(e) => handleChange('sessionTrack', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="e.g., Track 2: Machine Learning"
+              type="date"
+              value={(data.presentationDate as string) || ''}
+              onChange={(e) => handleChange('presentationDate', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Presentation Date/Time</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Acceptance Letter</label>
             <input
-              type="datetime-local"
-              value={getValue('presentationDateTime')}
-              onChange={(e) => handleChange('presentationDateTime', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              type="file"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleChange('acceptanceLetter', file);
+              }}
+              className="w-full"
             />
           </div>
         </div>
@@ -364,57 +855,84 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'published':
       return (
         <div className="space-y-4">
-          <AuthorSection />
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Publication Date <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={getValue('publicationDate')}
-                onChange={(e) => handleChange('publicationDate', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ISBN/ISSN</label>
-              <input
-                type="text"
-                value={getValue('isbn')}
-                onChange={(e) => handleChange('isbn', e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="Proceedings ISBN/ISSN"
-              />
-            </div>
-          </div>
-
-          {/* Document Submission */}
+          {/* Authors Summary - Read Only */}
+          <AuthorsSummary />
+          
+          {!showAuthorForm && (
+            <button
+              type="button"
+              onClick={() => setShowAuthorForm(true)}
+              className="mb-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Author
+            </button>
+          )}
+          
+          {showAuthorForm && renderAddOtherAuthorsSection()}
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Upload Conference Paper <span className="text-red-500">*</span>
+              Publication Date <span className="text-red-500">*</span>
             </label>
             <input
+              type="date"
+              value={(data.publicationDate as string) || ''}
+              onChange={(e) => handleChange('publicationDate', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Proceedings Title <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={(data.proceedingsTitle as string) || ''}
+              onChange={(e) => handleChange('proceedingsTitle', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              placeholder="Enter proceedings title"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">DOI</label>
+            <input
+              type="text"
+              value={(data.doi as string) || ''}
+              onChange={(e) => handleChange('doi', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              placeholder="e.g., 10.1234/example.doi"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Page Numbers</label>
+            <input
+              type="text"
+              value={(data.pageNumbers as string) || ''}
+              onChange={(e) => handleChange('pageNumbers', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              placeholder="e.g., 101-110"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Conference Paper Document</label>
+            <input
               type="file"
-              accept=".pdf,.doc,.docx"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleChange('paperDocument', file);
               }}
-              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+              className="w-full"
             />
-            <p className="text-xs text-gray-500 mt-1">Upload the published conference paper (PDF or Word document)</p>
           </div>
-
-          {/* Faculty Remarks */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Faculty Remarks</label>
             <textarea
-              value={getValue('facultyRemarks')}
+              value={(data.facultyRemarks as string) || ''}
               onChange={(e) => handleChange('facultyRemarks', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
               rows={3}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="Any additional remarks or comments..."
+              placeholder="Any additional remarks..."
             />
           </div>
         </div>
@@ -423,51 +941,64 @@ export default function ConferencePaperStatusForm({ status, data, onChange, conf
     case 'rejected':
       return (
         <div className="space-y-4">
-          <AuthorSection />
+          {/* Authors Summary - Read Only */}
+          <AuthorsSummary />
+          
+          {!showAuthorForm && (
+            <button
+              type="button"
+              onClick={() => setShowAuthorForm(true)}
+              className="mb-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Author
+            </button>
+          )}
+          
+          {showAuthorForm && renderAddOtherAuthorsSection()}
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
-            <select
-              value={getValue('rejectionReason')}
+            <textarea
+              value={(data.rejectionReason as string) || ''}
               onChange={(e) => handleChange('rejectionReason', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            >
-              <option value="">Select</option>
-              <option value="out_of_scope">Out of Scope</option>
-              <option value="quality_issues">Quality Issues</option>
-              <option value="incomplete_work">Incomplete Work</option>
-              <option value="other">Other</option>
-            </select>
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
+              rows={3}
+              placeholder="Describe the reason for rejection..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Summary</label>
             <textarea
-              value={getValue('feedbackSummary')}
+              value={(data.feedbackSummary as string) || ''}
               onChange={(e) => handleChange('feedbackSummary', e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
               rows={3}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="Summary of rejection feedback..."
+              placeholder="Summarize the feedback received..."
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Plan to Resubmit?</label>
-            <select
-              value={getValue('planToResubmit')}
-              onChange={(e) => handleChange('planToResubmit', e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            >
-              <option value="">Select</option>
-              <option value="same_conference">Yes, to same conference</option>
-              <option value="different_conference">Yes, to different conference</option>
-              <option value="no">No</option>
-              <option value="undecided">Undecided</option>
-            </select>
+            <div className="flex gap-4">
+              {['yes', 'no'].map(v => (
+                <label key={v} className="inline-flex items-center text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="planToResubmit"
+                    value={v}
+                    checked={(data.planToResubmit as string) === v}
+                    onChange={(e) => handleChange('planToResubmit', e.target.value)}
+                    className="w-4 h-4 text-red-600"
+                  />
+                  <span className="ml-1.5 capitalize">{v}</span>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
       );
 
     default:
-      return (
-        <p className="text-sm text-gray-500">No additional fields required for this status.</p>
-      );
+      return <div>Please select a valid status</div>;
   }
 }

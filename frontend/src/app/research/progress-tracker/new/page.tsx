@@ -102,6 +102,9 @@ export default function NewTrackerPage() {
   // Category 3: Current Status & All Publication/Status-Specific Fields (Combined)
   const [currentStatus, setCurrentStatus] = useState<ResearchTrackerStatus>('communicated');
   const [statusData, setStatusData] = useState<Record<string, unknown>>({});
+  
+  // Conference Paper specific
+  const [conferenceSubType, setConferenceSubType] = useState<string>('');
 
   const handleTypeSelect = (type: TrackerPublicationType) => {
     setSelectedType(type);
@@ -213,6 +216,7 @@ export default function NewTrackerPage() {
         interdisciplinary,
         sdgs,
         targetedResearch,
+        ...(selectedType === 'conference_paper' ? { conferenceSubType } : {}),
       };
 
       // Add type-specific data
@@ -223,6 +227,12 @@ export default function NewTrackerPage() {
       } else if (selectedType === 'book_chapter') {
         requestData.bookChapterData = combinedData as any;
       } else if (selectedType === 'conference_paper') {
+        // Validate conference sub-type is selected
+        if (!conferenceSubType) {
+          setError('Please select a conference sub-type');
+          setLoading(false);
+          return;
+        }
         requestData.conferencePaperData = combinedData as any;
       }
 
@@ -637,7 +647,8 @@ export default function NewTrackerPage() {
                   <p className="text-xs text-gray-500 mt-1">{sdgs.length} goal(s) selected</p>
                 </div>
 
-                {/* Targeted Research Category */}
+                {/* Targeted Research Category - Only for Research Papers */}
+                {selectedType === 'research_paper' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Targeted Research Category <span className="text-red-500">*</span>
@@ -654,6 +665,7 @@ export default function NewTrackerPage() {
                   </select>
                   <p className="text-xs text-gray-500 mt-1">This determines the indexing category for your research</p>
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -766,8 +778,38 @@ export default function NewTrackerPage() {
                   </div>
                 )}
 
+                {/* Conference Sub-Type Selection - For Conference Papers */}
+                {selectedType === 'conference_paper' && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-4">
+                      🎤 Conference Type
+                    </h4>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Conference Sub-Type <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={conferenceSubType}
+                        onChange={(e) => {
+                          setConferenceSubType(e.target.value);
+                          setStatusData({}); // Reset status data when sub-type changes
+                        }}
+                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+                        required
+                      >
+                        <option value="">-- Select Conference Type --</option>
+                        <option value="paper_not_indexed">Papers in Conferences (not Indexed) / Seminars / Workshops</option>
+                        <option value="paper_indexed_scopus">Paper in conference proceeding indexed in Scopus</option>
+                        <option value="keynote_speaker_invited_talks">Keynote Speaker / Session chair / Invited Talks</option>
+                        <option value="organizer_coordinator_member">Organizer / Coordinator / Member of conference</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">Select the type of conference participation</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Status-Specific Fields Based on Selected Stage */}
-                {currentStatus && (
+                {currentStatus && (selectedType !== 'conference_paper' || conferenceSubType) && (
                   <div className="pt-4 border-t border-gray-200">
                     <h4 className="text-sm font-medium text-gray-700 mb-4">
                       📋 Additional Details for "{statusLabels[currentStatus]}" Stage
@@ -799,6 +841,7 @@ export default function NewTrackerPage() {
                         status={currentStatus} 
                         data={statusData} 
                         onChange={handleStatusDataChange}
+                        conferenceSubType={conferenceSubType}
                       />
                     )}
                   </div>

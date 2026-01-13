@@ -59,9 +59,11 @@ exports.getActivePolicyByType = async (req, res) => {
       });
     }
 
-    const policy = await prisma.bookIncentivePolicy.findFirst({
+    // Choose the correct model based on publication type
+    const modelName = publicationType === 'book' ? 'bookIncentivePolicy' : 'bookChapterIncentivePolicy';
+    
+    const policy = await prisma[modelName].findFirst({
       where: {
-        publicationType,
         isActive: true,
         effectiveFrom: {
           lte: new Date()

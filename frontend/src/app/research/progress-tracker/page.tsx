@@ -24,6 +24,8 @@ export default function ProgressTrackerListPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState<ResearchTrackerStatus | ''>('');
   const [typeFilter, setTypeFilter] = useState<TrackerPublicationType | ''>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const fetchTrackers = async () => {
     try {
@@ -31,6 +33,7 @@ export default function ProgressTrackerListPage() {
       const params: Record<string, unknown> = { page, limit: 10 };
       if (statusFilter) params.status = statusFilter;
       if (typeFilter) params.publicationType = typeFilter;
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
 
       const [trackersRes, statsRes] = await Promise.all([
         progressTrackerService.getMyTrackers(params as Parameters<typeof progressTrackerService.getMyTrackers>[0]),
@@ -48,9 +51,18 @@ export default function ProgressTrackerListPage() {
     }
   };
 
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchTrackers();
-  }, [page, statusFilter, typeFilter]);
+  }, [page, statusFilter, typeFilter, debouncedSearch]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this tracker?')) return;
@@ -112,6 +124,28 @@ export default function ProgressTrackerListPage() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
+        <div className="flex flex-col md:flex-row gap-4 mb-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (page !== 1) setPage(1);
+                }}
+                placeholder="Search by title or tracking number..."
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+              {searchQuery && searchQuery !== debouncedSearch && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -249,29 +283,31 @@ export default function ProgressTrackerListPage() {
               <div className="px-6 pb-4">
                 <div className="relative">
                   <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                    {['writing', 'submitted', 'under_review', 'accepted', 'published'].map((status, index) => {
-                      const statusOrder = ['writing', 'submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'];
+                    {['writing', 'communicated', 'submitted', 'accepted', 'published'].map((status, index) => {
+                      const statusOrder = ['writing', 'communicated', 'submitted', 'accepted', 'published'];
                       const currentIndex = statusOrder.indexOf(tracker.currentStatus);
                       const thisIndex = statusOrder.indexOf(status);
-                      const isComplete = thisIndex <= currentIndex;
-                      const isCurrent = status === tracker.currentStatus || 
-                        (status === 'under_review' && ['revision_requested', 'revised'].includes(tracker.currentStatus));
+                      const isComplete = thisIndex <= currentIndex && tracker.currentStatus !== 'rejected';
+                      const isCurrent = status === tracker.currentStatus;
                       
                       return (
                         <div 
                           key={status} 
-                          className={`text-center ${isComplete ? 'text-indigo-600 font-medium' : ''} ${isCurrent ? 'font-bold' : ''}`}
+                          className={`text-center ${isComplete ? 'text-indigo-600 font-medium' : ''} ${isCurrent ? 'font-bold' : ''} ${tracker.currentStatus === 'rejected' && status === 'submitted' ? 'text-red-600 font-bold' : ''}`}
                         >
-                          {statusLabels[status as ResearchTrackerStatus]}
+                          {status === 'submitted' && tracker.currentStatus === 'rejected' ? 'Rejected' : statusLabels[status as ResearchTrackerStatus]}
                         </div>
                       );
                     })}
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     {(() => {
-                      const statusOrder = ['writing', 'submitted', 'under_review', 'revision_requested', 'revised', 'accepted', 'published'];
+                      const statusOrder = ['writing', 'communicated', 'submitted', 'accepted', 'published'];
                       const currentIndex = statusOrder.indexOf(tracker.currentStatus);
-                      const progress = tracker.currentStatus === 'rejected' ? 0 : ((currentIndex + 1) / 5) * 100;
+                      // Rejected shows progress up to submitted (index 2) with red color
+                      const progress = tracker.currentStatus === 'rejected' 
+                        ? ((2 + 1) / statusOrder.length) * 100 
+                        : ((currentIndex + 1) / statusOrder.length) * 100;
                       return (
                         <div 
                           className={`h-full ${tracker.currentStatus === 'rejected' ? 'bg-red-500' : 'bg-indigo-600'} transition-all duration-300`}

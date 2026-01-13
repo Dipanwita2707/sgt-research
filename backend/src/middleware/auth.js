@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
 const config = require('../config/app.config');
+const cache = require('../config/redis');
 
-// Protect routes - verify JWT token
+// Protect routes - verify JWT token (OPTIMIZED WITH CACHING)
 const protect = async (req, res, next) => {
   try {
     let token;
@@ -24,40 +25,48 @@ const protect = async (req, res, next) => {
     try {
       // Verify token
       const decoded = jwt.verify(token, config.jwt.secret);
+      const cacheKey = `${cache.CACHE_KEYS.USER}auth:${decoded.id}`;
 
-      // Get user from database with permissions
-      const user = await prisma.userLogin.findUnique({
-        where: { id: decoded.id },
-        select: {
-          id: true,
-          uid: true,
-          email: true,
-          role: true,
-          status: true,
-          centralDeptPermissions: {
-            where: { isActive: true },
+      // Try cache first for faster auth
+      const { data: user } = await cache.getOrSet(
+        cacheKey,
+        async () => {
+          // Get user from database with permissions
+          return await prisma.userLogin.findUnique({
+            where: { id: decoded.id },
             select: {
-              centralDeptId: true,
-              permissions: true,
-              isPrimary: true,
-              centralDept: {
+              id: true,
+              uid: true,
+              email: true,
+              role: true,
+              status: true,
+              centralDeptPermissions: {
+                where: { isActive: true },
                 select: {
-                  departmentCode: true,
-                  departmentName: true
+                  centralDeptId: true,
+                  permissions: true,
+                  isPrimary: true,
+                  centralDept: {
+                    select: {
+                      departmentCode: true,
+                      departmentName: true
+                    }
+                  }
+                }
+              },
+              schoolDeptPermissions: {
+                where: { isActive: true },
+                select: {
+                  departmentId: true,
+                  permissions: true,
+                  isPrimary: true
                 }
               }
             }
-          },
-          schoolDeptPermissions: {
-            where: { isActive: true },
-            select: {
-              departmentId: true,
-              permissions: true,
-              isPrimary: true
-            }
-          }
-        }
-      });
+          });
+        },
+        cache.CACHE_TTL.USER_SESSION
+      );
 
       if (!user) {
         return res.status(401).json({

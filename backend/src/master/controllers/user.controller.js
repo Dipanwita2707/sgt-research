@@ -123,7 +123,8 @@ exports.searchUsersByPartialUid = async (req, res) => {
     };
 
     // Filter by role if specified (for mentor search - only faculty)
-    if (role) {
+    // Don't add role filter if role is 'all'
+    if (role && role !== 'all') {
       whereClause.role = role;
     }
 
